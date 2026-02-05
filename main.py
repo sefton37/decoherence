@@ -2,6 +2,8 @@ import pygame
 import math
 import sys
 
+from ui import GameUI
+
 # Constants
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -268,9 +270,13 @@ class Game:
         # Zoom
         self.zoom = DEFAULT_ZOOM
 
+        # UI overlay
+        self.ui = GameUI(SCREEN_WIDTH, SCREEN_HEIGHT)
+
     def handle_events(self):
         """Handle pygame events."""
         for event in pygame.event.get():
+            self.ui.handle_event(event)
             if event.type == pygame.QUIT:
                 self.running = False
             elif event.type == pygame.KEYDOWN:
@@ -322,6 +328,10 @@ class Game:
 
         # Draw player
         self.player.draw(self.screen, self.camera_x, self.camera_y, ppm)
+
+        # Draw UI overlay
+        self.ui.draw(self.screen, self.player, self.hex_grid,
+                     self.camera_x, self.camera_y, self.zoom)
 
         pygame.display.flip()
 
