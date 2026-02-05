@@ -5,8 +5,14 @@ import sys
 # Constants
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
-PIXELS_PER_METER = 100  # 100 pixels = 1 meter
+PIXELS_PER_METER = 100  # base scale: 100 pixels = 1 meter at zoom 1.0
 FPS = 60
+
+# Zoom settings
+DEFAULT_ZOOM = 0.5   # start 2x more zoomed out than base
+MIN_ZOOM = 0.15      # max zoom out
+MAX_ZOOM = 2.0       # max zoom in
+ZOOM_SPEED = 1.1     # multiplier per scroll notch
 
 # Hexagon properties (1 meter vertex-to-vertex across opposite vertices)
 HEX_CIRCUMRADIUS = 0.5  # meters (center to vertex)
@@ -26,22 +32,17 @@ PLAYER_BORDER_COLOR = (80, 180, 80)
 PLAYER_FRONT_COLOR = (255, 255, 255)
 
 
-def meters_to_pixels(meters):
-    """Convert meters to pixels."""
-    return meters * PIXELS_PER_METER
-
-
-def world_to_screen(world_x, world_y, camera_x, camera_y):
+def world_to_screen(world_x, world_y, camera_x, camera_y, ppm):
     """Convert world coordinates (meters) to screen coordinates (pixels)."""
-    screen_x = (world_x - camera_x) * PIXELS_PER_METER + SCREEN_WIDTH / 2
-    screen_y = (world_y - camera_y) * PIXELS_PER_METER + SCREEN_HEIGHT / 2
+    screen_x = (world_x - camera_x) * ppm + SCREEN_WIDTH / 2
+    screen_y = (world_y - camera_y) * ppm + SCREEN_HEIGHT / 2
     return screen_x, screen_y
 
 
-def screen_to_world(screen_x, screen_y, camera_x, camera_y):
+def screen_to_world(screen_x, screen_y, camera_x, camera_y, ppm):
     """Convert screen coordinates (pixels) to world coordinates (meters)."""
-    world_x = (screen_x - SCREEN_WIDTH / 2) / PIXELS_PER_METER + camera_x
-    world_y = (screen_y - SCREEN_HEIGHT / 2) / PIXELS_PER_METER + camera_y
+    world_x = (screen_x - SCREEN_WIDTH / 2) / ppm + camera_x
+    world_y = (screen_y - SCREEN_HEIGHT / 2) / ppm + camera_y
     return world_x, world_y
 
 
@@ -71,12 +72,12 @@ class HexGrid:
             vertices.append((vx, vy))
         return vertices
 
-    def get_visible_hexes(self, camera_x, camera_y):
+    def get_visible_hexes(self, camera_x, camera_y, ppm):
         """Get hex centers that are visible on screen."""
         # Calculate visible area in world coordinates with padding
         padding = 2  # extra hexes beyond screen edge
-        half_width_m = (SCREEN_WIDTH / 2) / PIXELS_PER_METER + padding
-        half_height_m = (SCREEN_HEIGHT / 2) / PIXELS_PER_METER + padding
+        half_width_m = (SCREEN_WIDTH / 2) / ppm + padding
+        half_height_m = (SCREEN_HEIGHT / 2) / ppm + padding
 
         min_x = camera_x - half_width_m
         max_x = camera_x + half_width_m
@@ -105,9 +106,9 @@ class HexGrid:
 
         return hexes
 
-    def draw(self, screen, camera_x, camera_y):
+    def draw(self, screen, camera_x, camera_y, ppm):
         """Draw the hex grid."""
-        visible_hexes = self.get_visible_hexes(camera_x, camera_y)
+        visible_hexes = self.get_visible_hexes(camera_x, camera_y, ppm)
 
         for (cx, cy, col, row) in visible_hexes:
             # Get vertices in world coordinates
@@ -115,7 +116,7 @@ class HexGrid:
 
             # Convert to screen coordinates
             vertices_screen = [
-                world_to_screen(vx, vy, camera_x, camera_y)
+                world_to_screen(vx, vy, camera_x, camera_y, ppm)
                 for (vx, vy) in vertices_world
             ]
 
@@ -222,12 +223,12 @@ class Player:
             self.x += move_x * self.speed * dt
             self.y += move_y * self.speed * dt
 
-    def draw(self, screen, camera_x, camera_y):
+    def draw(self, screen, camera_x, camera_y, ppm):
         """Draw the player."""
         # Get corners in screen coordinates
         corners_world = self.get_corners()
         corners_screen = [
-            world_to_screen(wx, wy, camera_x, camera_y)
+            world_to_screen(wx, wy, camera_x, camera_y, ppm)
             for (wx, wy) in corners_world
         ]
 
@@ -239,7 +240,7 @@ class Player:
         # Draw front line
         front_world = self.get_front_line()
         front_screen = [
-            world_to_screen(wx, wy, camera_x, camera_y)
+            world_to_screen(wx, wy, camera_x, camera_y, ppm)
             for (wx, wy) in front_world
         ]
         pygame.draw.line(screen, PLAYER_FRONT_COLOR,
@@ -264,6 +265,9 @@ class Game:
         self.camera_x = 0
         self.camera_y = 0
 
+        # Zoom
+        self.zoom = DEFAULT_ZOOM
+
     def handle_events(self):
         """Handle pygame events."""
         for event in pygame.event.get():
@@ -272,6 +276,11 @@ class Game:
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
+            elif event.type == pygame.MOUSEWHEEL:
+                if event.y > 0:
+                    self.zoom = min(self.zoom * ZOOM_SPEED, MAX_ZOOM)
+                elif event.y < 0:
+                    self.zoom = max(self.zoom / ZOOM_SPEED, MIN_ZOOM)
 
     def update(self, dt):
         """Update game state."""
@@ -290,9 +299,10 @@ class Game:
             right -= 1
 
         # Get mouse position and make player face it
+        ppm = PIXELS_PER_METER * self.zoom
         mouse_x, mouse_y = pygame.mouse.get_pos()
         target_x, target_y = screen_to_world(mouse_x, mouse_y,
-                                              self.camera_x, self.camera_y)
+                                              self.camera_x, self.camera_y, ppm)
         self.player.face_towards(target_x, target_y)
 
         # Move player
@@ -305,12 +315,13 @@ class Game:
     def draw(self):
         """Draw the game."""
         self.screen.fill(BG_COLOR)
+        ppm = PIXELS_PER_METER * self.zoom
 
         # Draw hex grid
-        self.hex_grid.draw(self.screen, self.camera_x, self.camera_y)
+        self.hex_grid.draw(self.screen, self.camera_x, self.camera_y, ppm)
 
         # Draw player
-        self.player.draw(self.screen, self.camera_x, self.camera_y)
+        self.player.draw(self.screen, self.camera_x, self.camera_y, ppm)
 
         pygame.display.flip()
 
