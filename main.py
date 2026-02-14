@@ -16,9 +16,8 @@ MIN_ZOOM = 0.15      # max zoom out
 MAX_ZOOM = 2.0       # max zoom in
 ZOOM_SPEED = 1.1     # multiplier per scroll notch
 
-# Hexagon properties (1 meter vertex-to-vertex across opposite vertices)
-HEX_CIRCUMRADIUS = 0.5  # meters (center to vertex)
-HEX_SIDE = HEX_CIRCUMRADIUS  # regular hexagon: side length = circumradius
+# Voxel properties (1m x 1m 2D voxels)
+VOXEL_SIZE = 1.0  # meters per voxel side
 
 # Player properties
 PLAYER_LENGTH = 0.25  # meters (front to back)
@@ -27,8 +26,8 @@ PLAYER_SPEED = 1.5    # meters per second
 
 # Colors
 BG_COLOR = (20, 20, 30)
-HEX_FILL_COLOR = (40, 45, 55)
-HEX_BORDER_COLOR = (70, 80, 100)
+VOXEL_FILL_COLOR = (40, 45, 55)
+VOXEL_BORDER_COLOR = (70, 80, 100)
 PLAYER_COLOR = (60, 140, 60)
 PLAYER_BORDER_COLOR = (80, 180, 80)
 PLAYER_FRONT_COLOR = (255, 255, 255)
@@ -48,84 +47,50 @@ def screen_to_world(screen_x, screen_y, camera_x, camera_y, ppm):
     return world_x, world_y
 
 
-class HexGrid:
-    """Flat-top hexagonal grid."""
+class VoxelGrid:
+    """2D voxel grid with 1m x 1m cells."""
 
     def __init__(self):
-        # For flat-top hexagon:
-        # Width (point to point) = 2 * circumradius = 1m
-        # Height (flat to flat) = sqrt(3) * circumradius
-        self.circumradius = HEX_CIRCUMRADIUS
-        self.width = 2 * self.circumradius  # 1 meter
-        self.height = math.sqrt(3) * self.circumradius  # ~0.866 meters
+        self.cell_size = VOXEL_SIZE  # 1 meter per cell
 
-        # Spacing for hex grid (flat-top)
-        self.horiz_spacing = self.width * 0.75  # 3/4 of width
-        self.vert_spacing = self.height
-
-    def get_hex_vertices(self, center_x, center_y):
-        """Get the 6 vertices of a flat-top hexagon at the given center."""
-        vertices = []
-        for i in range(6):
-            # Flat-top: start at 0 degrees (pointing right)
-            angle = math.radians(60 * i)
-            vx = center_x + self.circumradius * math.cos(angle)
-            vy = center_y + self.circumradius * math.sin(angle)
-            vertices.append((vx, vy))
-        return vertices
-
-    def get_visible_hexes(self, camera_x, camera_y, ppm):
-        """Get hex centers that are visible on screen."""
-        # Calculate visible area in world coordinates with padding
-        padding = 2  # extra hexes beyond screen edge
-        half_width_m = (SCREEN_WIDTH / 2) / ppm + padding
-        half_height_m = (SCREEN_HEIGHT / 2) / ppm + padding
+    def get_visible_voxels(self, camera_x, camera_y, ppm):
+        """Get voxel grid coordinates visible on screen."""
+        # Calculate visible area in world coordinates with 1-cell padding
+        half_width_m = (SCREEN_WIDTH / 2) / ppm + self.cell_size
+        half_height_m = (SCREEN_HEIGHT / 2) / ppm + self.cell_size
 
         min_x = camera_x - half_width_m
         max_x = camera_x + half_width_m
         min_y = camera_y - half_height_m
         max_y = camera_y + half_height_m
 
-        hexes = []
+        # Snap to grid boundaries
+        col_start = int(math.floor(min_x / self.cell_size))
+        col_end = int(math.ceil(max_x / self.cell_size))
+        row_start = int(math.floor(min_y / self.cell_size))
+        row_end = int(math.ceil(max_y / self.cell_size))
 
-        # Calculate column range
-        col_start = int(min_x / self.horiz_spacing) - 1
-        col_end = int(max_x / self.horiz_spacing) + 2
-
+        voxels = []
         for col in range(col_start, col_end):
-            # Calculate row range
-            row_start = int(min_y / self.vert_spacing) - 1
-            row_end = int(max_y / self.vert_spacing) + 2
-
             for row in range(row_start, row_end):
-                # Flat-top hex grid: odd columns are offset by half height
-                cx = col * self.horiz_spacing
-                cy = row * self.vert_spacing
-                if col % 2 == 1:
-                    cy += self.vert_spacing / 2
+                # World position of voxel's top-left corner
+                wx = col * self.cell_size
+                wy = row * self.cell_size
+                voxels.append((wx, wy, col, row))
 
-                hexes.append((cx, cy, col, row))
-
-        return hexes
+        return voxels
 
     def draw(self, screen, camera_x, camera_y, ppm):
-        """Draw the hex grid."""
-        visible_hexes = self.get_visible_hexes(camera_x, camera_y, ppm)
+        """Draw the voxel grid."""
+        visible = self.get_visible_voxels(camera_x, camera_y, ppm)
+        size_px = self.cell_size * ppm
 
-        for (cx, cy, col, row) in visible_hexes:
-            # Get vertices in world coordinates
-            vertices_world = self.get_hex_vertices(cx, cy)
+        for (wx, wy, col, row) in visible:
+            sx, sy = world_to_screen(wx, wy, camera_x, camera_y, ppm)
+            rect = pygame.Rect(sx, sy, size_px, size_px)
 
-            # Convert to screen coordinates
-            vertices_screen = [
-                world_to_screen(vx, vy, camera_x, camera_y, ppm)
-                for (vx, vy) in vertices_world
-            ]
-
-            # Draw filled hexagon
-            pygame.draw.polygon(screen, HEX_FILL_COLOR, vertices_screen)
-            # Draw border
-            pygame.draw.polygon(screen, HEX_BORDER_COLOR, vertices_screen, 2)
+            pygame.draw.rect(screen, VOXEL_FILL_COLOR, rect)
+            pygame.draw.rect(screen, VOXEL_BORDER_COLOR, rect, 1)
 
 
 class Player:
@@ -260,7 +225,7 @@ class Game:
         self.running = True
 
         # Game objects
-        self.hex_grid = HexGrid()
+        self.voxel_grid = VoxelGrid()
         self.player = Player(0, 0)  # Start at origin
 
         # Camera follows player
@@ -323,14 +288,14 @@ class Game:
         self.screen.fill(BG_COLOR)
         ppm = PIXELS_PER_METER * self.zoom
 
-        # Draw hex grid
-        self.hex_grid.draw(self.screen, self.camera_x, self.camera_y, ppm)
+        # Draw voxel grid
+        self.voxel_grid.draw(self.screen, self.camera_x, self.camera_y, ppm)
 
         # Draw player
         self.player.draw(self.screen, self.camera_x, self.camera_y, ppm)
 
         # Draw UI overlay
-        self.ui.draw(self.screen, self.player, self.hex_grid,
+        self.ui.draw(self.screen, self.player, self.voxel_grid,
                      self.camera_x, self.camera_y, self.zoom)
 
         pygame.display.flip()

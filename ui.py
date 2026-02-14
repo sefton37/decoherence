@@ -125,7 +125,7 @@ class GameUI:
                         (rect.right - 1, rect.bottom - 1),
                         (rect.right - 1, rect.bottom - CORNER_SIZE - 1), 2)
 
-    def _draw_minimap(self, screen, player, hex_grid, camera_x, camera_y):
+    def _draw_minimap(self, screen, player, voxel_grid, camera_x, camera_y):
         """Draw the minimap panel (top-left)."""
         # Background
         pygame.draw.rect(screen, PANEL_BG, self.minimap_rect)
@@ -147,50 +147,46 @@ class GameUI:
 
         # Calculate scale for minimap (world meters to screen pixels)
         scale = min(map_area.width, map_area.height) / (2 * MINIMAP_RADIUS)
-        map_center_x = map_area.centerx
-        map_center_y = map_area.centery
 
         # Create a clipping surface for the map area
         clip_surface = pygame.Surface((map_area.width, map_area.height))
         clip_surface.fill((4, 4, 8))
 
-        # Draw hex positions within radius
-        # Calculate visible hex range
-        col_start = int((camera_x - MINIMAP_RADIUS) / hex_grid.horiz_spacing) - 1
-        col_end = int((camera_x + MINIMAP_RADIUS) / hex_grid.horiz_spacing) + 2
-        row_start = int((camera_y - MINIMAP_RADIUS) / hex_grid.vert_spacing) - 1
-        row_end = int((camera_y + MINIMAP_RADIUS) / hex_grid.vert_spacing) + 2
+        # Draw voxel grid within radius
+        cell = voxel_grid.cell_size
+        col_start = int(math.floor((camera_x - MINIMAP_RADIUS) / cell)) - 1
+        col_end = int(math.ceil((camera_x + MINIMAP_RADIUS) / cell)) + 1
+        row_start = int(math.floor((camera_y - MINIMAP_RADIUS) / cell)) - 1
+        row_end = int(math.ceil((camera_y + MINIMAP_RADIUS) / cell)) + 1
+
+        half_w = map_area.width // 2
+        half_h = map_area.height // 2
+        voxel_px = max(1, int(cell * scale))
 
         for col in range(col_start, col_end):
             for row in range(row_start, row_end):
-                # Calculate hex center position
-                cx = col * hex_grid.horiz_spacing
-                cy = row * hex_grid.vert_spacing
-                if col % 2 == 1:
-                    cy += hex_grid.vert_spacing / 2
+                # Voxel center
+                cx = (col + 0.5) * cell
+                cy = (row + 0.5) * cell
 
-                # Check if within radius
                 dx = cx - camera_x
                 dy = cy - camera_y
                 dist = math.sqrt(dx * dx + dy * dy)
 
                 if dist <= MINIMAP_RADIUS:
-                    # Convert to minimap coordinates
-                    map_x = int(dx * scale)
-                    map_y = int(dy * scale)
-
-                    # Draw single pixel (relative to clip surface)
-                    clip_x = map_x + map_area.width // 2
-                    clip_y = map_y + map_area.height // 2
+                    clip_x = int(dx * scale) + half_w
+                    clip_y = int(dy * scale) + half_h
 
                     if 0 <= clip_x < map_area.width and 0 <= clip_y < map_area.height:
-                        clip_surface.set_at((clip_x, clip_y), CYAN_DARK)
+                        r = pygame.Rect(clip_x - voxel_px // 2, clip_y - voxel_px // 2,
+                                        voxel_px, voxel_px)
+                        clip_surface.fill(CYAN_DARK, r)
 
         # Draw player position and direction
         player_dx = player.x - camera_x
         player_dy = player.y - camera_y
-        player_map_x = int(player_dx * scale) + map_area.width // 2
-        player_map_y = int(player_dy * scale) + map_area.height // 2
+        player_map_x = int(player_dx * scale) + half_w
+        player_map_y = int(player_dy * scale) + half_h
 
         # Player dot (2px radius)
         if 0 <= player_map_x < map_area.width and 0 <= player_map_y < map_area.height:
@@ -379,10 +375,10 @@ class GameUI:
         self.stamina = stamina
         self.focus = focus
 
-    def draw(self, screen, player, hex_grid, camera_x, camera_y, zoom):
+    def draw(self, screen, player, voxel_grid, camera_x, camera_y, zoom):
         """Draw all UI panels and scanline overlay."""
         # Draw minimap
-        self._draw_minimap(screen, player, hex_grid, camera_x, camera_y)
+        self._draw_minimap(screen, player, voxel_grid, camera_x, camera_y)
 
         # Draw stats panel
         self._draw_stats_panel(screen)

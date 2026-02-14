@@ -12,7 +12,7 @@ The UI is non-blocking, always visible, and provides four functional panels: min
 ┌──────────┐                                                       ┌──────────┐
 │  SCAN    │  (160x160px, top-left)                              │          │
 │  ┌────┐  │                                                       │          │
-│  │ :: │  │  Minimap shows hex grid within 15m radius           │          │
+│  │ :: │  │  Minimap shows voxel grid within 15m radius          │          │
 │  │ :█ │  │  Orange dot = player, orange line = facing          │          │
 │  └────┘  │                                                       │          │
 └──────────┘                                                       └──────────┘
@@ -39,16 +39,16 @@ The UI is non-blocking, always visible, and provides four functional panels: min
 
 ### 1. Minimap (SCAN)
 - **Position:** Top-left corner (0, 0)
-- **Size:** 160×160px
-- **Shows:** Hex grid within 15m radius of camera
+- **Size:** 160x160px
+- **Shows:** Voxel grid (1m x 1m cells) within 15m radius of camera
 - **Elements:**
-  - Dark background with cyan dark hex markers (single pixels)
+  - Dark background with cyan dark voxel markers (small squares)
   - Orange player dot (2px radius) with direction line (4px)
   - Cyan border with orange L-shaped corner accents
 
 ### 2. Stats Panel (STATUS)
 - **Position:** Bottom-left corner (0, screen_height - 160)
-- **Size:** 160×160px
+- **Size:** 160x160px
 - **Shows:** Three stat bars (HP, Stamina, Focus)
 - **Each bar:**
   - Label and percentage value
@@ -58,7 +58,7 @@ The UI is non-blocking, always visible, and provides four functional panels: min
 
 ### 3. Action Bar
 - **Position:** Bottom-middle (160, screen_height - 160)
-- **Size:** 960×160px (12 columns × 2 rows, 80px cells)
+- **Size:** 960x160px (12 columns x 2 rows, 80px cells)
 - **Interaction:** Keyboard slots for abilities/items
 - **Visual states:**
   - Default: Dark slot background (14, 16, 28)
@@ -68,7 +68,7 @@ The UI is non-blocking, always visible, and provides four functional panels: min
 
 ### 4. Info Panel (SYSTEM)
 - **Position:** Bottom-right corner (screen_width - 160, screen_height - 160)
-- **Size:** 160×160px
+- **Size:** 160x160px
 - **Shows:**
   - Player X/Y coordinates (meters, 1 decimal)
   - Heading in degrees (0-359)
@@ -83,7 +83,7 @@ All colors are defined at the top of `ui.py`. Modify these to change the theme:
 # Primary Theme
 CYAN = (0, 255, 255)          # Bright accents, text, borders
 CYAN_DIM = (0, 128, 128)      # Subdued text, labels
-CYAN_DARK = (0, 64, 64)       # Minimap hexes, dividers
+CYAN_DARK = (0, 64, 64)       # Minimap voxels, dividers
 
 ORANGE = (255, 140, 0)        # Panel corner accents, labels, HP bar
 ORANGE_DIM = (128, 70, 0)     # HP bar fill
@@ -166,20 +166,20 @@ ui.update_stats(health=0.75, stamina=1.0, focus=0.5)
 
 ---
 
-### `draw(screen, player, hex_grid, camera_x, camera_y, zoom)`
+### `draw(screen, player, voxel_grid, camera_x, camera_y, zoom)`
 Render all UI panels and scanline overlay.
 
 **Parameters:**
 - `screen` (pygame.Surface): Target surface
 - `player` (Player): Player object with `.x`, `.y`, `.angle`
-- `hex_grid` (HexGrid): Hex grid object with `.horiz_spacing`, `.vert_spacing`
+- `voxel_grid` (VoxelGrid): Voxel grid object with `.cell_size`
 - `camera_x` (float): Camera X position in world meters
 - `camera_y` (float): Camera Y position in world meters
 - `zoom` (float): Current zoom level
 
 **Example:**
 ```python
-ui.draw(screen, player, hex_grid, camera_x, camera_y, zoom)
+ui.draw(screen, player, voxel_grid, camera_x, camera_y, zoom)
 ```
 
 ## Customization Guide
@@ -225,7 +225,7 @@ Larger values show more area but reduce detail.
 
 The action bar currently shows only key labels. To add item icons or text:
 
-1. Create a 24-item data structure (12×2 slots):
+1. Create a 24-item data structure (12x2 slots):
    ```python
    self.action_bar_items = [
        [None] * 12,  # Top row
@@ -282,7 +282,7 @@ self.ui.update_stats(health=0.8, stamina=0.6, focus=1.0)
 ### 4. Rendering (Game.draw)
 ```python
 # After drawing world objects, before display.flip():
-self.ui.draw(self.screen, self.player, self.hex_grid,
+self.ui.draw(self.screen, self.player, self.voxel_grid,
              self.camera_x, self.camera_y, self.zoom)
 ```
 
@@ -297,14 +297,14 @@ self.font_tiny = pygame.font.Font(None, 16)  # Second param = False is default
 ```
 
 ### Minimap Clipping
-The minimap draws to an intermediate surface before blitting to prevent hex markers from appearing outside the map area. This ensures clean borders.
+The minimap draws to an intermediate surface before blitting to prevent voxel markers from appearing outside the map area. This ensures clean borders.
 
 ### Action Bar State
 The action bar reads keyboard state directly via `pygame.key.get_pressed()` to show visual feedback while keys are held. This is separate from `handle_event()` which fires once per keypress.
 
 ### Performance
 - Scanline overlay is created once at initialization, not every frame
-- Minimap only renders hexes within radius (not entire grid)
+- Minimap only renders voxels within radius (not entire grid)
 - All rendering is immediate mode (no retained surfaces per panel)
 
-At 60 FPS on 1280×720, UI rendering is negligible (<1ms per frame).
+At 60 FPS on 1280x720, UI rendering is negligible (<1ms per frame).

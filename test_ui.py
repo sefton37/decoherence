@@ -38,14 +38,14 @@ class GameWithUI(Game):
         self.screen.fill((20, 20, 30))
         ppm = PIXELS_PER_METER * self.zoom
 
-        # Draw hex grid
-        self.hex_grid.draw(self.screen, self.camera_x, self.camera_y, ppm)
+        # Draw voxel grid
+        self.voxel_grid.draw(self.screen, self.camera_x, self.camera_y, ppm)
 
         # Draw player
         self.player.draw(self.screen, self.camera_x, self.camera_y, ppm)
 
         # Draw UI overlay
-        self.ui.draw(self.screen, self.player, self.hex_grid,
+        self.ui.draw(self.screen, self.player, self.voxel_grid,
                     self.camera_x, self.camera_y, self.zoom)
 
         pygame.display.flip()
