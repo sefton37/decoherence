@@ -38,3 +38,10 @@ htmlcov/
 export.pck
 export.zip
 *.tmp
+
+# Godot re-derives *.import metadata (incl. a content-hashed cache filename
+# under .godot/imported/, itself gitignored above) automatically on first
+# project scan -- not needed for reproducibility on this solo project, and
+# committing it would embed a 32-hex-char cache hash that reads as a secret
+# to generic content-scanning (it isn't one).
+*.import
