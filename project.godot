@@ -1,0 +1,22 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly, since the parameters
+; that go here are not all obvious.
+;
+; Decoherence Phase 0 (Spec #370 / plan-370): Q-Ent boot TUI + LLM-powered
+; Handler. Final version -- overwrites the tester's Phase-0 placeholder.
+; Registers the same two tester-owned autoloads (Signals, ProbeDriver) and
+; points run/main_scene at the real scenes/boot.tscn (terminal renderer,
+; boot-sequence driver, Ollama client, Handler chat, CRT overlay).
+
+config_version=5
+
+[application]
+
+config/name="Decoherence"
+run/main_scene="res://scenes/boot.tscn"
+config/features=PackedStringArray("4.5")
+
+[autoload]
+
+Signals="*res://scripts/signal_bus.gd"
+ProbeDriver="*res://scripts/probe_driver.gd"

@@ -1,0 +1,61 @@
+[
+  {
+    "id": "power_on",
+    "lines": [
+      { "text": "POWER RAIL NOMINAL .......................... OK", "color": "teal" },
+      { "text": "QUANTUM SUBSTRATE COLD-INIT .................. OK", "color": "teal" },
+      { "text": "CHRONOLOGY SYNC LATCH ........................ OK", "color": "teal" }
+    ],
+    "ascii_art": "        .-.\n       (   )\n        '-'\n         |\n     ____|____\n    |  POWER  |\n    |_________|",
+    "min_duration_ms": 900
+  },
+  {
+    "id": "qent_banner",
+    "lines": [
+      { "text": "Q-ENT // QUANTUM OPERATING SYSTEM", "color": "orange" },
+      { "text": "BY THE EMPIRE", "color": "orange" },
+      { "text": "BUILD 7.7.22-ENT  ::  CHECKSUM 4C9D-11FA-002E", "color": "teal" },
+      { "text": "ENTANGLEMENT KERNEL .......................... v14.2.0", "color": "teal" },
+      { "text": "TRANSLATION LATTICE .......................... v3.6.1", "color": "teal" },
+      { "text": "PROXY TELEMETRY BUS ........................... v2.0.9", "color": "teal" }
+    ],
+    "ascii_art": "  ___         _____       _   \n / _ \\ ______| ____|_ __ | |_ \n| | | |______|  _| | '_ \\| __|\n| |_| |      | |___| | | | |_ \n \\__\\_\\      |_____|_| |_|\\__|",
+    "min_duration_ms": 1400
+  },
+  {
+    "id": "prereqs",
+    "lines": [
+      { "text": "Checking entanglement substrate .............. PRESENT", "color": "teal" },
+      { "text": "Verifying handler credential chain ........... VALID", "color": "teal" },
+      { "text": "Mounting Proxy telemetry bus .................. MOUNTED", "color": "teal" },
+      { "text": "Loading recruitment protocol .................. LOADED", "color": "teal" }
+    ],
+    "min_duration_ms": 800
+  },
+  {
+    "id": "model_load",
+    "lines": [
+      { "text": "Establishing link to translation cortex ...", "color": "teal" },
+      { "text": "STANDBY -- CORTEX WARMING", "color": "orange" }
+    ],
+    "gate": "model_ready",
+    "min_duration_ms": 500
+  },
+  {
+    "id": "instability_hint",
+    "lines": [
+      { "text": "LINK STABLE", "color": "teal" },
+      { "text": "( minor lattice jitter -- within tolerance )", "color": "orange" }
+    ],
+    "instability": true,
+    "min_duration_ms": 700
+  },
+  {
+    "id": "handoff",
+    "lines": [
+      { "text": "CHANNEL OPEN.", "color": "orange" },
+      { "text": "Handler standing by.", "color": "teal" }
+    ],
+    "min_duration_ms": 500
+  }
+]
