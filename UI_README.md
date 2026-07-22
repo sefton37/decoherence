@@ -1,3 +1,9 @@
+> **Historical reference (Spec #370, Phase 0):** this document describes the
+> Feb 2026 pygame spike, archived to branch `pygame-spike-2026-02` and
+> superseded on `main`/`phase0-qent-boot` by the Godot 4 Q-Ent boot TUI. Kept
+> here as aesthetic reference material — the teal/orange, scanline, monospace
+> vibe carries forward into the Godot implementation.
+
 # Decoherence UI System
 
 ## Overview

@@ -31,3 +31,10 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Godot 4 (Decoherence Phase 0, Spec #370)
+.godot/
+*.translation
+export.pck
+export.zip
+*.tmp
