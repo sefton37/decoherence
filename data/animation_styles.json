@@ -1,0 +1,8 @@
+[
+  { "id": "spinner", "label": "BRAILLE SPINNER" },
+  { "id": "progress_bar", "label": "PROGRESS BAR" },
+  { "id": "glyph_decode", "label": "GLYPH DECODE" },
+  { "id": "dot_crawl", "label": "DOT CRAWL" },
+  { "id": "percent_counter", "label": "PERCENT COUNTER" },
+  { "id": "sweep_band", "label": "SWEEP BAND" }
+]

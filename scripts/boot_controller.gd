@@ -1,25 +1,56 @@
 extends Control
 
 ## Boot-theater driver for the Q-Ent general-purpose operating system
-## (Spec #371 / plan-371, extending Spec #370). Reads
-## data/boot_sequence.json, formats every stage line's text against this
-## machine's REAL hardware facts (HardwareReadout.read_facts(), applied via
-## String.format() -- never a hardcoded value in this file), drives each
-## stage into the shared TerminalGrid, awaits the real Ollama readiness
-## gate at the "model_ready" stage, and triggers the scripted flicker +
-## alien-glyph instability beat at the gate's resolution and at the
-## Handler's first streamed reply -- never a per-frame randf() call. Once
-## the boot theater completes, hands off into the minimal OS shell
-## (ShellController) rather than straight into chat -- the shell is the
-## sole listener on Signals.terminal_line_submitted and the sole remaining
-## emitter of Signals.submit_player_line; this file only ever forwards raw
-## terminal input into terminal_line_submitted and must never emit
-## submit_player_line directly (DOD-37 / TRAP-1).
+## (Spec #371/#373, extending Spec #370). Reads data/boot_sequence.json,
+## formats every stage line's text against this machine's REAL hardware +
+## entanglement facts (HardwareReadout.read_facts() merged with
+## EntanglementReadout.read_facts(), applied via String.format() -- never a
+## hardcoded value in this file), drives each stage into the shared
+## TerminalGrid -- via BootAnimator.animate_line() for any stage carrying an
+## `anim_style` key, or a single write_line() call for stages without one --
+## awaits the real Ollama readiness gate at the "model_ready" stage, and
+## triggers the scripted flicker + alien-glyph instability beat at the
+## gate's resolution and at the Handler's first streamed reply -- never a
+## per-frame randf() call. Once the boot theater completes, hands off into
+## the minimal OS shell (ShellController) rather than straight into chat --
+## the shell is the sole listener on Signals.terminal_line_submitted and the
+## sole remaining emitter of Signals.submit_player_line; this file only
+## ever forwards raw terminal input into terminal_line_submitted and must
+## never emit submit_player_line directly (DOD-37 / TRAP-1).
+##
+## GALLERY mode (Spec #373 / plan-373 SS4), env-gated by
+## DECOHERENCE_ANIM_GALLERY=1 and checked first in _ready(), independent of
+## DECOHERENCE_PROBE -- a standalone synthetic-content harness (NOT the real
+## boot narrative; reusing the real narrative would leak the live system
+## clock into DOD-22's two sequential launches and break byte-identity, see
+## plan-373 Trap A) that demonstrates each of the 6 registered animation
+## styles on 3 fixed sample lines, labeled, then quits cleanly via
+## get_tree().quit() so Kel can vote on which style plays where.
 
 const BOOT_SEQUENCE_PATH := "res://data/boot_sequence.json"
+const ANIMATION_STYLES_PATH := "res://data/animation_styles.json"
 const LINE_STAGGER_SEC := 0.12
 const SPINNER_TICK_SEC := 0.4
 const SPINNER_FRAMES := [".", "..", "...", "...."]
+
+## Fallback used only if a stage carries an `anim_style` but omits
+## `anim_duration_ms` -- every stage this spec ships assigns its own value,
+## so this rarely if ever fires in practice.
+const DEFAULT_ANIM_DURATION_MS := 1200
+
+## Per-line animation duration for gallery-mode demonstrations. Generous
+## relative to the ~90s outer timeout budget (3 samples x 6 styles at this
+## duration comfortably clears in well under half that window).
+const GALLERY_LINE_DURATION_MS := 1200
+
+## Fixed, synthetic sample lines gallery mode animates -- never real
+## hardware/entanglement facts, so two independent gallery runs are
+## byte-identical regardless of wall-clock time (DOD-22).
+const _GALLERY_SAMPLES := [
+	"DEMO LINE ALPHA .............. SAMPLE VALUE ONE",
+	"DEMO LINE BRAVO .............. SAMPLE VALUE TWO",
+	"DEMO LINE CHARLIE ............ SAMPLE VALUE THREE",
+]
 
 @onready var _terminal: TerminalGrid = $TerminalLayer/TerminalGrid
 @onready var _ollama: OllamaClient = $OllamaClient
@@ -46,7 +77,13 @@ var _gate_success: bool = false
 
 
 func _ready() -> void:
+	if OS.get_environment("DECOHERENCE_ANIM_GALLERY") == "1":
+		_terminal.set_input_line_active(false)
+		await _run_gallery_sequence()
+		get_tree().quit()
+		return
 	_hw_facts = HardwareReadout.read_facts()
+	_hw_facts.merge(EntanglementReadout.read_facts())
 	_handler.setup(_terminal, _ollama)
 	_shell.setup(_terminal)
 	_terminal.set_input_line_active(false)
@@ -65,24 +102,49 @@ func _load_boot_sequence() -> void:
 	_stages = parsed if typeof(parsed) == TYPE_ARRAY else []
 
 
+## Reads data/animation_styles.json (the 6 pinned {id,label} entries) in
+## file order -- both the normal boot's per-stage `anim_style` lookup and
+## gallery mode's iteration share this one loader.
+func _load_animation_styles() -> Array:
+	var f := FileAccess.open(ANIMATION_STYLES_PATH, FileAccess.READ)
+	if f == null:
+		return []
+	var text := f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(text)
+	return parsed if typeof(parsed) == TYPE_ARRAY else []
+
+
 func _run_boot_sequence() -> void:
-	for stage in _stages:
-		await _run_stage(stage)
+	for stage_index in range(_stages.size()):
+		await _run_stage(_stages[stage_index], stage_index)
 	_enter_shell()
 
 
-func _run_stage(stage: Dictionary) -> void:
+## `stage_index` feeds BootAnimator's seed formula (stage_index*1000 +
+## line_index) -- a pure position function, never a wall-clock read (see
+## boot_animator.gd's own determinism contract).
+func _run_stage(stage: Dictionary, stage_index: int) -> void:
 	var start_ms := Time.get_ticks_msec()
 
 	if stage.has("ascii_art"):
 		_terminal.write_ascii_art(stage["ascii_art"], Palette.TEAL)
 
-	for line in stage.get("lines", []):
+	var anim_style := String(stage.get("anim_style", ""))
+	var anim_duration_ms: int = int(stage.get("anim_duration_ms", DEFAULT_ANIM_DURATION_MS))
+	var lines: Array = stage.get("lines", [])
+
+	for line_index in range(lines.size()):
+		var line: Dictionary = lines[line_index]
 		var is_orange: bool = line.get("color", "teal") == "orange"
 		var col: Color = Palette.ORANGE if is_orange else Palette.TEAL
 		var text: String = String(line.get("text", "")).format(_hw_facts)
-		_terminal.write_line(text, col)
-		await get_tree().create_timer(LINE_STAGGER_SEC).timeout
+		if anim_style != "":
+			var seed_value: int = stage_index * 1000 + line_index
+			await BootAnimator.animate_line(get_tree(), _terminal, anim_style, seed_value, text, col, anim_duration_ms)
+		else:
+			_terminal.write_line(text, col)
+			await get_tree().create_timer(LINE_STAGGER_SEC).timeout
 
 	if stage.get("gate", "") == "model_ready":
 		await _wait_for_model_ready()
@@ -94,6 +156,27 @@ func _run_stage(stage: Dictionary) -> void:
 	var min_ms: int = stage.get("min_duration_ms", 0)
 	if elapsed < min_ms:
 		await get_tree().create_timer((min_ms - elapsed) / 1000.0).timeout
+
+
+## GALLERY mode (Spec #373 / plan-373 SS4): demonstrates all 6 registered
+## animation styles, labeled, on 3 fixed synthetic sample lines each. Seed
+## is style_index*100 + sample_index -- a pure position formula, so two
+## independent runs produce byte-identical PROBE_RENDERED transcripts
+## (DOD-22).
+func _run_gallery_sequence() -> void:
+	var styles := _load_animation_styles()
+	for style_index in range(styles.size()):
+		var style: Dictionary = styles[style_index]
+		var label := String(style.get("label", ""))
+		var style_id := String(style.get("id", ""))
+		_terminal.write_line("STYLE %d/%d: %s" % [style_index + 1, styles.size(), label], Palette.ORANGE)
+		for sample_index in range(_GALLERY_SAMPLES.size()):
+			var seed_value: int = style_index * 100 + sample_index
+			await BootAnimator.animate_line(
+				get_tree(), _terminal, style_id, seed_value,
+				_GALLERY_SAMPLES[sample_index], Palette.TEAL, GALLERY_LINE_DURATION_MS
+			)
+	_terminal.write_line("GALLERY COMPLETE", Palette.ORANGE)
 
 
 ## Awaits the real Ollama readiness gate (honest theater -- DOD-14). A

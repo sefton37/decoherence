@@ -1,16 +1,18 @@
 [
   {
-    "id": "power_on",
+    "id": "self_test",
+    "anim_style": "dot_crawl",
+    "anim_duration_ms": 600,
     "lines": [
-      { "text": "SUBSTRATE POWER .............................. ONLINE", "color": "teal" },
-      { "text": "QUANTUM SUBSTRATE COLD-INIT .................. OK", "color": "teal" },
-      { "text": "CHRONOLOGY SYNC LATCH ........................ OK", "color": "teal" }
+      { "text": "SELF-TEST .................................... OK", "color": "teal" },
+      { "text": "TIMEBASE LOCK ................................. OK", "color": "teal" }
     ],
-    "ascii_art": "        .-.\n       (   )\n        '-'\n         |\n     ____|____\n    |  POWER  |\n    |_________|",
-    "min_duration_ms": 900
+    "min_duration_ms": 600
   },
   {
     "id": "qent_banner",
+    "anim_style": "glyph_decode",
+    "anim_duration_ms": 750,
     "lines": [
       { "text": "Q-ENT // QUANTUM OPERATING SYSTEM", "color": "orange" },
       { "text": "BY THE EMPIRE", "color": "orange" },
@@ -24,6 +26,8 @@
   },
   {
     "id": "hardware_readout",
+    "anim_style": "percent_counter",
+    "anim_duration_ms": 900,
     "lines": [
       { "text": "SCANNING LOCAL SUBSTRATE ...", "color": "teal" },
       { "text": "CPU ........................... {CPU} ({THREADS} THREADS)", "color": "teal" },
@@ -35,7 +39,23 @@
     "min_duration_ms": 900
   },
   {
+    "id": "entanglement_process",
+    "anim_style": "sweep_band",
+    "anim_duration_ms": 900,
+    "lines": [
+      { "text": "INITIATING ENTANGLEMENT TRIANGULATION ...", "color": "teal" },
+      { "text": "SPATIAL NODE ADDRESS .......... {IP_ADDR}", "color": "teal" },
+      { "text": "TEMPORAL COORDINATE ........... {LOCAL_DATETIME}", "color": "teal" },
+      { "text": "CHRONO OFFSET .................. {TZ_NAME} (UTC{TZ_OFFSET})", "color": "teal" },
+      { "text": "LOCALE ......................... {LOCALE}", "color": "teal" },
+      { "text": "ENTANGLEMENT SUFFICIENT", "color": "orange" }
+    ],
+    "min_duration_ms": 900
+  },
+  {
     "id": "prereqs",
+    "anim_style": "progress_bar",
+    "anim_duration_ms": 750,
     "lines": [
       { "text": "Checking entanglement substrate .............. PRESENT", "color": "teal" },
       { "text": "Verifying handler credential chain ........... VALID", "color": "teal" },
@@ -55,6 +75,8 @@
   },
   {
     "id": "shell_handoff",
+    "anim_style": "spinner",
+    "anim_duration_ms": 600,
     "lines": [
       { "text": "1 MODULE LOADED: CHAT", "color": "orange" },
       { "text": "Type DIR to see which directory you are in.", "color": "teal" }
