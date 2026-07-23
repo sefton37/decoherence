@@ -46,11 +46,15 @@ const LAUNCH_COMMAND := "chat"
 ## wait.
 const PRELAUNCH_QUIET_WINDOW_SEC := 4.0
 
-## Comfortably inside the stored DOD-32 check's outer `timeout 260` so
-## this node's own watchdog is the normal exit path on the success side,
-## not the harness's SIGTERM (which would risk an orphaned Godot process /
-## a window left open on Kel's real X11 session).
-const WATCHDOG_SECONDS := 180.0
+## Comfortably inside the stored DOD-15 check's outer `timeout 300` (raised
+## from #371's `timeout 260` per plan-373 §3 -- the new entanglement stage +
+## per-line animation frames add real wall-clock time) so this node's own
+## watchdog is the normal exit path on the success side, not the harness's
+## SIGTERM (which would risk an orphaned Godot process / a window left open
+## on Kel's real X11 session). Bumped 180.0 -> 240.0 (tester, Spec #373
+## Phase 1); still 60s inside the 300s outer timeout, pre-emptive pending
+## the first real DOD-15 measurement per plan-373 §3/Unknowns.
+const WATCHDOG_SECONDS := 240.0
 
 ## The force-fail path never waits on a real LLM round trip -- it only
 ## needs to observe one rendered line. Deliberately SHORT and well inside
