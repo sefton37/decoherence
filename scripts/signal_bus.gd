@@ -24,3 +24,39 @@ signal handler_reply_complete(text: String)
 ## simulating one. Both paths MUST emit this same signal so the probe
 ## proves the real send-path, not a shortcut.
 signal submit_player_line(text: String)
+
+## --- Additive contract, Spec #371 / plan-371. The three signals above
+## stay byte-identical (DOD-9) -- do not edit them. Everything below is
+## new surface for the general-OS boot / module-shell slice.
+
+## Emitted every time TerminalGrid actually renders a line to screen --
+## from `write_line()` and `update_last_line()` ONLY (never the
+## streamed-delta methods `begin_stream_line()`/`append_stream_delta()`,
+## which grow a row incrementally rather than rendering a finished line;
+## see plan-371 Judgment calls). `text` is the exact string just written.
+## This is the state-fidelity echo the tester's probe subscribes to so
+## every DoD content assertion (hardware readout, dir listing, gate
+## honesty) inspects what was actually put on screen, never a value the
+## probe re-derives itself via a parallel API call.
+signal line_rendered(text: String)
+
+## Emitted once by boot_controller.gd when the boot theater has finished
+## and the minimal OS shell is live and accepting `dir`/module-name input
+## (fires regardless of `_gate_success` -- the OS always finishes booting
+## to a shell; only the chat *launch* is gated on the model-ready result).
+signal shell_ready
+
+## Emitted once by ShellController, only on a successful chat-module
+## launch, the moment control hands off from the shell to the real
+## Handler chatroom.
+signal chat_opened
+
+## The SINGLE upstream channel for every keystroke-equivalent line of
+## input -- a real Enter keypress forwarded by boot_controller.gd, or
+## probe_driver.gd simulating one. Pre-dates the SHELL/CHAT fork: while in
+## SHELL state, ShellController is the sole listener and parses `dir` /
+## the module-launch command / unknown-command text; only once state has
+## flipped to CHAT does its pass-through re-emit `submit_player_line`
+## above. Nothing else may emit `submit_player_line` directly (DOD-37 /
+## TRAP-1) -- this is the one legitimate front door for simulated input.
+signal terminal_line_submitted(text: String)
