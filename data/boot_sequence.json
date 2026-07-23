@@ -2,7 +2,7 @@
   {
     "id": "power_on",
     "lines": [
-      { "text": "POWER RAIL NOMINAL .......................... OK", "color": "teal" },
+      { "text": "SUBSTRATE POWER .............................. ONLINE", "color": "teal" },
       { "text": "QUANTUM SUBSTRATE COLD-INIT .................. OK", "color": "teal" },
       { "text": "CHRONOLOGY SYNC LATCH ........................ OK", "color": "teal" }
     ],
@@ -23,12 +23,24 @@
     "min_duration_ms": 1400
   },
   {
+    "id": "hardware_readout",
+    "lines": [
+      { "text": "SCANNING LOCAL SUBSTRATE ...", "color": "teal" },
+      { "text": "CPU ........................... {CPU} ({THREADS} THREADS)", "color": "teal" },
+      { "text": "MEMORY ........................ {RAM_GB} GB", "color": "teal" },
+      { "text": "GRAPHICS ADAPTER .............. {GPU}", "color": "teal" },
+      { "text": "HOST NODE ..................... {HOSTNAME}", "color": "teal" },
+      { "text": "KERNEL ........................ {OS_KERNEL}", "color": "teal" }
+    ],
+    "min_duration_ms": 900
+  },
+  {
     "id": "prereqs",
     "lines": [
       { "text": "Checking entanglement substrate .............. PRESENT", "color": "teal" },
       { "text": "Verifying handler credential chain ........... VALID", "color": "teal" },
       { "text": "Mounting Proxy telemetry bus .................. MOUNTED", "color": "teal" },
-      { "text": "Loading recruitment protocol .................. LOADED", "color": "teal" }
+      { "text": "Indexing module registry ...................... MOUNTED", "color": "teal" }
     ],
     "min_duration_ms": 800
   },
@@ -42,19 +54,10 @@
     "min_duration_ms": 500
   },
   {
-    "id": "instability_hint",
+    "id": "shell_handoff",
     "lines": [
-      { "text": "LINK STABLE", "color": "teal" },
-      { "text": "( minor lattice jitter -- within tolerance )", "color": "orange" }
-    ],
-    "instability": true,
-    "min_duration_ms": 700
-  },
-  {
-    "id": "handoff",
-    "lines": [
-      { "text": "CHANNEL OPEN.", "color": "orange" },
-      { "text": "Handler standing by.", "color": "teal" }
+      { "text": "1 MODULE LOADED: CHAT", "color": "orange" },
+      { "text": "Type DIR to see which directory you are in.", "color": "teal" }
     ],
     "min_duration_ms": 500
   }
