@@ -90,10 +90,15 @@ func _trim_scrollback() -> void:
 
 
 ## Appends one logical line (word-wrapped to max_cols) in a single color.
+## Emits Signals.line_rendered per wrapped row (Spec #371 / plan-371 §5) --
+## the state-fidelity echo the tester's probe subscribes to so every DoD
+## content assertion inspects what was actually put on screen, never a
+## value re-derived by a parallel API call.
 func write_line(text: String, color = null) -> void:
 	var col: Color = Palette.TEAL if color == null else color
 	for wrapped in _wrap(text, max_cols):
 		_rows.append({"text": wrapped, "color": col})
+		Signals.line_rendered.emit(wrapped)
 	_trim_scrollback()
 	queue_redraw()
 
@@ -110,12 +115,17 @@ func write_ascii_art(art: String, color = null) -> void:
 
 ## Overwrites the most recently written row in place -- used for the
 ## boot-gate spinner ("STANDBY -- CORTEX WARMING ...") so a slow model load
-## reads as longer visible theater rather than a silent stall.
+## reads as longer visible theater rather than a silent stall. Also emits
+## Signals.line_rendered (Spec #371) -- this is the call site that renders
+## the gate's own honest "CORTEX WARM -- LINK ESTABLISHED" /
+## "CORTEX LINK FAILED -- ..." status line, so its echo must be observable
+## the same way every other rendered line is.
 func update_last_line(text: String) -> void:
 	if _rows.is_empty():
 		_rows.append({"text": text, "color": Palette.ORANGE})
 	else:
 		_rows[_rows.size() - 1]["text"] = text
+	Signals.line_rendered.emit(text)
 	queue_redraw()
 
 

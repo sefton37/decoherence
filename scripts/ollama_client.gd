@@ -31,6 +31,14 @@ const READY_MAX_TRIES := 30
 ## model is missing or Ollama is unreachable -- the honest-theater gate
 ## (Risk 6 / DOD-14) must eventually resolve one way or the other.
 func check_model_ready() -> void:
+	# Narrow, test-only deterministic gate-force-fail hook (Spec #371 / DOD-23).
+	# Resolves synchronously (no await before this point) so a force-fail run
+	# never even ticks the boot spinner once and never touches the live
+	# Ollama service -- see plan-371 §2.
+	if OS.get_environment("DECOHERENCE_FORCE_GATE_FAIL") == "1":
+		model_ready.emit(false)
+		return
+
 	for _try_index in range(READY_MAX_TRIES):
 		var tags = await _http_get_json("/api/tags")
 		if typeof(tags) == TYPE_DICTIONARY and tags.has("models"):
