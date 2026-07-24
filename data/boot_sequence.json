@@ -1,7 +1,7 @@
 [
   {
     "id": "self_test",
-    "anim_style": "dot_crawl",
+    "anim_style": "spinner",
     "anim_duration_ms": 600,
     "lines": [
       { "text": "SELF-TEST .................................... OK", "color": "teal" },
@@ -11,7 +11,7 @@
   },
   {
     "id": "qent_banner",
-    "anim_style": "glyph_decode",
+    "anim_style": "spinner",
     "anim_duration_ms": 750,
     "lines": [
       { "text": "Q-ENT // QUANTUM OPERATING SYSTEM", "color": "orange" },
@@ -26,7 +26,7 @@
   },
   {
     "id": "hardware_readout",
-    "anim_style": "percent_counter",
+    "anim_style": "glyph_decode",
     "anim_duration_ms": 900,
     "lines": [
       { "text": "SCANNING LOCAL SUBSTRATE ...", "color": "teal" },
@@ -40,7 +40,7 @@
   },
   {
     "id": "entanglement_process",
-    "anim_style": "sweep_band",
+    "anim_style": "glyph_decode",
     "anim_duration_ms": 900,
     "lines": [
       { "text": "INITIATING ENTANGLEMENT TRIANGULATION ...", "color": "teal" },
@@ -54,7 +54,7 @@
   },
   {
     "id": "prereqs",
-    "anim_style": "progress_bar",
+    "anim_style": "spinner",
     "anim_duration_ms": 750,
     "lines": [
       { "text": "Checking entanglement substrate .............. PRESENT", "color": "teal" },
