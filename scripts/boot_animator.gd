@@ -99,6 +99,27 @@ static func _progress_bar_frame(value: String, frame_index: int, total_frames: i
 	return bar + " " + value
 
 
+## Indeterminate variant of style 2 (progress_bar) for a gate wait whose
+## total duration is not known in advance (Spec #375 / model_load gate).
+## Reuses _progress_bar_frame's own arithmetic rather than forking a second
+## bar-drawing routine: the caller-supplied `tick` (an incrementing
+## poll-attempt counter, never a wall-clock read) is capped one slot short
+## of _BAR_WIDTH before being handed to _progress_bar_frame, so the
+## returned bracket run can NEVER show every slot filled -- the honest-
+## completion invariant is enforced by construction, not by convention.
+static func indeterminate_bar_frame(value: String, tick: int) -> String:
+	var capped_tick: int = mini(tick, _BAR_WIDTH - 1)
+	return _progress_bar_frame(value, capped_tick, _BAR_WIDTH + 1)
+
+
+## The single fully-filled bar frame -- rendered only once the real gate has
+## genuinely resolved success (Spec #375). Reuses _progress_bar_frame's own
+## final-frame arithmetic (frame_index == total_frames - 1) instead of
+## hand-rolling a second "all slots filled" string.
+static func full_bar_frame(value: String) -> String:
+	return _progress_bar_frame(value, 1, 2)
+
+
 ## Style 3: alien glyphs churn and resolve left-to-right into the final
 ## text, proportional to frame progress.
 static func _glyph_decode_frame(value: String, frame_index: int, total_frames: int, rng: RandomNumberGenerator) -> String:

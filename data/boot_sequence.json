@@ -66,6 +66,7 @@
   },
   {
     "id": "model_load",
+    "anim_id": "progress_bar",
     "lines": [
       { "text": "Establishing link to translation cortex ...", "color": "teal" },
       { "text": "STANDBY -- CORTEX WARMING", "color": "orange" }

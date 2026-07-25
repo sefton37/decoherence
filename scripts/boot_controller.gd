@@ -31,7 +31,6 @@ const BOOT_SEQUENCE_PATH := "res://data/boot_sequence.json"
 const ANIMATION_STYLES_PATH := "res://data/animation_styles.json"
 const LINE_STAGGER_SEC := 0.12
 const SPINNER_TICK_SEC := 0.4
-const SPINNER_FRAMES := [".", "..", "...", "...."]
 
 ## Fallback used only if a stage carries an `anim_style` but omits
 ## `anim_duration_ms` -- every stage this spec ships assigns its own value,
@@ -180,22 +179,30 @@ func _run_gallery_sequence() -> void:
 
 
 ## Awaits the real Ollama readiness gate (honest theater -- DOD-14). A
-## periodic dot/spinner tick keeps the wait visibly alive rather than
-## silently hanging, and the gate's flicker + glyph-corrupt beat fires the
-## instant it resolves, whichever way it resolves.
+## real, gate-driven progress-bar animation (Spec #375, reusing
+## BootAnimator's progress_bar style via indeterminate_bar_frame/
+## full_bar_frame -- no 7th style, no forked bar-drawing routine) keeps the
+## wait visibly alive: it fills, capped below 100%, once per real poll
+## tick, and only reaches a genuinely full bar once the gate has actually
+## resolved success -- never on a fixed timer, never on failure. The
+## gate's flicker + glyph-corrupt beat still fires the instant it
+## resolves, whichever way it resolves.
 func _wait_for_model_ready() -> void:
 	_gate_resolved = false
 	_gate_success = false
 	_ollama.model_ready.connect(_on_model_ready, CONNECT_ONE_SHOT)
 	_ollama.check_model_ready()
 
-	var spinner_index := 0
+	var tick_index := 0
 	while not _gate_resolved:
 		_terminal.update_last_line(
-			"STANDBY -- CORTEX WARMING " + SPINNER_FRAMES[spinner_index % SPINNER_FRAMES.size()]
+			BootAnimator.indeterminate_bar_frame("STANDBY -- CORTEX WARMING", tick_index)
 		)
-		spinner_index += 1
+		tick_index += 1
 		await get_tree().create_timer(SPINNER_TICK_SEC).timeout
+
+	if _gate_success:
+		_terminal.update_last_line(BootAnimator.full_bar_frame("STANDBY -- CORTEX WARMING"))
 
 	_terminal.update_last_line(
 		"CORTEX WARM -- LINK ESTABLISHED" if _gate_success else "CORTEX LINK FAILED -- RETRY BUDGET EXHAUSTED"
