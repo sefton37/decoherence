@@ -7,23 +7,23 @@ class_name HandlerChat
 ## purely in-memory for the process's lifetime -- no save/persistence, per
 ## the spec's out-of-scope fence on saves). Listens for
 ## Signals.submit_player_line, streams partial/delta token output into the
-## shared TerminalGrid via OllamaClient.send_chat(), and emits
+## shared TerminalGrid via LlmClient.send_chat(), and emits
 ## Signals.handler_reply_complete once a full reply has arrived.
 
 const PERSONA_PATH := "res://data/handler_persona.json"
 
 var _terminal: TerminalGrid = null
-var _ollama: OllamaClient = null
+var _llm: LlmClient = null
 var _history: Array = []
 var _busy: bool = false
 
 
-## Wires this node to the shared TerminalGrid + OllamaClient instances
+## Wires this node to the shared TerminalGrid + LlmClient instances
 ## (boot_controller.gd calls this once during _ready()) and loads the
 ## persona system prompt + injected facts.
-func setup(terminal_grid: TerminalGrid, ollama_client: OllamaClient) -> void:
+func setup(terminal_grid: TerminalGrid, llm_client: LlmClient) -> void:
 	_terminal = terminal_grid
-	_ollama = ollama_client
+	_llm = llm_client
 	_load_persona()
 	if not Signals.submit_player_line.is_connected(_on_submit_player_line):
 		Signals.submit_player_line.connect(_on_submit_player_line)
@@ -53,16 +53,16 @@ func _load_persona() -> void:
 ## keypress in the terminal input line, or by probe_driver.gd simulating
 ## one. Both paths funnel through this identical handler.
 func _on_submit_player_line(text: String) -> void:
-	if _busy or _terminal == null or _ollama == null:
+	if _busy or _terminal == null or _llm == null:
 		return
 	_busy = true
 	_history.append({"role": "user", "content": text})
 	_terminal.begin_stream_line(Palette.TEAL)
-	_ollama.send_chat(_history, Callable(self, "_on_delta"), Callable(self, "_on_done"))
+	_llm.send_chat(_history, Callable(self, "_on_delta"), Callable(self, "_on_done"))
 
 
 ## Streamed content delta -- only ever message.content, never
-## message.thinking (OllamaClient guarantees this at the source).
+## message.reasoning_content (LlmClient guarantees this at the source).
 func _on_delta(piece: String) -> void:
 	_terminal.append_stream_delta(piece)
 

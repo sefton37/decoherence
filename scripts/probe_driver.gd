@@ -226,7 +226,7 @@ func _on_handler_reply_complete(text: String) -> void:
 
 
 ## Self-termination path: if boot/shell/chat never completes
-## (implementation missing, Ollama unreachable, a hang), force-quit and
+## (implementation missing, LLM server unreachable, a hang), force-quit and
 ## report loudly rather than relying solely on the outer harness's
 ## SIGTERM.
 func _on_watchdog_timeout() -> void:

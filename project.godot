@@ -6,7 +6,7 @@
 ; Handler. Final version -- overwrites the tester's Phase-0 placeholder.
 ; Registers the same two tester-owned autoloads (Signals, ProbeDriver) and
 ; points run/main_scene at the real scenes/boot.tscn (terminal renderer,
-; boot-sequence driver, Ollama client, Handler chat, CRT overlay).
+; boot-sequence driver, LLM client, Handler chat, CRT overlay).
 
 config_version=5
 

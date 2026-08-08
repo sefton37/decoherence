@@ -45,3 +45,8 @@ export.zip
 # committing it would embed a 32-hex-char cache hash that reads as a secret
 # to generic content-scanning (it isn't one).
 *.import
+
+# Decoherence game-owned llama-server substrate (Spec #387). Staged by
+# tools/setup_llm.sh -- the llama-server binary + sibling libraries and
+# the GGUF model live here, self-contained under the repo, never tracked.
+llm/

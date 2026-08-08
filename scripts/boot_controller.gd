@@ -8,8 +8,8 @@ extends Control
 ## hardcoded value in this file), drives each stage into the shared
 ## TerminalGrid -- via BootAnimator.animate_line() for any stage carrying an
 ## `anim_style` key, or a single write_line() call for stages without one --
-## awaits the real Ollama readiness gate at the "model_ready" stage, and
-## triggers the scripted flicker + alien-glyph instability beat at the
+## awaits the real llama-server readiness gate at the "model_ready" stage,
+## and triggers the scripted flicker + alien-glyph instability beat at the
 ## gate's resolution and at the Handler's first streamed reply -- never a
 ## per-frame randf() call. Once the boot theater completes, hands off into
 ## the minimal OS shell (ShellController) rather than straight into chat --
@@ -52,7 +52,7 @@ const _GALLERY_SAMPLES := [
 ]
 
 @onready var _terminal: TerminalGrid = $TerminalLayer/TerminalGrid
-@onready var _ollama: OllamaClient = $OllamaClient
+@onready var _llm: LlmClient = $LlmClient
 @onready var _handler: HandlerChat = $HandlerChat
 @onready var _shell: ShellController = $ShellController
 @onready var _crt_overlay: ColorRect = $CRTLayer/CRTOverlay
@@ -83,7 +83,7 @@ func _ready() -> void:
 		return
 	_hw_facts = HardwareReadout.read_facts()
 	_hw_facts.merge(EntanglementReadout.read_facts())
-	_handler.setup(_terminal, _ollama)
+	_handler.setup(_terminal, _llm)
 	_shell.setup(_terminal)
 	_terminal.set_input_line_active(false)
 	_load_boot_sequence()
@@ -178,7 +178,7 @@ func _run_gallery_sequence() -> void:
 	_terminal.write_line("GALLERY COMPLETE", Palette.ORANGE)
 
 
-## Awaits the real Ollama readiness gate (honest theater -- DOD-14). A
+## Awaits the real llama-server readiness gate (honest theater -- DOD-14). A
 ## real, gate-driven progress-bar animation (Spec #375, reusing
 ## BootAnimator's progress_bar style via indeterminate_bar_frame/
 ## full_bar_frame -- no 7th style, no forked bar-drawing routine) keeps the
@@ -190,8 +190,8 @@ func _run_gallery_sequence() -> void:
 func _wait_for_model_ready() -> void:
 	_gate_resolved = false
 	_gate_success = false
-	_ollama.model_ready.connect(_on_model_ready, CONNECT_ONE_SHOT)
-	_ollama.check_model_ready()
+	_llm.model_ready.connect(_on_model_ready, CONNECT_ONE_SHOT)
+	_llm.check_model_ready()
 
 	var tick_index := 0
 	while not _gate_resolved:

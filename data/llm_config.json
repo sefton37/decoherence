@@ -1,0 +1,8 @@
+{
+  "server_binary": "llm/llama.cpp/build/bin/llama-server",
+  "model_path": "llm/models/qwen3-4b.gguf",
+  "host": "127.0.0.1",
+  "port": 8085,
+  "ctx_size": 8192,
+  "reasoning_format": "deepseek"
+}
