@@ -50,3 +50,4 @@ export.zip
 # tools/setup_llm.sh -- the llama-server binary + sibling libraries and
 # the GGUF model live here, self-contained under the repo, never tracked.
 llm/
+.claude/hooks/logs/
