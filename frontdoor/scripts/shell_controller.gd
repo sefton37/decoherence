@@ -16,7 +16,7 @@ class_name ShellController
 ## "type a program's name to run it" rather than a modern shell verb.
 ## Anything else renders an in-register unknown-command line.
 
-const MODULES_PATH := "res://data/modules.json"
+const MODULES_PATH := "res://frontdoor/data/modules.json"
 const DIR_COMMAND := "dir"
 
 enum State { SHELL, CHAT }

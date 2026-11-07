@@ -27,8 +27,8 @@ extends Control
 ## styles on 3 fixed sample lines, labeled, then quits cleanly via
 ## get_tree().quit() so Kel can vote on which style plays where.
 
-const BOOT_SEQUENCE_PATH := "res://data/boot_sequence.json"
-const ANIMATION_STYLES_PATH := "res://data/animation_styles.json"
+const BOOT_SEQUENCE_PATH := "res://frontdoor/data/boot_sequence.json"
+const ANIMATION_STYLES_PATH := "res://frontdoor/data/animation_styles.json"
 const LINE_STAGGER_SEC := 0.12
 const SPINNER_TICK_SEC := 0.4
 

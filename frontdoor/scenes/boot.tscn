@@ -1,11 +1,11 @@
 [gd_scene load_steps=8 format=3]
 
-[ext_resource type="Script" path="res://scripts/boot_controller.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/terminal_grid.gd" id="2"]
-[ext_resource type="Script" path="res://scripts/llm_client.gd" id="3"]
-[ext_resource type="Script" path="res://scripts/handler_chat.gd" id="4"]
-[ext_resource type="Shader" path="res://shaders/crt.gdshader" id="5"]
-[ext_resource type="Script" path="res://scripts/shell_controller.gd" id="6"]
+[ext_resource type="Script" path="res://frontdoor/scripts/boot_controller.gd" id="1"]
+[ext_resource type="Script" path="res://frontdoor/scripts/terminal_grid.gd" id="2"]
+[ext_resource type="Script" path="res://frontdoor/scripts/llm_client.gd" id="3"]
+[ext_resource type="Script" path="res://frontdoor/scripts/handler_chat.gd" id="4"]
+[ext_resource type="Shader" path="res://frontdoor/shaders/crt.gdshader" id="5"]
+[ext_resource type="Script" path="res://frontdoor/scripts/shell_controller.gd" id="6"]
 
 [sub_resource type="ShaderMaterial" id="1"]
 shader = ExtResource("5")

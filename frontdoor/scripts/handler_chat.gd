@@ -10,7 +10,7 @@ class_name HandlerChat
 ## shared TerminalGrid via LlmClient.send_chat(), and emits
 ## Signals.handler_reply_complete once a full reply has arrived.
 
-const PERSONA_PATH := "res://data/handler_persona.json"
+const PERSONA_PATH := "res://frontdoor/data/handler_persona.json"
 
 var _terminal: TerminalGrid = null
 var _llm: LlmClient = null
