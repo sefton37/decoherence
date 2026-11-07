@@ -1,0 +1,9 @@
+[configuration]
+entry_symbol = "stalag_spike_init"
+compatibility_minimum = "4.5"
+
+; Both entries point at the template_release build (tools/setup_gdext.sh builds only
+; that one) so the editor/headless runs measure optimised native code.
+[libraries]
+linux.debug.x86_64 = "res://ext/bin/libstalagspike.linux.template_release.x86_64.so"
+linux.release.x86_64 = "res://ext/bin/libstalagspike.linux.template_release.x86_64.so"

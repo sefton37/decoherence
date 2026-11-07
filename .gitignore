@@ -51,3 +51,12 @@ export.zip
 # the GGUF model live here, self-contained under the repo, never tracked.
 llm/
 .claude/hooks/logs/
+
+# Spec #494 GDExtension toolchain + build output (tools/setup_gdext.sh)
+engine/spike/ext/godot-cpp/
+engine/spike/ext/bin/
+engine/spike/ext/.sconsign.dblite
+*.so
+*.os
+*.o
+*.a

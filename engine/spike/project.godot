@@ -1,0 +1,20 @@
+; Spec #494 engine-language spike: a STANDALONE nested Godot project.
+; Deliberately separate from the repo-root project.godot so a fresh clone without
+; the built GDExtension .so can never break `godot --editor` of the main project.
+config_version=5
+
+[application]
+
+config/name="Stalag engine-language spike"
+run/main_scene="res://runner/runner.tscn"
+config/features=PackedStringArray("4.5", "Forward Plus")
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/vsync/vsync_mode=0
+
+[rendering]
+
+renderer/rendering_method="forward_plus"
