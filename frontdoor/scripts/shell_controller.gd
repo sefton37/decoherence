@@ -27,18 +27,58 @@ const DIR_COMMAND := "dir"
 
 enum State { SHELL, CHAT, WORLD }
 
+const SHELL_CONTEXT_THINK_GLYPH_SEC := 0.15
+
 var _state: State = State.SHELL
 var _terminal: TerminalGrid = null
 var _gate_success: bool = false
 var _modules: Array = []
 
+## --- Spec #519: conversational router ------------------------------------
+## Exact commands (dir, help, settings, set <k> <v>, module ids) are resolved
+## by a plain table with ZERO LLM requests. Any other free text goes to the
+## local model through IntentRouter, which can only select from a closed
+## action schema; ShellController alone acts on the validated result.
+var _llm: LlmClient = null
+var _schema: Dictionary = {}
+var _settings: Dictionary = {}
+var settings_status: String = "missing"
+var _ctx: Dictionary = {}
+var _router_cfg: Dictionary = {}
+var _prompt_data: Dictionary = {}
+var _system_prompt: String = ""
+var _decode_grammar: String = ""
+var _decode_schema: Dictionary = {}
+var _text_cps: float = 160.0
+
+## Bumped on every submitted line and every state change: a routing result
+## whose epoch no longer matches is stale and silently dropped.
+var _epoch: int = 0
+var stale_drops: int = 0
+var _think_active: bool = false
+var _think_clock: float = 0.0
+var _think_frame: int = 0
+
+## Test hook (probes only): resolve and render routed intents but do not
+## perform their state-changing effects.
+var router_dry_run: bool = false
+
+## Test hook (probes only): when > 0, overrides the router's request timeout.
+var router_timeout_override_ms: int = 0
+
+## Details of the most recent resolved line, for probes:
+## {source, action, args, reason, say, dispatched, would_dispatch, ms}
+var last_route: Dictionary = {}
+
 
 ## Wires this controller to the shared TerminalGrid and loads the module
 ## registry. Called once by boot_controller.gd during _ready(), before the
 ## boot theater begins.
-func setup(terminal_grid: TerminalGrid) -> void:
+func setup(terminal_grid: TerminalGrid, llm: LlmClient = null) -> void:
 	_terminal = terminal_grid
+	_llm = llm
 	_modules = _load_modules()
+	_load_router_data()
 	if not Signals.terminal_line_submitted.is_connected(_on_terminal_line_submitted):
 		Signals.terminal_line_submitted.connect(_on_terminal_line_submitted)
 
@@ -50,6 +90,9 @@ func setup(terminal_grid: TerminalGrid) -> void:
 func enter(gate_success: bool) -> void:
 	_gate_success = gate_success
 	_state = State.SHELL
+	_epoch += 1
+	if settings_status == "corrupt":
+		_out("SETTINGS FILE UNREADABLE -- DEFAULTS RESTORED.", Palette.ORANGE)
 
 
 func _load_modules() -> Array:
@@ -74,13 +117,37 @@ func _on_terminal_line_submitted(text: String) -> void:
 		return
 	if _state == State.WORLD:
 		return  # the world owns the keyboard; the terminal is hidden
+	# Any new line supersedes a routing call still in flight (stale drop).
+	_epoch += 1
+	_clear_thinking()
 	var cmd := text.strip_edges().to_lower()
 	if cmd == DIR_COMMAND:
+		_fast("list_dir", {})
 		_handle_dir()
+	elif cmd == "help":
+		_fast("help", {})
+		_handle_help()
+	elif cmd == "settings":
+		_fast("show_settings", {})
+		_handle_show_settings()
+	elif _is_exact_set(cmd):
+		_handle_set_command(cmd)
 	elif _module_id_for(cmd) != "":
+		_fast("open_module", {"module": cmd})
 		_handle_launch(cmd)
 	else:
-		_terminal.write_line("COMMAND NOT RECOGNIZED: " + text, Palette.ORANGE)
+		_route(text)
+
+
+## True only for the typed form: bare `set`, or exactly three words
+## `set <key> <value>` (an unknown key or value still gets the typed error
+## line). Anything longer that merely starts with "set" ("set the flicker to
+## half") is plain language and goes to the router, not to the usage line.
+func _is_exact_set(cmd: String) -> bool:
+	if cmd == "set":
+		return true
+	var parts := cmd.split(" ", false)
+	return parts.size() == 3 and parts[0] == "set"
 
 
 func _module_id_for(cmd: String) -> String:
@@ -94,13 +161,13 @@ func _module_id_for(cmd: String) -> String:
 
 
 func _handle_dir() -> void:
-	_terminal.write_line("DIRECTORY LISTING:", Palette.TEAL)
+	_out("DIRECTORY LISTING:", Palette.TEAL)
 	for m in _modules:
 		if typeof(m) != TYPE_DICTIONARY:
 			continue
 		var label: String = String(m.get("label", m.get("id", ""))).to_upper()
-		_terminal.write_line("  " + label, Palette.TEAL)
-	_terminal.write_line("%d MODULE(S)" % _modules.size(), Palette.TEAL)
+		_out("  " + label, Palette.TEAL)
+	_out("%d MODULE(S)" % _modules.size(), Palette.TEAL)
 
 
 ## Launches a module by id. "chat" and "world" exist (Specs #371, #501) -- any
@@ -118,6 +185,7 @@ func _handle_launch(cmd: String) -> void:
 		_terminal.write_line("CORTEX LINK FAILED -- CHAT MODULE UNAVAILABLE.", Palette.ORANGE)
 		return
 	_state = State.CHAT
+	_epoch += 1
 	Signals.chat_ready.emit()
 	Signals.chat_opened.emit()
 
@@ -129,9 +197,238 @@ func _launch_world() -> void:
 		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
 		return
 	_state = State.WORLD
+	_epoch += 1
 	world_requested.emit()
 
 
 ## Called by boot_controller.gd when the world has been closed: back to the shell prompt.
 func world_closed() -> void:
 	_state = State.SHELL
+	_epoch += 1
+
+
+## ---------------------------------------------------------------------------
+## Spec #519: exact-command handlers, settings, and the conversational router.
+## ---------------------------------------------------------------------------
+
+func _process(delta: float) -> void:
+	if not _think_active or _terminal == null:
+		return
+	_think_clock += delta
+	if _think_clock >= SHELL_CONTEXT_THINK_GLYPH_SEC:
+		_think_clock = 0.0
+		_think_frame += 1
+		_terminal.set_transient_line(_think_text(), Palette.ORANGE)
+
+
+func _load_router_data() -> void:
+	_schema = SettingsStore.load_schema()
+	var loaded := SettingsStore.load_settings(_schema)
+	_settings = loaded["settings"]
+	settings_status = loaded["status"]
+	_text_cps = SettingsStore.text_cps(String(_settings.get("text_speed", "normal")))
+	var actions_data = IntentRouter.load_json(IntentRouter.ACTIONS_PATH)
+	var cfg = IntentRouter.load_json(IntentRouter.CONFIG_PATH)
+	var prompt = IntentRouter.load_json(IntentRouter.PROMPT_PATH)
+	_router_cfg = cfg if typeof(cfg) == TYPE_DICTIONARY else {}
+	_prompt_data = prompt if typeof(prompt) == TYPE_DICTIONARY else {}
+	if typeof(actions_data) != TYPE_DICTIONARY:
+		actions_data = {"actions": []}
+	_ctx = IntentRouter.make_context(actions_data, _modules, _schema)
+	_decode_schema = IntentRouter.build_schema(_ctx, int(_router_cfg.get("max_say_chars", 120)))
+	_decode_grammar = IntentRouter.build_grammar(_ctx, int(_router_cfg.get("max_say_chars", 120)), String(_router_cfg.get("grammar_prefix", "</think>\n\n")))
+	_system_prompt = IntentRouter.build_system_prompt(_prompt_data, actions_data, _modules, _schema)
+
+
+## The current persisted settings (copy), for boot_controller's initial apply.
+func get_settings() -> Dictionary:
+	return _settings.duplicate()
+
+
+func is_shell_state() -> bool:
+	return _state == State.SHELL
+
+
+func current_state_name() -> String:
+	return State.keys()[_state]
+
+
+## Writes one output line honoring text_speed (visual reveal only: the full
+## text is still emitted to line_rendered immediately).
+func _out(text: String, color) -> void:
+	if _text_cps > 0.0:
+		_terminal.write_line_typed(text, color, _text_cps)
+	else:
+		_terminal.write_line(text, color)
+
+
+func _fast(action: String, args: Dictionary) -> void:
+	last_route = {"source": "fast", "action": action, "args": args, "reason": "", "say": "", "dispatched": true, "would_dispatch": true, "ms": 0}
+	Signals.intent_resolved.emit("fast", action, args)
+
+
+func _handle_help() -> void:
+	_out("Q-ENT OS COMMANDS:", Palette.TEAL)
+	var chips := "[ DIR ]"
+	for m in _modules:
+		if typeof(m) == TYPE_DICTIONARY:
+			chips += " [ " + String(m.get("label", m.get("id", ""))).to_upper() + " ]"
+	chips += " [ SETTINGS ]"
+	_out(chips, Palette.TEAL)
+	_out("TYPE A COMMAND, OR SAY WHAT YOU WANT IN PLAIN WORDS.", Palette.TEAL)
+
+
+func _handle_show_settings() -> void:
+	_out("SETTINGS:", Palette.TEAL)
+	for s in _schema.get("settings", []):
+		var key := String(s.get("key", ""))
+		_out("  %s = %s   (%s)" % [key.to_upper(), String(_settings.get(key, "")).to_upper(), " ".join(PackedStringArray(s.get("values", []))).to_upper()], Palette.TEAL)
+	_out("CHANGE WITH: SET <KEY> <VALUE>", Palette.TEAL)
+
+
+## `set <key> <value>` typed exactly.
+func _handle_set_command(cmd: String) -> void:
+	var parts := cmd.split(" ", false)
+	if parts.size() != 3:
+		_fast("set_setting", {})
+		_out("USAGE: SET <KEY> <VALUE>   (TYPE SETTINGS TO SEE THEM)", Palette.ORANGE)
+		return
+	_fast("set_setting", {"key": parts[1], "value": parts[2]})
+	_apply_setting(parts[1], parts[2])
+
+
+## Validates, applies and persists one setting. Returns true on success.
+func _apply_setting(key: String, value: String) -> bool:
+	if not SettingsStore.is_valid(_schema, key, value):
+		_out("SETTING NOT RECOGNIZED: %s %s" % [key.to_upper(), value.to_upper()], Palette.ORANGE)
+		return false
+	_settings[key] = value
+	if key == "text_speed":
+		_text_cps = SettingsStore.text_cps(value)
+	var saved := SettingsStore.save_settings(_settings)
+	Signals.setting_changed.emit(key, value)
+	_out("SETTING %s -> %s%s" % [key.to_upper(), value.to_upper(), "" if saved else "  (NOT SAVED)"], Palette.TEAL)
+	return true
+
+
+## --- Router path ----------------------------------------------------------
+
+func _think_text() -> String:
+	var glyphs = BootAnimator._SPINNER_GLYPHS
+	return "%s %s" % [String(_router_cfg.get("thinking_label", "TRANSLATING INTENT")), glyphs[_think_frame % glyphs.size()]]
+
+
+func _show_thinking() -> void:
+	_think_active = true
+	_think_clock = 0.0
+	_think_frame = 0
+	_terminal.set_transient_line(_think_text(), Palette.ORANGE)
+	Signals.intent_thinking.emit(true)
+
+
+func _clear_thinking() -> void:
+	if not _think_active:
+		return
+	_think_active = false
+	_terminal.clear_transient_line()
+	Signals.intent_thinking.emit(false)
+
+
+func _unresolved(text: String, offline: bool) -> void:
+	_out("COMMAND NOT RECOGNIZED: " + _neutralize_markers(text), Palette.ORANGE)
+	var key := "offline_line" if offline else "unclear_line"
+	_out(String(_router_cfg.get(key, "TYPE HELP FOR EXACT COMMANDS.")), Palette.ORANGE)
+
+
+## The legacy echo repeats the player's own words. A pasted reasoning marker
+## ("</think>") must never reach the screen looking like system output, so the
+## opening angle bracket of a think tag is replaced; all other text is echoed
+## unchanged.
+func _neutralize_markers(text: String) -> String:
+	var out := text
+	for marker in ["</think", "<think"]:
+		var at := out.to_lower().find(marker)
+		while at != -1:
+			out = out.substr(0, at) + "[" + out.substr(at + 1)
+			at = out.to_lower().find(marker)
+	return out
+
+
+func _route(text: String) -> void:
+	var cleaned := IntentRouter.sanitize_input(text, int(_router_cfg.get("max_input_chars", 200)))
+	if cleaned.is_empty():
+		last_route = {"source": "llm", "action": "unclear", "args": {}, "reason": "empty", "say": "", "dispatched": false, "would_dispatch": false, "ms": 0}
+		_unresolved(text, false)
+		Signals.intent_resolved.emit("llm", "unclear", {})
+		return
+	if _llm == null or not _gate_success:
+		last_route = {"source": "degraded", "action": "unclear", "args": {}, "reason": "offline", "say": "", "dispatched": false, "would_dispatch": false, "ms": 0}
+		_unresolved(text, true)
+		Signals.intent_resolved.emit("degraded", "unclear", {})
+		return
+	var my_epoch := _epoch
+	_show_thinking()
+	var messages := [
+		{"role": "system", "content": _system_prompt},
+		{"role": "user", "content": cleaned},
+	]
+	var options := {
+		"grammar": _decode_grammar,
+		"schema": _decode_schema,
+		"thinking": bool(_router_cfg.get("thinking", false)),
+		"temperature": _router_cfg.get("temperature", 0),
+		"seed": _router_cfg.get("seed", 0),
+		"max_tokens": _router_cfg.get("max_tokens", 96),
+		"cache_prompt": _router_cfg.get("cache_prompt", true),
+		"timeout_ms": router_timeout_override_ms if router_timeout_override_ms > 0 else _router_cfg.get("timeout_ms", 8000),
+	}
+	_llm.complete_structured(messages, options, _on_route_done.bind(my_epoch, text))
+
+
+## Bound method (never a lambda: lambdas capture by value). Arguments after
+## `result` are the bound epoch and the original text.
+func _on_route_done(result: Dictionary, epoch: int, text: String) -> void:
+	if epoch != _epoch or _state != State.SHELL:
+		stale_drops += 1
+		return
+	_clear_thinking()
+	if not bool(result.get("ok", false)):
+		last_route = {"source": "degraded", "action": "unclear", "args": {}, "reason": String(result.get("error", "")), "say": "", "dispatched": false, "would_dispatch": false, "ms": int(result.get("ms", 0))}
+		_unresolved(text, true)
+		Signals.intent_resolved.emit("degraded", "unclear", {})
+		return
+	var verdict := IntentRouter.validate_action(String(result.get("content", "")), _ctx, int(_router_cfg.get("max_say_chars", 120)))
+	var action: String = verdict["action"]
+	var args: Dictionary = verdict["args"]
+	if not bool(verdict["ok"]) or action == "unclear":
+		last_route = {"source": "llm", "action": "unclear", "args": {}, "reason": String(verdict["reason"]), "say": "", "dispatched": false, "would_dispatch": false, "ms": int(result.get("ms", 0))}
+		_unresolved(text, false)
+		Signals.intent_resolved.emit("llm", "unclear", {})
+		return
+	# Deterministic echo from the VALIDATED action, then the sanitized `say`.
+	_out("> " + IntentRouter.echo_for(action, args), Palette.TEAL)
+	var cleaned_say := ReplySanitizer.sanitize(String(verdict["say"]), "", int(_router_cfg.get("max_say_chars", 120)))
+	var say_line: String = cleaned_say["text"] if bool(cleaned_say["ok"]) else String(_prompt_data.get("fallback_say", {}).get(action, ""))
+	if not say_line.is_empty():
+		_out(say_line, Palette.TEAL)
+	last_route = {"source": "llm", "action": action, "args": args, "reason": "", "say": say_line, "dispatched": not router_dry_run, "would_dispatch": true, "ms": int(result.get("ms", 0))}
+	if not router_dry_run:
+		_dispatch(action, args)
+	Signals.intent_resolved.emit("llm", action, args)
+
+
+## Executes one validated action. This match is the ONLY place model-chosen
+## intent becomes behavior, and every branch is a call to an existing
+## handler -- nothing is built from model text.
+func _dispatch(action: String, args: Dictionary) -> void:
+	match action:
+		"open_module":
+			_handle_launch(String(args.get("module", "")))
+		"list_dir":
+			_handle_dir()
+		"help":
+			_handle_help()
+		"show_settings":
+			_handle_show_settings()
+		"set_setting":
+			_apply_setting(String(args.get("key", "")), String(args.get("value", "")))

@@ -73,6 +73,7 @@ func _load_config() -> void:
 	var parsed = JSON.parse_string(text)
 	if typeof(parsed) != TYPE_DICTIONARY:
 		return
+	_cfg = parsed
 
 	_host = String(parsed.get("host", DEFAULT_HOST))
 	_port = int(parsed.get("port", DEFAULT_PORT))
@@ -102,10 +103,18 @@ func check_model_ready() -> void:
 	# this file) so a force-fail run never even ticks the boot spinner
 	# once and never spawns or touches the live llama-server process.
 	if OS.get_environment("DECOHERENCE_FORCE_GATE_FAIL") == "1":
+		_forced_fail = true
 		model_ready.emit(false)
 		return
 
 	_load_config()
+	_source = resolve_source(_cfg, OS.get_environment("DECOHERENCE_LLM_SOURCE"))
+	_source_resolved = true
+	if _source != SOURCE_OWNED:
+		# Spec #519 A1: the development substrate is the house Ollama. No
+		# spawn, no pid file, no contact with the owned-mode port.
+		await _check_ollama_ready()
+		return
 	await _reclaim_stale_servers()
 
 	var already_running := false
@@ -184,6 +193,10 @@ func check_model_ready() -> void:
 ## on_delta/on_done; delta.reasoning_content is read and intentionally
 ## discarded immediately below, never rendered, logged, or forwarded.
 func send_chat(messages: Array, on_delta: Callable, on_done: Callable) -> void:
+	_ensure_source()
+	if _source != SOURCE_OWNED:
+		await _send_chat_ollama(messages, on_delta, on_done)
+		return
 	var client := HTTPClient.new()
 	var err := client.connect_to_host(_host, _port)
 	if err != OK:
@@ -460,3 +473,346 @@ func _delete_pid_file() -> void:
 	var dir := DirAccess.open("user://")
 	if dir != null and dir.file_exists(PID_FILE_NAME):
 		dir.remove(PID_FILE_NAME)
+
+
+
+
+## --- Model-source seam (Spec #519 A1) -----------------------------------
+## data/llm_config.json carries `source`: "ollama" (default; the house Ollama
+## through its NATIVE /api/chat, never /v1 which silently ignores num_ctx) or
+## "owned" (the game-spawned llama-server above, kept intact as the shipping
+## substrate). Everything below is additive: the owned path is unchanged.
+
+const SOURCE_OLLAMA := "ollama"
+const SOURCE_OWNED := "owned"
+const SOURCE_INVALID := "invalid"
+const OLLAMA_PATH := "/api/chat"
+const OLLAMA_TAGS_PATH := "/api/tags"
+const OLLAMA_TAGS_TRIES := 3
+const OLLAMA_TAGS_TIMEOUT_MS := 5000
+const OLLAMA_WARMUP_TIMEOUT_MS := 60000
+
+## The whole parsed llm_config.json (empty until _load_config succeeds).
+var _cfg: Dictionary = {}
+var _source: String = SOURCE_OLLAMA
+var _source_resolved: bool = false
+## Set when DECOHERENCE_FORCE_GATE_FAIL=1: ollama-mode calls must not reach a
+## real model behind a gate that was forced shut.
+var _forced_fail: bool = false
+
+## Count only, never the text: how many reasoning characters the most recent
+## complete_structured() reply carried (0 when thinking was off).
+var last_reasoning_chars: int = 0
+
+## Number of completion requests issued through complete_structured() (not
+## the gate poll, not the warm-up).
+var request_count: int = 0
+
+## Whether the most recent complete_structured() request had thinking enabled.
+var last_thinking_enabled: bool = false
+
+## Server-reported token counts of the most recent complete_structured() reply
+## (ollama: prompt_eval_count / eval_count; owned: usage).
+var last_prompt_tokens: int = 0
+var last_out_tokens: int = 0
+
+
+## Pure. Env beats config; absent both means "ollama"; anything other than
+## exactly "ollama" or "owned" is "invalid" (the gate then fails honestly --
+## a typo never silently picks a backend).
+static func resolve_source(cfg: Dictionary, env_value: String) -> String:
+	var v := env_value
+	if v.is_empty() and cfg.has("source"):
+		if typeof(cfg["source"]) != TYPE_STRING:
+			return SOURCE_INVALID
+		v = String(cfg["source"])
+	if v.is_empty():
+		return SOURCE_OLLAMA
+	if v == SOURCE_OLLAMA or v == SOURCE_OWNED:
+		return v
+	return SOURCE_INVALID
+
+
+## Pure. Builds {path, body} for one completion request so the request shape
+## is testable with no model. `options` keys (all optional): thinking (bool),
+## temperature, seed, max_tokens, cache_prompt, stream (bool, ollama only),
+## grammar (String, owned only), schema (Dictionary).
+## ollama: native /api/chat; num_ctx comes from config; `think` is explicit;
+## the schema travels as `format`; never keep_alive, never a grammar prefix.
+## owned: the original /v1/chat/completions body, unchanged.
+static func build_structured_body(source: String, cfg: Dictionary, messages: Array, options: Dictionary) -> Dictionary:
+	if source == SOURCE_OLLAMA:
+		var oc: Dictionary = cfg.get("ollama", {}) if typeof(cfg.get("ollama", {})) == TYPE_DICTIONARY else {}
+		var opts := {"num_ctx": int(oc.get("num_ctx", 0))}
+		if options.has("temperature"):
+			opts["temperature"] = float(options["temperature"])
+		if options.has("seed"):
+			opts["seed"] = int(options["seed"])
+		if options.has("max_tokens"):
+			opts["num_predict"] = int(options["max_tokens"])
+		var obody := {
+			"model": String(oc.get("model", "")),
+			"messages": messages,
+			"stream": bool(options.get("stream", false)),
+			"think": bool(options.get("thinking", oc.get("think", false))),
+			"options": opts,
+		}
+		if options.has("schema"):
+			obody["format"] = options["schema"]
+		return {"path": OLLAMA_PATH, "body": obody}
+
+	var thinking: bool = bool(options.get("thinking", false))
+	var body_dict := {
+		"messages": messages,
+		"stream": false,
+		"temperature": float(options.get("temperature", 0)),
+		"seed": int(options.get("seed", 0)),
+		"max_tokens": int(options.get("max_tokens", 160)),
+		"cache_prompt": bool(options.get("cache_prompt", true)),
+		"chat_template_kwargs": {"enable_thinking": thinking},
+	}
+	if options.has("grammar"):
+		# A raw grammar is applied from the first generated token (unlike a
+		# response_format schema, which only starts after the reasoning block).
+		body_dict["grammar"] = String(options["grammar"])
+	elif options.has("schema"):
+		body_dict["response_format"] = {"type": "json_schema", "json_schema": {"name": "intent", "strict": true, "schema": options["schema"]}}
+		body_dict["json_schema"] = options["schema"]
+	return {"path": "/v1/chat/completions", "body": body_dict}
+
+
+## True when `text` is an Ollama /api/tags payload listing `model`.
+static func tags_lists_model(text: String, model: String) -> bool:
+	var parser := JSON.new()
+	if parser.parse(text) != OK or typeof(parser.data) != TYPE_DICTIONARY:
+		return false
+	for m in parser.data.get("models", []):
+		if typeof(m) == TYPE_DICTIONARY and (String(m.get("name", "")) == model or String(m.get("model", "")) == model):
+			return true
+	return false
+
+
+func _ensure_source() -> void:
+	if _source_resolved:
+		return
+	_load_config()
+	_source = resolve_source(_cfg, OS.get_environment("DECOHERENCE_LLM_SOURCE"))
+	_source_resolved = true
+
+
+## Host and port the active source talks to. Ollama is loopback only: the host
+## comes from config and there is no env override; only the port has a
+## test-only override.
+func _endpoint() -> Dictionary:
+	if _source == SOURCE_OWNED:
+		return {"host": _host, "port": _port}
+	var oc: Dictionary = _cfg.get("ollama", {}) if typeof(_cfg.get("ollama", {})) == TYPE_DICTIONARY else {}
+	var port := int(oc.get("port", 0))
+	var override := OS.get_environment("DECOHERENCE_OLLAMA_PORT")
+	if override.is_valid_int():
+		port = override.to_int()
+	return {"host": String(oc.get("host", "")), "port": port}
+
+
+func _ollama_usable() -> bool:
+	if _forced_fail or _source != SOURCE_OLLAMA:
+		return false
+	var ep := _endpoint()
+	return String(ep["host"]) == DEFAULT_HOST and int(ep["port"]) > 0 and not String(_cfg.get("ollama", {}).get("model", "")).is_empty()
+
+
+## One non-streaming HTTP exchange over the low-level client, bounded by
+## `timeout_ms`. Returns {ok, code, text, error}.
+func _http_exchange(host: String, port: int, method: int, path: String, body: String, timeout_ms: int) -> Dictionary:
+	var started := Time.get_ticks_msec()
+	var client := HTTPClient.new()
+	if client.connect_to_host(host, port) != OK:
+		return {"ok": false, "code": 0, "text": "", "error": "connect"}
+	while client.get_status() in [HTTPClient.STATUS_CONNECTING, HTTPClient.STATUS_RESOLVING]:
+		if Time.get_ticks_msec() - started > timeout_ms:
+			return {"ok": false, "code": 0, "text": "", "error": "timeout"}
+		client.poll()
+		await get_tree().process_frame
+	if client.get_status() != HTTPClient.STATUS_CONNECTED:
+		return {"ok": false, "code": 0, "text": "", "error": "connect"}
+	var headers := PackedStringArray(["Content-Type: application/json"])
+	if client.request(method, path, headers, body) != OK:
+		return {"ok": false, "code": 0, "text": "", "error": "request"}
+	while client.get_status() == HTTPClient.STATUS_REQUESTING:
+		if Time.get_ticks_msec() - started > timeout_ms:
+			return {"ok": false, "code": 0, "text": "", "error": "timeout"}
+		client.poll()
+		await get_tree().process_frame
+	var raw := PackedByteArray()
+	while client.get_status() == HTTPClient.STATUS_BODY:
+		if Time.get_ticks_msec() - started > timeout_ms:
+			return {"ok": false, "code": 0, "text": "", "error": "timeout"}
+		client.poll()
+		var chunk := client.read_response_body_chunk()
+		if chunk.size() == 0:
+			await get_tree().process_frame
+		else:
+			raw.append_array(chunk)
+	return {"ok": true, "code": client.get_response_code(), "text": raw.get_string_from_utf8(), "error": ""}
+
+
+## Ollama-mode boot gate: the model must be listed by /api/tags, then a
+## one-token warm-up through the same native endpoint and options makes it
+## resident at the configured context before the gate reports success.
+## Never spawns anything, never writes a pid file, never touches :8085.
+func _check_ollama_ready() -> void:
+	if not _ollama_usable():
+		print("LLM_SOURCE_UNUSABLE source=%s" % _source)
+		model_ready.emit(false)
+		return
+	var ep := _endpoint()
+	var model := String(_cfg["ollama"]["model"])
+	var listed := false
+	for i in range(OLLAMA_TAGS_TRIES):
+		var tags := await _http_exchange(String(ep["host"]), int(ep["port"]), HTTPClient.METHOD_GET, OLLAMA_TAGS_PATH, "", OLLAMA_TAGS_TIMEOUT_MS)
+		if tags["ok"] and int(tags["code"]) == 200:
+			listed = tags_lists_model(String(tags["text"]), model)
+			break
+		await get_tree().create_timer(READY_POLL_INTERVAL_SEC).timeout
+	if not listed:
+		print("LLM_OLLAMA_UNAVAILABLE")
+		model_ready.emit(false)
+		return
+	var warm := build_structured_body(SOURCE_OLLAMA, _cfg, [{"role": "user", "content": "ok"}], {"max_tokens": 1, "temperature": 0, "thinking": false})
+	var res := await _http_exchange(String(ep["host"]), int(ep["port"]), HTTPClient.METHOD_POST, String(warm["path"]), JSON.stringify(warm["body"]), OLLAMA_WARMUP_TIMEOUT_MS)
+	var ok: bool = bool(res["ok"]) and int(res["code"]) == 200
+	print("LLM_OLLAMA_READY" if ok else "LLM_OLLAMA_WARMUP_FAILED")
+	model_ready.emit(ok)
+
+
+## Streaming chat through the native endpoint (NDJSON, one object per line).
+## Only message.content reaches on_delta/on_done; message.thinking, if a model
+## ever sends it, is dropped here and never forwarded.
+func _send_chat_ollama(messages: Array, on_delta: Callable, on_done: Callable) -> void:
+	if not _ollama_usable():
+		on_done.call("")
+		return
+	var ep := _endpoint()
+	var built := build_structured_body(SOURCE_OLLAMA, _cfg, messages, {"stream": true, "thinking": false})
+	var client := HTTPClient.new()
+	if client.connect_to_host(String(ep["host"]), int(ep["port"])) != OK:
+		on_done.call("")
+		return
+	while client.get_status() in [HTTPClient.STATUS_CONNECTING, HTTPClient.STATUS_RESOLVING]:
+		client.poll()
+		await get_tree().process_frame
+	if client.get_status() != HTTPClient.STATUS_CONNECTED:
+		on_done.call("")
+		return
+	var headers := PackedStringArray(["Content-Type: application/json"])
+	if client.request(HTTPClient.METHOD_POST, String(built["path"]), headers, JSON.stringify(built["body"])) != OK:
+		on_done.call("")
+		return
+	while client.get_status() == HTTPClient.STATUS_REQUESTING:
+		client.poll()
+		await get_tree().process_frame
+
+	var accumulated := ""
+	var pending := ""
+	while client.get_status() == HTTPClient.STATUS_BODY:
+		client.poll()
+		var chunk := client.read_response_body_chunk()
+		if chunk.size() == 0:
+			await get_tree().process_frame
+			continue
+		pending += chunk.get_string_from_utf8()
+		var split_lines := pending.split("\n")
+		pending = split_lines[split_lines.size() - 1]
+		for i in range(split_lines.size() - 1):
+			var line := split_lines[i].strip_edges()
+			if line.is_empty():
+				continue
+			var parsed = JSON.parse_string(line)
+			if typeof(parsed) != TYPE_DICTIONARY:
+				continue
+			var message = parsed.get("message", {})
+			if typeof(message) == TYPE_DICTIONARY:
+				var piece = message.get("content", "")
+				if typeof(piece) == TYPE_STRING and piece != "":
+					accumulated += piece
+					on_delta.call(piece)
+			if bool(parsed.get("done", false)) or parsed.has("error"):
+				on_done.call(accumulated)
+				return
+	on_done.call(accumulated)
+
+
+## One stateless, non-streaming structured completion through the active
+## source. `options` keys (all optional): grammar (String, owned only),
+## schema (Dictionary; ollama `format`, owned response_format), thinking
+## (bool, default false), temperature, seed, max_tokens, cache_prompt,
+## timeout_ms (default 8000), reasoning_probe (Callable taking the reasoning
+## text; test-only).
+## Calls `on_done` once with {ok, content, reasoning_chars, ms, error,
+## prompt_tokens, out_tokens}. Only message.content is ever returned as
+## content; the reasoning field is measured (length) and handed solely to an
+## explicit test probe.
+func complete_structured(messages: Array, options: Dictionary, on_done: Callable) -> void:
+	request_count += 1
+	var started := Time.get_ticks_msec()
+	var thinking: bool = bool(options.get("thinking", false))
+	last_thinking_enabled = thinking
+	last_reasoning_chars = 0
+	last_prompt_tokens = 0
+	last_out_tokens = 0
+	var timeout_ms: int = int(options.get("timeout_ms", 8000))
+
+	_ensure_source()
+	if _source == SOURCE_INVALID or (_source == SOURCE_OLLAMA and not _ollama_usable()):
+		on_done.call(_structured_result(false, "", 0, started, "source"))
+		return
+	var ep := _endpoint()
+	var built := build_structured_body(_source, _cfg, messages, options)
+	var ex := await _http_exchange(String(ep["host"]), int(ep["port"]), HTTPClient.METHOD_POST, String(built["path"]), JSON.stringify(built["body"]), timeout_ms)
+	if not ex["ok"]:
+		on_done.call(_structured_result(false, "", 0, started, String(ex["error"])))
+		return
+	if int(ex["code"]) != 200:
+		on_done.call(_structured_result(false, "", 0, started, "http_%d" % int(ex["code"])))
+		return
+	var parsed = JSON.parse_string(String(ex["text"]))
+	if typeof(parsed) != TYPE_DICTIONARY:
+		on_done.call(_structured_result(false, "", 0, started, "bad_json"))
+		return
+	var message: Dictionary = {}
+	if _source == SOURCE_OLLAMA:
+		if typeof(parsed.get("message", null)) != TYPE_DICTIONARY:
+			on_done.call(_structured_result(false, "", 0, started, "no_choices"))
+			return
+		message = parsed["message"]
+		last_prompt_tokens = int(parsed.get("prompt_eval_count", 0))
+		last_out_tokens = int(parsed.get("eval_count", 0))
+	else:
+		var choices: Array = parsed.get("choices", [])
+		if choices.is_empty() or typeof(choices[0]) != TYPE_DICTIONARY:
+			on_done.call(_structured_result(false, "", 0, started, "no_choices"))
+			return
+		message = choices[0].get("message", {})
+		var usage = parsed.get("usage", {})
+		if typeof(usage) == TYPE_DICTIONARY:
+			last_prompt_tokens = int(usage.get("prompt_tokens", 0))
+			last_out_tokens = int(usage.get("completion_tokens", 0))
+	var content: String = String(message.get("content", ""))
+	var reasoning: String = String(message.get("thinking", "")) if _source == SOURCE_OLLAMA else String(message.get("reasoning_content", ""))
+	last_reasoning_chars = reasoning.length()
+	var probe = options.get("reasoning_probe", null)
+	if probe is Callable and probe.is_valid():
+		probe.call(reasoning)
+	on_done.call(_structured_result(true, content, reasoning.length(), started, ""))
+
+
+func _structured_result(ok: bool, content: String, reasoning_chars: int, started: int, error: String) -> Dictionary:
+	return {
+		"ok": ok,
+		"content": content,
+		"reasoning_chars": reasoning_chars,
+		"ms": Time.get_ticks_msec() - started,
+		"error": error,
+		"prompt_tokens": last_prompt_tokens,
+		"out_tokens": last_out_tokens,
+	}

@@ -60,3 +60,23 @@ signal chat_opened
 ## above. Nothing else may emit `submit_player_line` directly (DOD-37 /
 ## TRAP-1) -- this is the one legitimate front door for simulated input.
 signal terminal_line_submitted(text: String)
+
+## --- Additive contract, Spec #519 (busier boot + conversational shell).
+## Everything above stays byte-identical; these are new surface only.
+
+## Emitted by ShellController once per free-form or exact command line that
+## was resolved in SHELL state. `source` is "fast" (exact-command table, zero
+## LLM requests), "llm" (validated router result) or "degraded" (router
+## unavailable / timed out / invalid). `action` is the validated action id
+## ("unclear" when nothing was dispatchable); `args` the validated args.
+signal intent_resolved(source: String, action: String, args: Dictionary)
+
+## True when the in-fiction "translating" row appears, false when it clears.
+signal intent_thinking(active: bool)
+
+## A setting was validated, applied and persisted.
+signal setting_changed(key: String, value: String)
+
+## BootPanels reports its computed layout (viewport size, terminal rect, panel
+## rects, overlap count) once per layout pass; the density probe records it.
+signal layout_reported(report: Dictionary)

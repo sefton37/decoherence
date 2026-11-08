@@ -1,0 +1,58 @@
+{
+  "selected": "full_bus",
+  "tick_hz": 12,
+  "presets": [
+    { "id": "field_bar", "name": "FIELD BAR", "widgets": ["titlebar", "status_bar", "lamp_pane"] },
+    { "id": "ticker", "name": "TICKER", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters"] },
+    { "id": "wire_room", "name": "WIRE ROOM", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters", "sparklines", "section_rules", "led_tile", "glyph_noise"] },
+    { "id": "full_bus", "name": "FULL BUS", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters", "sparklines", "section_rules", "led_tile", "glyph_noise", "rollup", "hex_stream", "daemon_log", "mem_meter"] }
+  ],
+  "widgets": [
+    { "id": "titlebar", "label": "TITLE BAR", "motif": "titlebar_dots", "source": "synthetic", "slot": "title" },
+    { "id": "status_bar", "label": "STATUS BAR", "motif": "status_bar", "source": "live", "slot": "status" },
+    { "id": "lamp_pane", "label": "SUBSYSTEMS", "motif": "lamp_list", "source": "live", "slot": "s1" },
+    { "id": "bus_ticker", "label": "BUS TRAFFIC", "motif": "ticker", "source": "synthetic", "slot": "ticker" },
+    { "id": "meters", "label": "LATTICE METERS", "motif": "segmented_meter", "source": "synthetic", "slot": "s3" },
+    { "id": "sparklines", "label": "LATTICE TRACE", "motif": "sparkline", "source": "synthetic", "slot": "s4" },
+    { "id": "section_rules", "label": "NODE TABLE", "motif": "section_rule", "source": "synthetic", "slot": "s5" },
+    { "id": "led_tile", "label": "EPOCH COUNTER", "motif": "led_numerals", "source": "synthetic", "slot": "s2" },
+    { "id": "glyph_noise", "label": "MARGIN NOISE", "motif": "glyph_noise", "source": "synthetic", "slot": "m1" },
+    { "id": "rollup", "label": "ROLLUP", "motif": "rollup_banner", "source": "live", "slot": "s7" },
+    { "id": "hex_stream", "label": "BUS HEX", "motif": "hex_stream", "source": "synthetic", "slot": "bl1" },
+    { "id": "daemon_log", "label": "DAEMON LOG", "motif": "framed_pane", "source": "synthetic", "slot": "s6" },
+    { "id": "mem_meter", "label": "MEMORY", "motif": "segmented_meter", "source": "live", "slot": "s8" }
+  ],
+  "lamps": [
+    { "id": "selftest", "label": "SELF-TEST", "stage": "self_test" },
+    { "id": "lattice", "label": "TRANSLATION LATTICE", "stage": "qent_banner" },
+    { "id": "substrate", "label": "LOCAL SUBSTRATE", "stage": "hardware_readout" },
+    { "id": "entangle", "label": "ENTANGLEMENT", "stage": "entanglement_process" },
+    { "id": "prereqs", "label": "PREREQUISITES", "stage": "prereqs" },
+    { "id": "cortex", "label": "CORTEX LINK", "stage": "model_load", "gate": true },
+    { "id": "handoff", "label": "SHELL HANDOFF", "stage": "shell_handoff" }
+  ],
+  "ticker_messages": [
+    "ROUTE 7F2A TO 3C1D ACK",
+    "LATTICE SYNC 0.94",
+    "PROXY BUS FRAME 0412 OK",
+    "ENTANGLEMENT PAIR 11 STABLE",
+    "TRANSLATION CACHE WARM",
+    "TIMEBASE DRIFT 0.2 PPM",
+    "RELAY 04 HANDSHAKE",
+    "CHECKSUM 4C9D VERIFIED",
+    "CHANNEL 9 IDLE",
+    "COHERENCE WINDOW OPEN"
+  ],
+  "daemon_log_lines": [
+    "latticed: pair table rebuilt",
+    "busd: frame 0412 relayed",
+    "translated: cache primed",
+    "timed: drift within bounds",
+    "relayd: handshake complete",
+    "entangled: pair 11 stable",
+    "busd: queue depth 3",
+    "latticed: coherence window open",
+    "translated: lexicon mapped",
+    "timed: epoch advanced"
+  ]
+}

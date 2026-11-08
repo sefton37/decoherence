@@ -1,0 +1,28 @@
+{
+  "settings": [
+    {
+      "key": "text_speed",
+      "values": ["normal", "slow", "fast", "instant"],
+      "default": "normal",
+      "description": "Typewriter reveal speed of terminal output."
+    },
+    {
+      "key": "flicker",
+      "values": ["full", "half", "off"],
+      "default": "full",
+      "description": "Strength of the scripted screen flicker."
+    },
+    {
+      "key": "crt",
+      "values": ["normal", "off", "low", "high"],
+      "default": "normal",
+      "description": "Scanline and vignette strength of the screen."
+    },
+    {
+      "key": "display",
+      "values": ["1920x1080", "1280x720", "fullscreen"],
+      "default": "1920x1080",
+      "description": "Window size or fullscreen mode."
+    }
+  ]
+}

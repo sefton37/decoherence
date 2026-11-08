@@ -57,6 +57,7 @@ const _GALLERY_SAMPLES := [
 @onready var _handler: HandlerChat = $HandlerChat
 @onready var _shell: ShellController = $ShellController
 @onready var _crt_overlay: ColorRect = $CRTLayer/CRTOverlay
+@onready var _panels: BootPanels = $PanelsLayer/BootPanels
 
 var _stages: Array = []
 
@@ -78,6 +79,16 @@ var _hw_facts: Dictionary = {}
 var _gate_resolved: bool = false
 var _gate_success: bool = false
 
+## Spec #519: multiplier on the scripted flicker's peak (full 1.0, half 0.5,
+## off 0.0). Set from the persisted `flicker` setting; occurrences of the
+## beat are unchanged, only its peak scales.
+var _flicker_factor: float = 1.0
+
+## Gallery (DECOHERENCE_BOOT_GALLERY=1): frames per treatment at the panels'
+## 12 Hz tick = about 12 s each.
+const BOOT_GALLERY_FRAMES := 144
+const BOOT_GALLERY_FRAME_SEC := 1.0 / 12.0
+
 
 func _ready() -> void:
 	if OS.get_environment("DECOHERENCE_ANIM_GALLERY") == "1":
@@ -85,14 +96,117 @@ func _ready() -> void:
 		await _run_gallery_sequence()
 		get_tree().quit()
 		return
+	if OS.get_environment("DECOHERENCE_BOOT_GALLERY") == "1":
+		_terminal.set_input_line_active(false)
+		await _run_boot_gallery()
+		get_tree().quit()
+		return
 	_hw_facts = HardwareReadout.read_facts()
 	_hw_facts.merge(EntanglementReadout.read_facts())
 	_handler.setup(_terminal, _llm)
-	_shell.setup(_terminal)
+	_shell.setup(_terminal, _llm)
 	_shell.world_requested.connect(_on_world_requested)
+	Signals.setting_changed.connect(_apply_setting)
+	_apply_all_settings(_shell.get_settings())
+	_setup_panels()
 	_terminal.set_input_line_active(false)
 	_load_boot_sequence()
 	_run_boot_sequence()
+
+
+## Mounts the wire-room chrome. DECOHERENCE_BOOT_PRESET picks a preset (or
+## "off" for today's plain boot); otherwise the data file's `selected`.
+func _setup_panels() -> void:
+	var preset := OS.get_environment("DECOHERENCE_BOOT_PRESET")
+	if preset == "":
+		preset = BootPanels.selected_preset_from_data()
+	_panels.setup(preset, Vector2i(get_viewport_rect().size))
+	_panels.set_module_count(_module_count())
+	get_viewport().size_changed.connect(_on_viewport_resized)
+
+
+func _on_viewport_resized() -> void:
+	_panels.set_viewport(Vector2i(get_viewport_rect().size))
+
+
+func _module_count() -> int:
+	var parsed = IntentRouter.load_json(IntentRouter.MODULES_PATH)
+	return parsed.size() if typeof(parsed) == TYPE_ARRAY else 0
+
+
+## --- Settings (Spec #519) --------------------------------------------------
+
+## Applies every persisted setting once at startup. The `display` setting is
+## skipped when the launcher already overrode the window size (--resolution /
+## --fullscreen: the engine consumes those flags, so they are detected by the
+## window no longer matching the project's configured size), so scripted runs
+## keep the size they asked for.
+func _apply_all_settings(settings: Dictionary) -> void:
+	for key in settings:
+		if key == "display" and _launcher_overrode_window():
+			continue
+		_apply_setting(String(key), String(settings[key]))
+
+
+func _launcher_overrode_window() -> bool:
+	var win := get_window()
+	if win.mode == Window.MODE_FULLSCREEN or win.mode == Window.MODE_EXCLUSIVE_FULLSCREEN:
+		return true
+	var configured := Vector2i(
+		int(ProjectSettings.get_setting("display/window/size/viewport_width", 1152)),
+		int(ProjectSettings.get_setting("display/window/size/viewport_height", 648)))
+	return win.size != configured
+
+
+func _apply_setting(key: String, value: String) -> void:
+	match key:
+		"crt":
+			var params := SettingsStore.crt_params(value)
+			var material: ShaderMaterial = _crt_overlay.material
+			if material != null:
+				material.set_shader_parameter("scanline_intensity", params[0])
+				material.set_shader_parameter("vignette_strength", params[1])
+		"flicker":
+			_flicker_factor = SettingsStore.flicker_factor(value)
+		"display":
+			var req := SettingsStore.display_request(value)
+			var win := get_window()
+			if req["fullscreen"]:
+				win.mode = Window.MODE_FULLSCREEN
+			else:
+				win.mode = Window.MODE_WINDOWED
+				if win.size != req["size"]:
+					win.size = req["size"]
+
+
+## BOOT GALLERY (Spec #519 section 4a): plays each preset on synthetic
+## content (fixed frame clock, scripted lamp events, no live facts), labeled
+## TREATMENT n/N: NAME, then GALLERY COMPLETE. Frame content is a pure
+## function of the frame index, so two runs are byte-identical.
+func _run_boot_gallery() -> void:
+	var presets: Array = []
+	var parsed = IntentRouter.load_json(BootPanels.DATA_PATH)
+	if typeof(parsed) == TYPE_DICTIONARY:
+		presets = parsed.get("presets", [])
+	var viewport := Vector2i(get_viewport_rect().size)
+	for i in range(presets.size()):
+		var preset_id := String(presets[i].get("id", ""))
+		_panels.setup(preset_id, viewport, true)
+		_panels.set_auto_advance(false)
+		_panels.set_module_count(2)
+		_terminal.write_line("TREATMENT %d/%d: %s" % [i + 1, presets.size(), _panels.preset_name(preset_id)], Palette.ORANGE)
+		for f in range(BOOT_GALLERY_FRAMES):
+			_panels.apply_gallery_script(f)
+			_panels.set_frame(f)
+			_panels.sample_now()
+			await get_tree().create_timer(BOOT_GALLERY_FRAME_SEC).timeout
+		print("PROBE_GALLERY_TREATMENT n=%d active_cells=%d" % [i + 1, _panels.active_cells()])
+		var shots_dir := OS.get_environment("DECOHERENCE_GALLERY_SHOTS")
+		if shots_dir != "":
+			await RenderingServer.frame_post_draw
+			DirAccess.make_dir_recursive_absolute(shots_dir)
+			get_viewport().get_texture().get_image().save_png("%s/treatment_%d_%s.png" % [shots_dir, i + 1, preset_id])
+	_terminal.write_line("GALLERY COMPLETE", Palette.ORANGE)
 
 
 func _load_boot_sequence() -> void:
@@ -130,6 +244,8 @@ func _run_boot_sequence() -> void:
 ## boot_animator.gd's own determinism contract).
 func _run_stage(stage: Dictionary, stage_index: int) -> void:
 	var start_ms := Time.get_ticks_msec()
+	var stage_id := String(stage.get("id", ""))
+	_panels.set_stage_state(stage_id, "INIT")
 
 	if stage.has("ascii_art"):
 		_terminal.write_ascii_art(stage["ascii_art"], Palette.TEAL)
@@ -155,6 +271,8 @@ func _run_stage(stage: Dictionary, stage_index: int) -> void:
 
 	if stage.get("instability", false):
 		_trigger_instability_beat()
+
+	_panels.set_stage_state(stage_id, "UP")
 
 	var elapsed: int = Time.get_ticks_msec() - start_ms
 	var min_ms: int = stage.get("min_duration_ms", 0)
@@ -195,6 +313,7 @@ func _run_gallery_sequence() -> void:
 func _wait_for_model_ready() -> void:
 	_gate_resolved = false
 	_gate_success = false
+	_panels.set_stage_state("model_load", "INIT")
 	_llm.model_ready.connect(_on_model_ready, CONNECT_ONE_SHOT)
 	_llm.check_model_ready()
 
@@ -212,6 +331,7 @@ func _wait_for_model_ready() -> void:
 	_terminal.update_last_line(
 		"CORTEX WARM -- LINK ESTABLISHED" if _gate_success else "CORTEX LINK FAILED -- RETRY BUDGET EXHAUSTED"
 	)
+	_panels.mark_gate(_gate_success)
 	_trigger_instability_beat()
 
 
@@ -236,7 +356,7 @@ func _trigger_instability_beat() -> void:
 	if material == null:
 		return
 	var tween := create_tween()
-	tween.tween_property(material, "shader_parameter/flicker", 0.85, 0.05)
+	tween.tween_property(material, "shader_parameter/flicker", 0.85 * _flicker_factor, 0.05)
 	tween.tween_property(material, "shader_parameter/flicker", 0.0, 0.30)
 
 
@@ -253,6 +373,7 @@ func _enter_shell() -> void:
 		Signals.handler_reply_complete.connect(_on_first_handler_reply, CONNECT_ONE_SHOT)
 	_shell.enter(_gate_success)
 	Signals.shell_ready.emit()
+	_panels.enter_shell_mode()
 
 
 func _on_first_handler_reply(_text: String) -> void:
@@ -280,6 +401,7 @@ func _on_world_requested() -> void:
 		return
 	_terminal.set_input_line_active(false)
 	_terminal.get_parent().visible = false
+	_panels.get_parent().visible = false
 	add_child(_world)
 	_world.exited.connect(_on_world_exited)
 
@@ -290,6 +412,7 @@ func _on_world_exited() -> void:
 		_world.queue_free()
 		_world = null
 	_terminal.get_parent().visible = true
+	_panels.get_parent().visible = true
 	_terminal.set_input_line_active(true)
 	_terminal.write_line("WORLD CLOSED.", Palette.TEAL)
 	_shell.world_closed()

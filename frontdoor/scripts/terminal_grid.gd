@@ -35,6 +35,14 @@ var _stream_row_index: int = -1
 var _input_active: bool = false
 var _input_buffer: String = ""
 
+## Spec #519: a transient row (never part of the scrollback, never emitted as
+## a rendered line) drawn between the last row and the input prompt, and a
+## FIFO of rows still being revealed by the typewriter.
+var _transient_text: String = ""
+var _transient_color: Color = Palette.ORANGE
+var _typing: Array = []
+var _typing_cps: float = 0.0
+
 ## Curated Unicode pools for the deliberate "alien glyph" grammar -- Box
 ## Drawing (U+2500-257F), Block Elements (U+2580-259F), Braille Patterns
 ## (U+2800-28FF). DejaVu Sans Mono has broad coverage of all three blocks.
@@ -55,10 +63,17 @@ func _draw() -> void:
 	for r in range(visible.size()):
 		var row: Dictionary = visible[r]
 		var y: float = (r + 1) * cell_height
-		_draw_text_fixed_pitch(row["text"], Vector2(4, y), row["color"])
+		var shown: String = row["text"]
+		if row.has("reveal"):
+			shown = shown.substr(0, int(row["reveal"]))
+		_draw_text_fixed_pitch(shown, Vector2(4, y), row["color"])
+	var next_row: int = visible.size() + 1
+	if _transient_text != "":
+		_draw_text_fixed_pitch(_transient_text, Vector2(4, next_row * cell_height), _transient_color)
+		next_row += 1
 	if _input_active:
 		var prompt := "> " + _input_buffer
-		var y2: float = (visible.size() + 1) * cell_height
+		var y2: float = next_row * cell_height
 		_draw_text_fixed_pitch(prompt, Vector2(4, y2), Palette.TEAL)
 
 
@@ -225,3 +240,46 @@ func corrupt_glyph_flash(duration_sec: float = 0.3) -> void:
 	if idx < _rows.size():
 		_rows[idx]["text"] = original
 		queue_redraw()
+
+
+## --- Spec #519 additions ---------------------------------------------------
+
+## Like write_line(), but the row is revealed progressively at `cps`
+## characters per second. The FULL text is emitted to line_rendered at once,
+## so probes and transcripts see the same string as an instant write; only
+## the on-screen reveal is paced. Rows reveal in FIFO order.
+func write_line_typed(text: String, color, cps: float) -> void:
+	var before := _rows.size()
+	write_line(text, color)
+	for i in range(before, _rows.size()):
+		_rows[i]["reveal"] = 0.0
+		_typing.append(_rows[i])
+	_typing_cps = cps
+	queue_redraw()
+
+
+func _process(delta: float) -> void:
+	if _typing.is_empty():
+		return
+	var row: Dictionary = _typing[0]
+	row["reveal"] = float(row["reveal"]) + _typing_cps * delta
+	if int(row["reveal"]) >= String(row["text"]).length():
+		row.erase("reveal")
+		_typing.pop_front()
+	queue_redraw()
+
+
+func set_transient_line(text: String, color) -> void:
+	_transient_text = text
+	_transient_color = Palette.ORANGE if color == null else color
+	queue_redraw()
+
+
+func clear_transient_line() -> void:
+	_transient_text = ""
+	queue_redraw()
+
+
+func has_transient_line() -> bool:
+	return _transient_text != ""
+

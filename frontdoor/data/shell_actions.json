@@ -1,0 +1,33 @@
+{
+  "actions": [
+    {
+      "id": "open_module",
+      "description": "Launch one installed module (for example the chatroom or the world).",
+      "args": { "module": { "enum_from": "modules" } }
+    },
+    {
+      "id": "list_dir",
+      "description": "Show the directory listing of installed modules."
+    },
+    {
+      "id": "help",
+      "description": "Explain what the player can do here and which commands exist."
+    },
+    {
+      "id": "show_settings",
+      "description": "Show the current values of the system settings."
+    },
+    {
+      "id": "set_setting",
+      "description": "Change exactly one system setting to one of its allowed values.",
+      "args": {
+        "key": { "enum_from": "settings.keys" },
+        "value": { "enum_from": "settings.values" }
+      }
+    },
+    {
+      "id": "unclear",
+      "description": "The request matches none of the actions above, or is not about this system."
+    }
+  ]
+}

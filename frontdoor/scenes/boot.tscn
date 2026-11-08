@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://frontdoor/scripts/boot_controller.gd" id="1"]
 [ext_resource type="Script" path="res://frontdoor/scripts/terminal_grid.gd" id="2"]
@@ -6,6 +6,7 @@
 [ext_resource type="Script" path="res://frontdoor/scripts/handler_chat.gd" id="4"]
 [ext_resource type="Shader" path="res://frontdoor/shaders/crt.gdshader" id="5"]
 [ext_resource type="Script" path="res://frontdoor/scripts/shell_controller.gd" id="6"]
+[ext_resource type="Script" path="res://frontdoor/scripts/boot_panels.gd" id="7"]
 
 [sub_resource type="ShaderMaterial" id="1"]
 shader = ExtResource("5")
@@ -26,6 +27,15 @@ layer = 0
 anchor_right = 1.0
 anchor_bottom = 1.0
 script = ExtResource("2")
+
+[node name="PanelsLayer" type="CanvasLayer" parent="."]
+layer = 5
+
+[node name="BootPanels" type="Control" parent="PanelsLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("7")
 
 [node name="LlmClient" type="Node" parent="."]
 script = ExtResource("3")

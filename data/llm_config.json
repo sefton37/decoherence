@@ -1,4 +1,12 @@
 {
+  "source": "ollama",
+  "ollama": {
+    "host": "127.0.0.1",
+    "port": 11434,
+    "model": "qwen3:14b",
+    "num_ctx": 16384,
+    "think": false
+  },
   "server_binary": "llm/llama.cpp/build/bin/llama-server",
   "model_path": "llm/models/qwen3-4b.gguf",
   "host": "127.0.0.1",

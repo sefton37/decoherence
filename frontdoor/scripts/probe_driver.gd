@@ -117,6 +117,13 @@ func _ready() -> void:
 	# shell_ready ever fires.
 	Signals.line_rendered.connect(_on_line_rendered)
 
+	var ext := OS.get_environment("DECOHERENCE_PROBE_MODE")
+	if ext in EXT_MODES:
+		_ext_mode = ext
+		_start_ext_watchdog()
+		_run_ext.call_deferred()
+		return
+
 	if OS.get_environment("DECOHERENCE_PROBE_MODE") == "world":
 		_world_mode = true
 		_start_normal_watchdog()
@@ -135,6 +142,12 @@ func _ready() -> void:
 
 func _on_line_rendered(text: String) -> void:
 	print(PROBE_RENDERED_PREFIX + text)
+
+	if _ext_mode != "":
+		_ext_rendered.append(text)
+		if _ext_first_line_ms < 0:
+			_ext_first_line_ms = Time.get_ticks_msec()
+		return
 
 	if _world_mode:
 		_world_on_line(text)
@@ -412,3 +425,596 @@ func _world_finish() -> void:
 	_watchdog.stop()
 	_save_screenshot()
 	get_tree().quit()
+
+
+## ===========================================================================
+## Spec #519 modes (additive; the chat / force-fail / world paths above are
+## untouched). Selected by DECOHERENCE_PROBE_MODE:
+##   density      boot with DECOHERENCE_BOOT_PRESET, report layout + density
+##   router       feed an utterance file through the shell (accuracy / degrade)
+##   e2e_fastpath / e2e_thinking / e2e_dispatch   shell behavior through the
+##                real model
+##   e2e_settings / e2e_relaunch / e2e_corrupt    settings apply + persistence
+## All of them drive the shell through Signals.terminal_line_submitted, the
+## same send path a real Enter keypress uses.
+## ===========================================================================
+
+const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot"]
+const EXT_WATCHDOG_SECONDS := 1500.0
+const RESOLVE_TIMEOUT_SEC := 25.0
+
+var _ext_mode := ""
+var _ext_rendered: Array = []
+var _ext_first_line_ms := -1
+var _ext_resolved := false
+var _ext_result: Dictionary = {}
+var _ext_think_events: Array = []
+var _ext_chat_opened := false
+var _boot_started_ms := 0
+var _shell_ready_seen := false
+var _shell_ready_ms := 0
+
+
+## Snapshot taken INSIDE the shell_ready emission, i.e. before boot_controller
+## retires the boot panes (enter_shell_mode runs right after the emit).
+var _snap: Dictionary = {}
+
+
+func _on_ext_shell_ready() -> void:
+	_shell_ready_seen = true
+	_shell_ready_ms = Time.get_ticks_msec()
+	var panels := _panels_node()
+	_snap = {
+		"report": panels.layout_report(),
+		"mean": panels.mean_active_cells(),
+		"unique": panels.unique_frames(),
+		"lamp": {
+			"cortex": panels.lamp_state("cortex"),
+			"cortex_up_before_gate": panels.cortex_up_before_gate(),
+			"up_count": panels.up_count(),
+			"rollup_text": panels.rollup_text(),
+		},
+	}
+
+
+func _start_ext_watchdog() -> void:
+	_boot_started_ms = Time.get_ticks_msec()
+	_watchdog = Timer.new()
+	_watchdog.one_shot = true
+	_watchdog.wait_time = EXT_WATCHDOG_SECONDS
+	add_child(_watchdog)
+	_watchdog.timeout.connect(_on_ext_watchdog)
+	_watchdog.start()
+
+
+func _on_ext_watchdog() -> void:
+	print("PROBE_TIMEOUT mode=" + _ext_mode)
+	get_tree().quit(1)
+
+
+func _scene() -> Node:
+	return get_tree().current_scene
+
+
+func _shell_node() -> ShellController:
+	return _scene().get_node("ShellController")
+
+
+func _llm_node() -> LlmClient:
+	return _scene().get_node("LlmClient")
+
+
+func _panels_node() -> BootPanels:
+	return _scene().get_node("PanelsLayer/BootPanels")
+
+
+func _terminal_node() -> TerminalGrid:
+	return _scene().get_node("TerminalLayer/TerminalGrid")
+
+
+func _overlay_material() -> ShaderMaterial:
+	return _scene().get_node("CRTLayer/CRTOverlay").material
+
+
+func _on_ext_resolved(source: String, action: String, args: Dictionary) -> void:
+	_ext_resolved = true
+	_ext_result = {"source": source, "action": action, "args": args, "at_ms": Time.get_ticks_msec()}
+
+
+func _on_ext_thinking(active: bool) -> void:
+	_ext_think_events.append({"active": active, "at_ms": Time.get_ticks_msec()})
+
+
+func _on_ext_chat_opened() -> void:
+	_ext_chat_opened = true
+
+
+func _wait_frames(n: int) -> void:
+	for i in range(n):
+		await get_tree().process_frame
+
+
+func _wait_seconds(sec: float) -> void:
+	await get_tree().create_timer(sec).timeout
+
+
+## Submits one line and waits for intent_resolved. Returns {timed_out, wall_ms,
+## first_line_ms, ...resolved fields}.
+func _submit_and_wait(text: String, timeout_sec: float = RESOLVE_TIMEOUT_SEC) -> Dictionary:
+	_ext_resolved = false
+	_ext_result = {}
+	_ext_first_line_ms = -1
+	var t0 := Time.get_ticks_msec()
+	Signals.terminal_line_submitted.emit(text)
+	var deadline := t0 + int(timeout_sec * 1000.0)
+	while not _ext_resolved and Time.get_ticks_msec() < deadline:
+		await get_tree().process_frame
+	var out := _ext_result.duplicate()
+	out["timed_out"] = not _ext_resolved
+	out["wall_ms"] = (int(_ext_result.get("at_ms", Time.get_ticks_msec())) - t0)
+	out["first_line_ms"] = (_ext_first_line_ms - t0) if _ext_first_line_ms >= 0 else -1
+	return out
+
+
+func _ext_quit(code: int) -> void:
+	if _watchdog != null:
+		_watchdog.stop()
+	_save_screenshot()
+	get_tree().quit(code)
+
+
+func _run_ext() -> void:
+	Signals.intent_resolved.connect(_on_ext_resolved)
+	Signals.intent_thinking.connect(_on_ext_thinking)
+	Signals.chat_opened.connect(_on_ext_chat_opened)
+	if _ext_mode == "density":
+		await _run_density()
+		return
+	await Signals.shell_ready
+	await _wait_frames(5)
+	match _ext_mode:
+		"router":
+			await _run_router()
+		"e2e_fastpath":
+			await _run_e2e_fastpath()
+		"e2e_thinking":
+			await _run_e2e_thinking()
+		"e2e_dispatch":
+			await _run_e2e_dispatch()
+		"e2e_settings":
+			await _run_e2e_settings()
+		"e2e_relaunch":
+			await _run_e2e_relaunch()
+		"e2e_corrupt":
+			await _run_e2e_corrupt()
+		"seam":
+			await _run_seam()
+		"shell_shot":
+			await _run_shell_shot()
+	_ext_quit(0)
+
+
+## --- density ---------------------------------------------------------------
+
+## Share of lit pixels, and the share of lit pixels whose hue is outside the
+## teal (about 174 deg) / orange (about 30 deg) bands. Greys and whites are
+## off-palette by definition (low saturation).
+func _palette_stats(img: Image) -> Dictionary:
+	img.convert(Image.FORMAT_RGB8)
+	var data := img.get_data()
+	var w := img.get_width()
+	var h := img.get_height()
+	var lit := 0
+	var off := 0
+	var total := 0
+	for y in range(0, h, 2):
+		for x in range(0, w, 2):
+			var o := (y * w + x) * 3
+			var r := int(data[o])
+			var g := int(data[o + 1])
+			var b := int(data[o + 2])
+			total += 1
+			var mx := maxi(r, maxi(g, b))
+			if mx < 60:
+				continue
+			var mn := mini(r, mini(g, b))
+			var d := float(mx - mn)
+			# The engine's default grey clear colour is today's background, not
+			# a drawn pixel: skip dark, near-grey pixels. Bright greys (white or
+			# grey glyphs) still count as lit and off-palette below.
+			if d / float(mx) < 0.12 and mx < 100:
+				continue
+			lit += 1
+			var hue := -1.0
+			if d / float(mx) >= 0.12:
+				if mx == r:
+					hue = fposmod(60.0 * (float(g - b) / d), 360.0)
+				elif mx == g:
+					hue = 60.0 * (2.0 + float(b - r) / d)
+				else:
+					hue = 60.0 * (4.0 + float(r - g) / d)
+			var on_palette := (hue >= 165.0 and hue <= 185.0) or (hue >= 22.0 and hue <= 38.0)
+			if not on_palette:
+				off += 1
+	return {"lit_frac": float(lit) / maxf(1.0, float(total)), "offpalette_frac": float(off) / maxf(1.0, float(lit))}
+
+
+func _run_density() -> void:
+	Signals.shell_ready.connect(_on_ext_shell_ready, CONNECT_ONE_SHOT)
+	var gate_line := false
+	while not gate_line:
+		if _ext_rendered.any(func(t): return String(t).findn("CORTEX LINK FAILED") != -1 or String(t).findn("LINK ESTABLISHED") != -1):
+			gate_line = true
+		await get_tree().process_frame
+	await _wait_frames(30)
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	var stats := _palette_stats(img)
+	var neg := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	neg.fill(Color8(255, 176, 0))
+	var neg_stats := _palette_stats(neg)
+	# Blank-frame negative control: a frame with nothing drawn must read ~0 lit.
+	var blank := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	blank.fill(Palette.BG)
+	var blank_stats := _palette_stats(blank)
+	while not _shell_ready_seen:
+		await get_tree().process_frame
+	var boot_ms := _shell_ready_ms - _boot_started_ms
+	var rep: Dictionary = _snap["report"]
+	var vp := get_viewport().get_visible_rect().size
+	var row := {
+		"preset": OS.get_environment("DECOHERENCE_BOOT_PRESET"),
+		"size": "%dx%d" % [int(vp.x), int(vp.y)],
+		"viewport": rep["viewport"],
+		"tier": rep["tier"],
+		"term": rep["term"],
+		"panels": rep["panels"],
+		"panel_count": rep["panel_count"],
+		"overlaps": rep["overlaps"],
+		"in_bounds": rep["in_bounds"],
+		"active_cells_mean": _snap["mean"],
+		"unique_frames": _snap["unique"],
+		"boot_ms": boot_ms,
+		"lamp": _snap["lamp"],
+		"offpalette_frac": stats["offpalette_frac"],
+		"lit_frac": stats["lit_frac"],
+		"palette_neg_frac": neg_stats["offpalette_frac"],
+		"blank_neg_lit_frac": blank_stats["lit_frac"],
+	}
+	print("PROBE_DENSITY " + JSON.stringify(row))
+	_ext_quit(0)
+
+
+## --- router (accuracy / degrade) --------------------------------------------
+
+func _row_template(u: Dictionary) -> Dictionary:
+	return {
+		"text": String(u.get("text", "")), "split": String(u.get("split", "")), "class": String(u.get("class", "")),
+		"expect_action": String(u.get("expect_action", "")), "expect_args": u.get("expect_args", {}),
+	}
+
+
+func _run_router() -> void:
+	var shell := _shell_node()
+	var llm := _llm_node()
+	var out_dir := OS.get_environment("DECOHERENCE_ROUTER_OUT")
+	var degrade := OS.get_environment("DECOHERENCE_ROUTER_MODE") == "degrade"
+	DirAccess.make_dir_recursive_absolute(out_dir)
+	var utts = IntentRouter.load_json(OS.get_environment("DECOHERENCE_UTTERANCES"))
+	var work: Array = []
+	if degrade:
+		var n_free := 0
+		for u in utts:
+			if n_free >= 24:
+				break
+			work.append(u)
+			n_free += 1
+		for fast_cmd in ["dir", "help", "settings"]:
+			work.append({"text": fast_cmd, "split": "dev", "class": "fast", "expect_action": "fast", "fast": true})
+	else:
+		shell.router_dry_run = true
+		work = utts
+	var req0 := llm.request_count
+	var rows: Array = []
+	var rendered_all: Array = []
+	for u in work:
+		var mark := _ext_rendered.size()
+		var res := await _submit_and_wait(String(u["text"]))
+		await _wait_frames(2)
+		var row := _row_template(u)
+		row["fast"] = bool(u.get("fast", false))
+		row["source"] = String(res.get("source", "timeout"))
+		row["action"] = String(res.get("action", "unclear"))
+		row["args"] = res.get("args", {})
+		row["timed_out"] = bool(res["timed_out"])
+		row["wall_ms"] = int(res["wall_ms"])
+		row["reason"] = String(shell.last_route.get("reason", ""))
+		row["say"] = String(shell.last_route.get("say", ""))
+		row["dispatched"] = bool(shell.last_route.get("dispatched", false))
+		row["would_dispatch"] = bool(shell.last_route.get("would_dispatch", false))
+		row["ms"] = int(shell.last_route.get("ms", 0))
+		row["thinking_on"] = llm.last_thinking_enabled if row["source"] == "llm" else false
+		row["reasoning_chars"] = llm.last_reasoning_chars if row["source"] == "llm" else 0
+		row["prompt_tokens"] = llm.last_prompt_tokens if row["source"] == "llm" else 0
+		row["out_tokens"] = llm.last_out_tokens if row["source"] == "llm" else 0
+		var lines: Array = _ext_rendered.slice(mark)
+		row["rendered"] = lines
+		for l in lines:
+			rendered_all.append(l)
+		rows.append(row)
+	var llm_cfg = IntentRouter.load_json("res://data/llm_config.json")
+	if typeof(llm_cfg) != TYPE_DICTIONARY:
+		llm_cfg = {}
+	var src := LlmClient.resolve_source(llm_cfg, OS.get_environment("DECOHERENCE_LLM_SOURCE"))
+	var model_name := ""
+	var ctx_used := 0
+	if src == LlmClient.SOURCE_OLLAMA:
+		model_name = String(llm_cfg.get("ollama", {}).get("model", ""))
+		ctx_used = int(llm_cfg.get("ollama", {}).get("num_ctx", 0))
+	elif src == LlmClient.SOURCE_OWNED:
+		model_name = String(llm_cfg.get("model_path", "")).get_file().get_basename()
+		ctx_used = int(llm_cfg.get("ctx_size", 0))
+	var doc := {"mode": "degrade" if degrade else "live", "model": model_name, "source": src, "num_ctx": ctx_used, "rows": rows, "request_count_delta": llm.request_count - req0}
+	var f := FileAccess.open(out_dir + "/rows.json", FileAccess.WRITE)
+	f.store_string(JSON.stringify(doc))
+	f.close()
+	var r := FileAccess.open(out_dir + "/rendered.txt", FileAccess.WRITE)
+	r.store_string("\n".join(PackedStringArray(rendered_all)) + "\n")
+	r.close()
+	print("PROBE_ROUTER_DONE rows=%d request_count_delta=%d" % [rows.size(), llm.request_count - req0])
+
+
+## --- e2e: fast path ------------------------------------------------------------
+
+func _run_e2e_fastpath() -> void:
+	var llm := _llm_node()
+	var req0 := llm.request_count
+	var cmds := ["dir", "DIR", "help", "HELP", "settings", "set crt normal", "set flicker full", "set text_speed normal"]
+	var max_ms := 0
+	var dir_lines: Array = []
+	for c in cmds:
+		var mark := _ext_rendered.size()
+		var res := await _submit_and_wait(c, 5.0)
+		await _wait_frames(2)
+		max_ms = maxi(max_ms, int(res["first_line_ms"]))
+		if String(c).to_lower() == "dir" and dir_lines.is_empty():
+			dir_lines = _ext_rendered.slice(mark)
+	print("PROBE_FASTPATH cmds=%d llm_requests_delta=%d max_resolve_ms=%d" % [cmds.size(), llm.request_count - req0, max_ms])
+	var want := ["DIRECTORY LISTING:", "  CHAT", "  WORLD", "2 MODULE(S)"]
+	if dir_lines == want:
+		print("PROBE_DIR_LEGACY_LINES_OK")
+	var shell := _shell_node()
+	shell.router_dry_run = true
+	var mark2 := _ext_rendered.size()
+	await _submit_and_wait("xyzzy_no_such_module")
+	await _wait_frames(2)
+	if _ext_rendered.slice(mark2).any(func(t): return String(t) == "COMMAND NOT RECOGNIZED: xyzzy_no_such_module"):
+		print("PROBE_UNKNOWN_COMPAT_OK")
+
+
+## --- e2e: thinking row, stale drop, busy fast path, timeout -----------------------
+
+func _run_e2e_thinking() -> void:
+	var shell := _shell_node()
+	var term := _terminal_node()
+	shell.router_dry_run = true
+	# 1. Thinking row: appears within 250 ms, clears on resolution, never on a fast command.
+	_ext_think_events.clear()
+	var t0 := Time.get_ticks_msec()
+	_ext_resolved = false
+	Signals.terminal_line_submitted.emit("take me to the chatroom please")
+	var first_ms := -1
+	var saw_row := false
+	while not _ext_resolved and Time.get_ticks_msec() - t0 < 25000:
+		if first_ms < 0 and not _ext_think_events.is_empty():
+			first_ms = int(_ext_think_events[0]["at_ms"]) - t0
+		if term.has_transient_line():
+			saw_row = true
+		await get_tree().process_frame
+	await _wait_frames(3)
+	var cleared := (not term.has_transient_line()) and _ext_think_events.size() >= 2 and not bool(_ext_think_events[_ext_think_events.size() - 1]["active"])
+	_ext_think_events.clear()
+	await _submit_and_wait("dir", 5.0)
+	var flash := 1 if not _ext_think_events.is_empty() else 0
+	if first_ms >= 0 and saw_row:
+		print("PROBE_THINKING first_ms=%d cleared=%d fastpath_flash=%d" % [first_ms, 1 if cleared else 0, flash])
+	# 2. Stale drop: route a line that WOULD open chat, then supersede it at once.
+	shell.router_dry_run = false
+	_ext_chat_opened = false
+	var drops0 := shell.stale_drops
+	var n := 0
+	for i in range(3):
+		var before := shell.stale_drops
+		Signals.terminal_line_submitted.emit("take me to the chat module right now")
+		await _wait_frames(2)
+		Signals.terminal_line_submitted.emit("help")
+		var deadline := Time.get_ticks_msec() + 30000
+		while shell.stale_drops == before and Time.get_ticks_msec() < deadline:
+			await get_tree().process_frame
+		n += 1 if shell.stale_drops > before else 0
+	await _wait_frames(5)
+	var moved := 1 if (_ext_chat_opened or shell.current_state_name() != "SHELL") else 0
+	print("PROBE_STALE_DROPPED n=%d dispatched_after_state_change=%d" % [shell.stale_drops - drops0, moved])
+	# 3. Busy router never blocks an exact command.
+	shell.router_dry_run = true
+	Signals.terminal_line_submitted.emit("what modules do you have installed")
+	await _wait_frames(3)
+	var mark := _ext_rendered.size()
+	var tb := Time.get_ticks_msec()
+	_ext_first_line_ms = -1
+	Signals.terminal_line_submitted.emit("dir")
+	await _wait_frames(3)
+	var busy_ms := (_ext_first_line_ms - tb) if _ext_first_line_ms >= 0 else 9999
+	if busy_ms < 150 and _ext_rendered.slice(mark).has("DIRECTORY LISTING:"):
+		print("PROBE_BUSY_FASTPATH_OK")
+	await _wait_seconds(1.0)
+	# 4. Timeout -> honest degraded line, nothing dispatched, exact commands still work.
+	shell.router_timeout_override_ms = 1
+	var mark3 := _ext_rendered.size()
+	var res := await _submit_and_wait("open the chat for me", 10.0)
+	var deg_dispatched := bool(shell.last_route.get("dispatched", true))
+	shell.router_timeout_override_ms = 0
+	await _wait_frames(2)
+	var joined := " ".join(PackedStringArray(_ext_rendered.slice(mark3)))
+	var res2 := await _submit_and_wait("dir", 5.0)
+	if String(res.get("source", "")) == "degraded" and joined.contains("EXACT COMMANDS") and joined.contains("HELP") and not deg_dispatched and String(res2.get("source", "")) == "fast":
+		print("PROBE_TIMEOUT_DEGRADED_OK")
+
+
+## --- e2e: real dispatch through the real model ----------------------------------------
+
+func _check_state(action: String, args: Dictionary, lines: Array) -> bool:
+	var shell := _shell_node()
+	match action:
+		"list_dir":
+			return lines.has("DIRECTORY LISTING:")
+		"help":
+			return lines.has("Q-ENT OS COMMANDS:")
+		"show_settings":
+			return lines.has("SETTINGS:")
+		"set_setting":
+			return String(shell.get_settings().get(String(args.get("key", "")), "")) == String(args.get("value", "")) and not String(args.get("key", "")).is_empty()
+		"open_module":
+			return shell.current_state_name() == "CHAT" and _ext_chat_opened
+	return false
+
+
+func _run_e2e_dispatch() -> void:
+	var shell := _shell_node()
+	shell.router_dry_run = false
+	var cases := [
+		["show me the directory", "list_dir"],
+		["what can I do here", "help"],
+		["show my settings", "show_settings"],
+		["make the flicker half", "set_setting"],
+		["make the text faster", "set_setting"],
+		["turn off the crt effect", "set_setting"],
+		["go 720p", "set_setting"],
+		["take me to the chat", "open_module"],
+	]
+	for c in cases:
+		var mark := _ext_rendered.size()
+		var res := await _submit_and_wait(String(c[0]))
+		await _wait_frames(3)
+		var lines: Array = _ext_rendered.slice(mark)
+		var action := String(res.get("action", "unclear"))
+		var args: Dictionary = res.get("args", {})
+		var echo_ok := action != "unclear" and lines.has("> " + IntentRouter.echo_for(action, args))
+		var state_ok := _check_state(action, args, lines)
+		var extra := ""
+		if action == "set_setting":
+			extra = " key=%s" % String(args.get("key", ""))
+		print("PROBE_DISPATCH action=%s%s via=%s echo_matches=%d state_matches=%d" % [action, extra, String(res.get("source", "none")), 1 if echo_ok else 0, 1 if state_ok else 0])
+		if action != String(c[1]):
+			print("PROBE_DISPATCH_MISS expected=%s got=%s" % [String(c[1]), action])
+		if String(c[0]).contains("720"):
+			Signals.terminal_line_submitted.emit("set display 1920x1080")
+			await _wait_frames(5)
+
+
+## --- e2e: settings apply / persist / invalid / corrupt --------------------------------------
+
+func _sample_flicker_max(boot: Node) -> float:
+	var mat := _overlay_material()
+	var peak := 0.0
+	boot._trigger_instability_beat()
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 700:
+		peak = maxf(peak, float(mat.get_shader_parameter("flicker")))
+		await get_tree().process_frame
+	return peak
+
+
+func _run_e2e_settings() -> void:
+	var shell := _shell_node()
+	var mat := _overlay_material()
+	var boot := _scene()
+	for v in ["normal", "off", "low", "high", "normal"]:
+		await _submit_and_wait("set crt " + v, 5.0)
+		await _wait_frames(3)
+		print("PROBE_SETTING_APPLIED key=crt value=%s scanline_intensity=%s vignette_strength=%s" % [v, str(mat.get_shader_parameter("scanline_intensity")), str(mat.get_shader_parameter("vignette_strength"))])
+	for v in ["off", "half", "full"]:
+		await _submit_and_wait("set flicker " + v, 5.0)
+		var peak := await _sample_flicker_max(boot)
+		print("PROBE_FLICKER_MAX setting=%s max=%.3f" % [v, peak])
+	for v in ["1280x720", "1920x1080", "1280x720"]:
+		await _submit_and_wait("set display " + v, 5.0)
+		await _wait_frames(20)
+		var win := get_window()
+		print("PROBE_SETTING_APPLIED key=display value=%s window_w=%d window_h=%d" % [v, win.size.x, win.size.y])
+	await _submit_and_wait("set text_speed fast", 5.0)
+	print("PROBE_SETTING_APPLIED key=text_speed value=fast cps=%s" % str(shell._text_cps))
+	# Invalid input never changes anything.
+	var before := shell.get_settings()
+	var mark := _ext_rendered.size()
+	await _submit_and_wait("set flicker purple", 5.0)
+	await _submit_and_wait("set bogus 1", 5.0)
+	await _wait_frames(2)
+	var rej := _ext_rendered.slice(mark).filter(func(t): return String(t).begins_with("SETTING NOT RECOGNIZED")).size()
+	if shell.get_settings() == before and rej == 2:
+		print("PROBE_SETTINGS_INVALID_REJECTED_OK")
+	await _submit_and_wait("set crt low", 5.0)
+	await _submit_and_wait("set flicker half", 5.0)
+	print("PROBE_SETTINGS_FINAL " + JSON.stringify(shell.get_settings()))
+
+
+func _run_e2e_relaunch() -> void:
+	var shell := _shell_node()
+	var mat := _overlay_material()
+	await _wait_frames(20)
+	var s := shell.get_settings()
+	var win := get_window()
+	var want := {"crt": "low", "flicker": "half", "text_speed": "fast", "display": "1280x720"}
+	print("PROBE_RELAUNCH_STATE " + JSON.stringify(s) + " scanline=" + str(mat.get_shader_parameter("scanline_intensity")) + " window=%dx%d" % [win.size.x, win.size.y])
+	if s == want and absf(float(mat.get_shader_parameter("scanline_intensity")) - 0.12) < 0.001 and win.size == Vector2i(1280, 720):
+		print("PROBE_SETTINGS_PERSISTED_RELAUNCH_OK")
+
+
+func _run_e2e_corrupt() -> void:
+	var shell := _shell_node()
+	await _wait_frames(5)
+	var defaults := {"crt": "normal", "flicker": "full", "text_speed": "normal", "display": "1920x1080"}
+	var honest := _ext_rendered.any(func(t): return String(t).begins_with("SETTINGS FILE UNREADABLE"))
+	if shell.get_settings() == defaults and honest and shell.settings_status == "corrupt":
+		print("PROBE_SETTINGS_CORRUPT_DEFAULTED_OK")
+
+
+## --- model-source seam (Spec #519 A1) -----------------------------------------
+## Drives one routed free-text line and, if it was model-routed, one send_chat
+## call, against whatever Ollama-shaped endpoint DECOHERENCE_OLLAMA_PORT names
+## (tests/fake_ollama.py). tests/verify_ollama_seam.sh judges the request log.
+
+func _run_seam() -> void:
+	var shell := _shell_node()
+	var llm := _llm_node()
+	shell.router_dry_run = true
+	var mark := _ext_rendered.size()
+	var res := await _submit_and_wait("take me to the chat room please")
+	await _wait_frames(2)
+	var route_source := String(res.get("source", "timeout"))
+	var chat_len := -1
+	var chat_deltas := 0
+	if route_source == "llm":
+		var box := {"done": false, "text": "", "deltas": 0}
+		llm.send_chat([{"role": "user", "content": "hello"}], func(_piece): box["deltas"] += 1, func(text): box["text"] = String(text); box["done"] = true)
+		var deadline := Time.get_ticks_msec() + 15000
+		while not bool(box["done"]) and Time.get_ticks_msec() < deadline:
+			await get_tree().process_frame
+		chat_len = String(box["text"]).length()
+		chat_deltas = int(box["deltas"])
+	var rendered: Array = _ext_rendered.slice(mark)
+	print("PROBE_SEAM route_source=%s route_action=%s chat_len=%d chat_deltas=%d requests=%d" % [route_source, String(res.get("action", "")), chat_len, chat_deltas, llm.request_count])
+	for l in rendered:
+		print("PROBE_SEAM_LINE " + String(l))
+
+
+## --- shell screenshot (Spec #519 deliverable) -----------------------------------
+## Types two plain-language lines through the real router and leaves the result
+## on screen; _ext_quit saves DECOHERENCE_PROBE_SCREENSHOT.
+
+func _run_shell_shot() -> void:
+	for text in ["what can I do here", "make the text faster"]:
+		var res := await _submit_and_wait(text)
+		print("PROBE_SHELL_SHOT text=%s source=%s action=%s" % [text, String(res.get("source", "")), String(res.get("action", ""))])
+		await _wait_seconds(1.5)
+	await _wait_seconds(2.0)
