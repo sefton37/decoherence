@@ -95,6 +95,16 @@ var _quiet_window_leaked := false
 var _force_fail_saw_failure := false
 var _force_fail_saw_leak := false
 
+## --- World mode (Spec #501): DECOHERENCE_PROBE=1 + DECOHERENCE_PROBE_MODE=world drives
+## BOOT -> SHELL -> `dir` -> `world` -> walk-scene up -> screenshot -> exit -> shell still
+## alive -> unknown module rejected. The default (chat) path above is untouched.
+const WORLD_COMMAND := "world"
+const UNKNOWN_COMMAND := "xyzzy_no_such_module"
+const WORLD_MIN_CHUNKS := 9
+var _world_mode := false
+var _world_step := ""  # dir | launch | in_world | exit_dir | exit_unknown | done
+var _world_settle_frames := 0
+
 
 func _ready() -> void:
 	if OS.get_environment("DECOHERENCE_PROBE") != "1":
@@ -106,6 +116,12 @@ func _ready() -> void:
 	# it must catch boot-stage hardware-readout lines too, long before
 	# shell_ready ever fires.
 	Signals.line_rendered.connect(_on_line_rendered)
+
+	if OS.get_environment("DECOHERENCE_PROBE_MODE") == "world":
+		_world_mode = true
+		_start_normal_watchdog()
+		Signals.shell_ready.connect(_on_world_shell_ready, CONNECT_ONE_SHOT)
+		return
 
 	if _force_fail_mode:
 		_start_force_fail_watchdog()
@@ -119,6 +135,10 @@ func _ready() -> void:
 
 func _on_line_rendered(text: String) -> void:
 	print(PROBE_RENDERED_PREFIX + text)
+
+	if _world_mode:
+		_world_on_line(text)
+		return
 
 	if _force_fail_mode:
 		if text.findn("CORTEX LINK FAILED") != -1:
@@ -298,3 +318,97 @@ func _save_screenshot() -> void:
 		return
 	var img := get_viewport().get_texture().get_image()
 	img.save_png(_screenshot_path)
+
+
+## --- World mode (Spec #501) ----------------------------------------------
+
+func _on_world_shell_ready() -> void:
+	_world_step = "dir"
+	Signals.terminal_line_submitted.emit(DIR_COMMAND)
+
+
+func _world_on_line(text: String) -> void:
+	if _world_step == "dir" and text.findn("WORLD") != -1 and text.findn("COMMAND") == -1:
+		print("PROBE_WORLD_LISTED")
+		_world_step = "launch"
+		Signals.terminal_line_submitted.emit(WORLD_COMMAND)
+	elif _world_step == "exit_dir" and text.findn("DIRECTORY LISTING") != -1:
+		print("PROBE_WORLD_EXITED shell_alive=1")
+		_world_step = "exit_unknown"
+		Signals.terminal_line_submitted.emit(UNKNOWN_COMMAND)
+	elif _world_step == "exit_unknown" and text.findn("COMMAND NOT RECOGNIZED") != -1:
+		print("PROBE_WORLD_UNKNOWN_REJECTED")
+		_world_finish()
+
+
+func _process(_delta: float) -> void:
+	if not _world_mode or _finished:
+		return
+	if _world_step == "launch":
+		var w := get_tree().get_first_node_in_group("stalag_world")
+		if w != null:
+			_world_step = "in_world"
+			_world_settle_frames = 0
+	elif _world_step == "in_world":
+		var w := get_tree().get_first_node_in_group("stalag_world")
+		if w == null:
+			return
+		var streamer: Node = w.get_node("Streamer")
+		if not (streamer.ring_ready() and streamer.pending_count() == 0 and w.is_grounded() and w.chunks_loaded() >= WORLD_MIN_CHUNKS):
+			return
+		_world_settle_frames += 1
+		if _world_settle_frames < 30:
+			return
+		_world_step = "shot"
+		_world_shoot(w)
+
+
+## Screenshot through the REAL shell path (CRT overlay and all). The terrain fraction is
+## measured as "lower-half pixels that change when the terrain is hidden", so the overlay's
+## own scanline/vignette darkening cannot be mistaken for the sky or for terrain.
+func _world_shoot(w: Node) -> void:
+	var streamer: Node3D = w.get_node("Streamer")
+	print("PROBE_WORLD_ENTERED chunks=%d grounded=%d" % [w.chunks_loaded(), 1 if w.is_grounded() else 0])
+	await get_tree().process_frame
+	var with_terrain := get_viewport().get_texture().get_image()
+	with_terrain.convert(Image.FORMAT_RGB8)
+	var shots_dir := OS.get_environment("STALAG_SHOTS_DIR")
+	if shots_dir.is_empty():
+		shots_dir = OS.get_user_data_dir()
+	DirAccess.make_dir_recursive_absolute(shots_dir)
+	var path := shots_dir + "/entry_world.png"
+	with_terrain.save_png(path)
+	streamer.visible = false
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var without := get_viewport().get_texture().get_image()
+	without.convert(Image.FORMAT_RGB8)
+	streamer.visible = true
+	var a := with_terrain.get_data()
+	var b := without.get_data()
+	var width := with_terrain.get_width()
+	var height := with_terrain.get_height()
+	var changed := 0
+	var total := 0
+	for y in range(height / 2, height):
+		for x in range(width):
+			var o := (y * width + x) * 3
+			total += 1
+			if absi(a[o] - b[o]) > 8 or absi(a[o + 1] - b[o + 1]) > 8 or absi(a[o + 2] - b[o + 2]) > 8:
+				changed += 1
+	print("PROBE_WORLD_SHOT lower_nonbg=%.4f file=%s" % [float(changed) / maxf(1.0, float(total)), path])
+	_world_step = "exit_dir"
+	w.request_exit()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	Signals.terminal_line_submitted.emit(DIR_COMMAND)
+
+
+func _world_finish() -> void:
+	if _finished:
+		return
+	_finished = true
+	_world_step = "done"
+	_watchdog.stop()
+	_save_screenshot()
+	get_tree().quit()

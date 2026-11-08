@@ -3,5 +3,10 @@
     "id": "chat",
     "label": "CHAT",
     "description": "Live entanglement-recruitment interface."
+  },
+  {
+    "id": "world",
+    "label": "WORLD",
+    "description": "Walk the procedurally generated truncated-octahedron terrain."
   }
 ]

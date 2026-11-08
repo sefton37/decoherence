@@ -16,10 +16,16 @@ class_name ShellController
 ## "type a program's name to run it" rather than a modern shell verb.
 ## Anything else renders an in-register unknown-command line.
 
+const WorldModule := preload("res://game/world/world_module.gd")
+
+## Emitted when `world` is launched and the engine is present; boot_controller.gd owns
+## the scene layers, so it mounts the world and calls world_closed() when it exits.
+signal world_requested
+
 const MODULES_PATH := "res://frontdoor/data/modules.json"
 const DIR_COMMAND := "dir"
 
-enum State { SHELL, CHAT }
+enum State { SHELL, CHAT, WORLD }
 
 var _state: State = State.SHELL
 var _terminal: TerminalGrid = null
@@ -66,6 +72,8 @@ func _on_terminal_line_submitted(text: String) -> void:
 	if _state == State.CHAT:
 		Signals.submit_player_line.emit(text)
 		return
+	if _state == State.WORLD:
+		return  # the world owns the keyboard; the terminal is hidden
 	var cmd := text.strip_edges().to_lower()
 	if cmd == DIR_COMMAND:
 		_handle_dir()
@@ -95,12 +103,14 @@ func _handle_dir() -> void:
 	_terminal.write_line("%d MODULE(S)" % _modules.size(), Palette.TEAL)
 
 
-## Launches a module by id. Only "chat" exists today (per spec #371's
-## single-module scope) -- any future module would need its own branch
-## here. Honors the resolved gate outcome: a failed model-ready link
+## Launches a module by id. "chat" and "world" exist (Specs #371, #501) -- any
+## further module needs its own branch here. Honors the resolved gate outcome: a failed model-ready link
 ## produces an honest in-register failure line and stays in the shell,
 ## never a false success handoff (fold-in of issue #578).
 func _handle_launch(cmd: String) -> void:
+	if cmd == "world":
+		_launch_world()
+		return
 	if cmd != "chat":
 		_terminal.write_line("MODULE NOT YET IMPLEMENTED: " + cmd, Palette.ORANGE)
 		return
@@ -110,3 +120,18 @@ func _handle_launch(cmd: String) -> void:
 	_state = State.CHAT
 	Signals.chat_ready.emit()
 	Signals.chat_opened.emit()
+
+
+## `world` (Spec #501): degrades to an in-register failure line, never a crash, when the
+## Stalag engine library has not been built on this machine.
+func _launch_world() -> void:
+	if not WorldModule.available():
+		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
+		return
+	_state = State.WORLD
+	world_requested.emit()
+
+
+## Called by boot_controller.gd when the world has been closed: back to the shell prompt.
+func world_closed() -> void:
+	_state = State.SHELL

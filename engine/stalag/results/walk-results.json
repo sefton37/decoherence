@@ -1,0 +1,184 @@
+{
+  "adapter": "NVIDIA GeForce RTX 4070 Ti SUPER",
+  "camera": {
+    "dist_max": 5.00000381469727,
+    "dist_min": 2.38886427879333,
+    "frames_checked": 2490,
+    "pitch_clamped": true,
+    "underground_frac": 0.0,
+    "yaw_after_mouse_rad": 0.6
+  },
+  "classes": {
+    "StalagChunkMesher": true,
+    "StalagWorld": true
+  },
+  "controller": {
+    "avg_speed_mps": 4.48950367216416,
+    "edge": {
+      "max_abs_m": 111.75,
+      "min_y_m": 0.25
+    },
+    "edge_probe": {
+      "x_reached": 111.75,
+      "z_reached": 44.9929580688477
+    },
+    "float_violations": 0,
+    "grounded_samples": 2490,
+    "jump": {
+      "air_s": 0.594314,
+      "apex_m": 1.07041645050049,
+      "land_err_m": 0.0,
+      "landed": true,
+      "spot": [
+        -14.5,
+        -8.0
+      ]
+    },
+    "max_radius_m": 115.932968139648,
+    "max_speed_mps": 4.62752151489258,
+    "no_ground_frames": 0,
+    "route_len_m": 273.58252408728,
+    "sink_violations": 0,
+    "stepup": {
+      "climbed": true,
+      "found": true,
+      "rise_m": 1.0,
+      "site": [
+        -19.5,
+        7.0
+      ]
+    },
+    "walk_time_s": 60.9382560000001,
+    "wall": {
+      "base_y": 1.75,
+      "blocked": true,
+      "feet_y": 2.25,
+      "front_plane_x": 3.275,
+      "height_m": 2.5,
+      "max_penetration_m": 0.0193041515350343,
+      "x_stop": 3.02430415153503,
+      "y_rise_m": 0.5,
+      "z": 0.0
+    },
+    "wedge_windows": 0,
+    "windows_checked": 60,
+    "y_range_m": 3.88905173540115
+  },
+  "frame": {
+    "baseline": {
+      "cpu_max_ms": 0.788,
+      "cpu_mean_ms": 0.268837142857143,
+      "cpu_p95_ms": 0.34,
+      "max_ms": 28.8129999938011,
+      "mean_ms": 27.1821428572459,
+      "p95_ms": 28.7400000023246,
+      "samples": 700
+    },
+    "metric": "samples = TIME_PROCESS + TIME_PHYSICS_PROCESS + viewport CPU render time (spec-501 contract); cpu_* = process_frame to frame_pre_draw, scene-tree work only (diagnostic)",
+    "walk": {
+      "cpu_max_ms": 16.678,
+      "cpu_mean_ms": 0.3479578313253,
+      "cpu_p95_ms": 0.393,
+      "cpu_worst_frames": [
+        {
+          "chunk_loaded_this_frame": true,
+          "chunk_unloaded_this_frame": false,
+          "cpu_ms": 16.678,
+          "frame": 2221
+        },
+        {
+          "chunk_loaded_this_frame": true,
+          "chunk_unloaded_this_frame": false,
+          "cpu_ms": 12.372,
+          "frame": 5
+        },
+        {
+          "chunk_loaded_this_frame": true,
+          "chunk_unloaded_this_frame": false,
+          "cpu_ms": 8.26,
+          "frame": 1930
+        },
+        {
+          "chunk_loaded_this_frame": true,
+          "chunk_unloaded_this_frame": false,
+          "cpu_ms": 7.709,
+          "frame": 1931
+        },
+        {
+          "chunk_loaded_this_frame": true,
+          "chunk_unloaded_this_frame": false,
+          "cpu_ms": 6.351,
+          "frame": 301
+        }
+      ],
+      "max_ms": 47.3259999936819,
+      "mean_ms": 27.9507919681068,
+      "p95_ms": 32.0249999945164,
+      "samples": 2490
+    }
+  },
+  "generated_epoch": 1794092687.23316,
+  "headless": false,
+  "mutation": "none",
+  "project_name": "Decoherence",
+  "scale": {
+    "sf": 0.125
+  },
+  "screens": [
+    {
+      "body_diff_px": 7518,
+      "distinct_colors": 427,
+      "file": "screen_1_spawn.png",
+      "h": 720,
+      "lower_nonbg_frac": 1.0,
+      "pos": [
+        0.0,
+        1.75,
+        0.0
+      ],
+      "w": 1280
+    },
+    {
+      "body_diff_px": 7518,
+      "distinct_colors": 439,
+      "file": "screen_2_boundary.png",
+      "h": 720,
+      "lower_nonbg_frac": 1.0,
+      "pos": [
+        29.1660423278809,
+        2.25,
+        0.0
+      ],
+      "w": 1280
+    },
+    {
+      "body_diff_px": 6821,
+      "distinct_colors": 513,
+      "file": "screen_3_ridged.png",
+      "h": 720,
+      "lower_nonbg_frac": 1.0,
+      "pos": [
+        100.051063537598,
+        1.77418828010559,
+        58.9997482299805
+      ],
+      "w": 1280
+    }
+  ],
+  "streaming": {
+    "boundaries_crossed": 16,
+    "build_on_main_thread": 0,
+    "cap": 49,
+    "chunk_checked": 5,
+    "chunk_mismatch": 0,
+    "loaded_end": 33,
+    "loads": 102,
+    "max_loaded": 35,
+    "mesh_instances_end": 33,
+    "mesher": "StalagChunkMesher",
+    "mesher_builds": 102,
+    "orphan_nodes_end": 0,
+    "placement_err_m": 0.0,
+    "unloads": 69
+  }
+}

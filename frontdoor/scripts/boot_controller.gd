@@ -27,6 +27,7 @@ extends Control
 ## styles on 3 fixed sample lines, labeled, then quits cleanly via
 ## get_tree().quit() so Kel can vote on which style plays where.
 
+const WorldModule := preload("res://game/world/world_module.gd")
 const BOOT_SEQUENCE_PATH := "res://frontdoor/data/boot_sequence.json"
 const ANIMATION_STYLES_PATH := "res://frontdoor/data/animation_styles.json"
 const LINE_STAGGER_SEC := 0.12
@@ -59,6 +60,9 @@ const _GALLERY_SAMPLES := [
 
 var _stages: Array = []
 
+## The mounted `world` module (Spec #501), or null while the shell is showing.
+var _world: Node = null
+
 ## This machine's real hardware facts, read once at boot via
 ## HardwareReadout.read_facts() and applied to every stage line's text via
 ## String.format() -- keeps this machine's literal CPU/GPU/hostname values
@@ -85,6 +89,7 @@ func _ready() -> void:
 	_hw_facts.merge(EntanglementReadout.read_facts())
 	_handler.setup(_terminal, _llm)
 	_shell.setup(_terminal)
+	_shell.world_requested.connect(_on_world_requested)
 	_terminal.set_input_line_active(false)
 	_load_boot_sequence()
 	_run_boot_sequence()
@@ -263,3 +268,28 @@ func _on_first_handler_reply(_text: String) -> void:
 ## line sent during SHELL state reach the Handler behind the shell's back.
 func _on_terminal_line_submitted(text: String) -> void:
 	Signals.terminal_line_submitted.emit(text)
+
+
+## `world` was launched (Spec #501): hide the terminal layer, mount the 3D world in its
+## place and hand it the keyboard. The CRT overlay layer stays on top, as everywhere.
+func _on_world_requested() -> void:
+	_world = WorldModule.instantiate_world()
+	if _world == null:
+		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
+		_shell.world_closed()
+		return
+	_terminal.set_input_line_active(false)
+	_terminal.get_parent().visible = false
+	add_child(_world)
+	_world.exited.connect(_on_world_exited)
+
+
+func _on_world_exited() -> void:
+	if _world != null:
+		remove_child(_world)
+		_world.queue_free()
+		_world = null
+	_terminal.get_parent().visible = true
+	_terminal.set_input_line_active(true)
+	_terminal.write_line("WORLD CLOSED.", Palette.TEAL)
+	_shell.world_closed()

@@ -60,3 +60,9 @@ engine/spike/ext/.sconsign.dblite
 *.os
 *.o
 *.a
+
+# Spec #501 Stalag engine GDExtension toolchain + build output (tools/build_engine.sh)
+engine/stalag/godot-cpp/
+engine/stalag/bin/
+engine/stalag/.venv/
+engine/stalag/.sconsign.dblite

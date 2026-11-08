@@ -1,0 +1,9 @@
+[configuration]
+entry_symbol = "stalag_init"
+compatibility_minimum = "4.5"
+
+; tools/build_engine.sh builds only template_release; both entries point at it so the
+; editor and the exported game run the same optimised native code.
+[libraries]
+linux.debug.x86_64 = "res://engine/stalag/bin/libstalag.linux.template_release.x86_64.so"
+linux.release.x86_64 = "res://engine/stalag/bin/libstalag.linux.template_release.x86_64.so"

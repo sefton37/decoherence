@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+# Spec #501: builds libstalag.<platform>.<target>.<arch>.so into ./bin.
+# godot-cpp is fetched by tools/build_engine.sh (gitignored). -ffp-contract=off keeps
+# the double-precision noise bit-identical to the JS reference (no fused multiply-add).
+env = SConscript("godot-cpp/SConstruct")
+
+env.Append(CPPPATH=["src/"])
+env.Append(CXXFLAGS=["-ffp-contract=off"])
+sources = Glob("src/*.cpp")
+
+library = env.SharedLibrary(
+    "bin/libstalag{}{}".format(env["suffix"], env["SHLIBSUFFIX"]),
+    source=sources,
+)
+Default(library)
