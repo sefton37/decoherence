@@ -13,6 +13,15 @@ class_name BootPanels
 ## (FAIL on failure, never UP before the gate resolves), and the rollup text
 ## is computed from lamp states. Synthetic widgets are driven by a frame
 ## counter and pure position formulas -- no wall clock, no random source.
+##
+## Smooth scrolling (issue #865): the ticker, the hex stream and the sparkline
+## traces are conveyors. Their cells are still composed on the 12 Hz grid tick
+## (so density, motion and the gallery stay what they were), but what you SEE
+## is a LiveStrip child Control per conveyor, redrawn every frame at a pixel
+## offset that advances by real frame delta (px/s speeds are data in
+## boot_panels.json "smooth_scroll"). Each strip clips to its slot. Gallery
+## frames (set_frame) derive the offsets from the frame number, so they stay
+## deterministic. Neither text_speed nor the CRT flicker is read here.
 
 const DATA_PATH := "res://frontdoor/data/boot_panels.json"
 const CW := PanelLayout.CELL_W
@@ -57,11 +66,41 @@ var _clip: Rect2i = Rect2i()
 var _seen: Dictionary = {}
 var _active_sum: int = 0
 var _active_samples: int = 0
+# Smooth-scroll state (issue #865): unwrapped pixel offsets, advanced by frame
+# delta in _process, derived from the frame number in set_frame (gallery).
+var _scroll: Dictionary = {"ticker_boot": 120.0, "ticker_shell": 40.0, "hex": 120.0, "spark": 60.0}
+var _ticker_px: float = 0.0
+var _hex_px: float = 0.0
+var _spark_px: float = 0.0
+var _geom: Dictionary = {}  # strip kind -> [c0, r0, cols, rows] for the composed widget
+var _strips: Dictionary = {}  # strip kind -> LiveStrip
+var _flag_strip: bool = false  # while true, _put marks cells as strip-drawn
+var _hex_lines: Dictionary = {}  # line index * 8 + group -> PackedInt32Array of 16 bytes
+
+
+## Per-frame child that draws one conveyor over its slot, clipped to it.
+class LiveStrip extends Control:
+	var panels: BootPanels
+	var kind: String
+
+	func _init(p: BootPanels, k: String) -> void:
+		panels = p
+		kind = k
+		clip_contents = true
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		visible = false
+
+	func _draw() -> void:
+		panels.draw_strip(self, kind)
 
 
 func _ready() -> void:
 	_font = load(TerminalGrid.FONT_PATH)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for kind in ["ticker", "hex", "spark"]:
+		var strip := LiveStrip.new(self, kind)
+		_strips[kind] = strip
+		add_child(strip)
 
 
 ## Loads the data file and selects a preset. `preset_id` "off" shows nothing
@@ -72,6 +111,10 @@ func setup(preset_id: String, viewport: Vector2i, synthetic: bool = false) -> vo
 	_data = parsed if typeof(parsed) == TYPE_DICTIONARY else {}
 	_synthetic = synthetic
 	_tick_hz = float(_data.get("tick_hz", 12))
+	var sc = _data.get("smooth_scroll", {})
+	if typeof(sc) == TYPE_DICTIONARY:
+		for k in _scroll:
+			_scroll[k] = float(sc.get(k + "_px_per_sec", _scroll[k]))
 	_preset_id = preset_id
 	_widgets = []
 	_widget_slots = {}
@@ -155,6 +198,7 @@ func enter_shell_mode() -> void:
 	_shell_mode = true
 	_compose()
 	queue_redraw()
+	_redraw_strips()
 
 
 ## Gallery: the scripted lamp events for frame `f`, a pure function of f.
@@ -176,13 +220,21 @@ func apply_gallery_script(f: int) -> void:
 
 func set_frame(n: int) -> void:
 	_frame = n
+	# Gallery: the offsets are a pure function of the frame number (boot speeds),
+	# equal to the old one-cell-per-tick positions at whole frames.
+	var secs := float(n) / _tick_hz
+	_ticker_px = secs * float(_scroll["ticker_boot"])
+	_hex_px = secs * float(_scroll["hex"])
+	_spark_px = secs * float(_scroll["spark"])
 	_compose()
 	queue_redraw()
+	_redraw_strips()
 
 
 func _process(delta: float) -> void:
 	if not visible or not _auto_advance:
 		return
+	_advance_scroll(delta)
 	_accum += delta
 	var period := 1.0 / _tick_hz
 	while _accum >= period:
@@ -192,6 +244,35 @@ func _process(delta: float) -> void:
 		if not _shell_mode:
 			_sample()
 		queue_redraw()
+	_redraw_strips()
+
+
+## Real elapsed time -> pixel offsets. Every frame, independent of the 12 Hz
+## grid tick and of the text_speed setting.
+func _advance_scroll(delta: float) -> void:
+	var key := "ticker_shell" if _shell_mode else "ticker_boot"
+	_ticker_px += delta * float(_scroll[key])
+	_hex_px += delta * float(_scroll["hex"])
+	_spark_px += delta * float(_scroll["spark"])
+
+
+## Only the conveyor strips redraw per frame; the grid stays at the tick rate.
+func _redraw_strips() -> void:
+	for kind in _strips:
+		(_strips[kind] as Control).queue_redraw()
+
+
+## Test hook: the unwrapped ticker pixel offset (monotone while advancing).
+func ticker_offset_px() -> float:
+	return _ticker_px
+
+
+func hex_offset_px() -> float:
+	return _hex_px
+
+
+func spark_offset_px() -> float:
+	return _spark_px
 
 
 ## Records one measurement frame (density + motion) for the boot period.
@@ -344,10 +425,66 @@ func _draw() -> void:
 	for k in _cells:
 		var c: Array = _cells[k]
 		var o: int = (c[0] as String).unicode_at(0)
-		if o == 32:
-			continue
+		if o == 32 or c.size() > 3:
+			continue  # blank, or drawn per frame by a LiveStrip
 		var cell: Vector2i = k
 		_font.draw_char(ci, Vector2(cell.x * CW, cell.y * CH + CH - 4), o, FONT_SIZE, c[1])
+
+
+## --- Per-frame conveyor strips (called by LiveStrip._draw) ----------------
+
+## Draws strip `kind` into `ctl` (local coordinates, origin = the strip's slot
+## corner). Whole pixels only, so glyphs stay crisp; the Control clips to its
+## slot, so the partially scrolled glyph at either edge is cut, never spilled.
+func draw_strip(ctl: Control, kind: String) -> void:
+	if _font == null or not _geom.has(kind):
+		return
+	var ci := ctl.get_canvas_item()
+	var g: Array = _geom[kind]
+	var base_y := CH - 4  # same baseline as the grid
+	match kind:
+		"ticker":
+			var strip := _ticker_strip()
+			if strip.is_empty():
+				return
+			var px := fposmod(_ticker_px, float(strip.length() * CW))
+			var cell0: int = floori(px / float(CW))
+			var shift: int = floori(px - float(cell0 * CW))
+			for i in range(int(g[2]) - 5 + 1):
+				var ch := _ticker_char(strip, cell0 + i)
+				if ch == " ":
+					continue
+				var col: Color = Palette.ORANGE if ch == ":" else Palette.TEAL
+				_font.draw_char(ci, Vector2(i * CW - shift, base_y), ch.unicode_at(0), FONT_SIZE, col)
+		"hex":
+			var k0: int = _hex_base()
+			var shift: int = floori(_hex_px - float(k0 * CH))
+			var rows: int = g[3]
+			for g_i in range(_hex_groups(int(g[2]))):
+				for r in range(rows + 1):
+					var y: float = r * CH - shift + base_y
+					var k: int = k0 + r
+					var x0: int = g_i * 48 * CW
+					var label := "%04d " % ((k + g_i * 997) % 10000)
+					for c in range(label.length()):
+						if label[c] != " ":
+							_font.draw_char(ci, Vector2(x0 + c * CW, y), label.unicode_at(c), FONT_SIZE, Palette.ORANGE)
+					var bytes := _hex_bytes(k, g_i)
+					for j in range(16):
+						var b: int = bytes[j]
+						var hx := "%02X" % b
+						var col: Color = Palette.TEAL if b % 3 == 0 else Palette.TEAL_DIM
+						var bx: int = x0 + (5 + j * 2 + j / 4) * CW
+						_font.draw_char(ci, Vector2(bx, y), hx.unicode_at(0), FONT_SIZE, col)
+						_font.draw_char(ci, Vector2(bx + CW, y), hx.unicode_at(1), FONT_SIZE, col)
+		"spark":
+			var n0: int = floori(_spark_px / float(CW))
+			var shift: int = floori(_spark_px - float(n0 * CW))
+			for i in range(3):
+				var col: Color = Palette.TEAL_DIM if i != 1 else Palette.ORANGE_DIM
+				for j in range(-1, _spark_width(int(g[2]))):
+					var glyph := _spark_glyph(n0 - j, i)
+					_font.draw_char(ci, Vector2(j * CW + shift, i * CH + base_y), glyph.unicode_at(0), FONT_SIZE, col)
 
 
 func _put(col: int, row: int, text: String, fg: Color, bg = null) -> void:
@@ -356,7 +493,10 @@ func _put(col: int, row: int, text: String, fg: Color, bg = null) -> void:
 	var lo := maxi(0, _clip.position.x - col)
 	var hi := mini(text.length(), _clip.position.x + _clip.size.x - col)
 	for i in range(lo, hi):
-		_cells[Vector2i(col + i, row)] = [text[i], fg, bg]
+		if _flag_strip:
+			_cells[Vector2i(col + i, row)] = [text[i], fg, bg, true]
+		else:
+			_cells[Vector2i(col + i, row)] = [text[i], fg, bg]
 
 
 func _fill_bg(col: int, row: int, count: int, bg: Color) -> void:
@@ -421,6 +561,7 @@ var _widget_cache: Dictionary = {}
 
 func _compose() -> void:
 	_cells.clear()
+	_geom.clear()
 	for w in _widgets:
 		if _shell_mode and not _persists(w):
 			continue
@@ -434,11 +575,20 @@ func _compose() -> void:
 		var rows: int = px.size.y / CH
 		_clip = Rect2i(c0, r0, cols, rows)
 		var motif := String(w.get("motif", ""))
+		match motif:
+			"ticker":
+				_geom["ticker"] = [c0, r0, cols, rows]
+			"hex_stream":
+				_geom["hex"] = [c0, r0, cols, rows]
+			"sparkline":
+				_geom["spark"] = [c0, r0, cols, rows]
 		if not _STEP_DIVISORS.has(motif):
 			_draw_widget(w, c0, r0, cols, rows)
 			continue
 		var wid := String(w["id"])
 		var step: int = _frame / int(_STEP_DIVISORS[motif])
+		if motif == "hex_stream":
+			step = _hex_base()  # the cached cells follow the real scroll offset
 		var hit = _widget_cache.get(wid, null)
 		if hit != null and hit["step"] == step and hit["rect"] == px:
 			_cells.merge(hit["cells"])
@@ -449,6 +599,33 @@ func _compose() -> void:
 		_widget_cache[wid] = {"step": step, "rect": px, "cells": _cells}
 		master.merge(_cells)
 		_cells = master
+	_place_strips()
+
+
+## Position each LiveStrip over its slot; hidden when its widget is not composed.
+func _place_strips() -> void:
+	for kind in _strips:
+		var strip: Control = _strips[kind]
+		if not _geom.has(kind) or (kind == "ticker" and _ticker_strip().is_empty()):
+			strip.visible = false
+			continue
+		var g: Array = _geom[kind]
+		var c0: int = g[0]
+		var r0: int = g[1]
+		var cols: int = g[2]
+		var rows: int = g[3]
+		match kind:
+			"ticker":  # after the "BUS>" label
+				strip.position = Vector2((c0 + 5) * CW, r0 * CH)
+				strip.size = Vector2(maxi(0, cols - 5) * CW, CH)
+			"hex":
+				strip.position = Vector2(c0 * CW, r0 * CH)
+				strip.size = Vector2(cols * CW, rows * CH)
+			"spark":
+				strip.position = Vector2((c0 + 14) * CW, (r0 + 1) * CH)
+				strip.size = Vector2(_spark_width(cols) * CW, 3 * CH)
+		strip.visible = true
+		strip.queue_redraw()
 
 
 func _draw_widget(w: Dictionary, c0: int, r0: int, cols: int, rows: int) -> void:
@@ -551,20 +728,31 @@ func _w_lamps(title: String, c0: int, r0: int, cols: int, rows: int) -> void:
 		_put(c0 + cols - 6, r0 + 1 + i, st.substr(0, 4), col)
 
 
-func _w_ticker(c0: int, r0: int, cols: int) -> void:
-	var msgs: Array = _data.get("ticker_messages", [])
-	if msgs.is_empty():
-		return
+func _ticker_strip() -> String:
 	var strip := ""
-	for m in msgs:
+	for m in _data.get("ticker_messages", []):
 		strip += String(m) + "  ::  "
-	var div: int = 3 if _shell_mode else 1
-	var off: int = _frame / div
+	return strip
+
+
+func _ticker_char(strip: String, idx: int) -> String:
+	return strip.substr(idx % strip.length(), 1)
+
+
+## The ticker cells are composed at the whole-cell part of the pixel offset
+## (what the density and motion measurements see); the LiveStrip draws the
+## same glyphs at the exact pixel offset every frame.
+func _w_ticker(c0: int, r0: int, cols: int) -> void:
+	var strip := _ticker_strip()
+	if strip.is_empty():
+		return
+	var off: int = floori(_ticker_px / float(CW))
 	_put(c0, r0, "BUS>", Palette.ORANGE)
+	_flag_strip = true
 	for i in range(cols - 5):
-		var ch := strip.substr((off + i) % strip.length(), 1)
-		var col: Color = Palette.ORANGE if ch == ":" else Palette.TEAL
-		_put(c0 + 5 + i, r0, ch, col)
+		var ch := _ticker_char(strip, off + i)
+		_put(c0 + 5 + i, r0, ch, Palette.ORANGE if ch == ":" else Palette.TEAL)
+	_flag_strip = false
 
 
 func _w_meters(title: String, c0: int, r0: int, cols: int, rows: int) -> void:
@@ -599,17 +787,30 @@ func _w_memory(title: String, c0: int, r0: int, cols: int, rows: int) -> void:
 	_put(c0 + 8 + seg, r0 + 1, "%3d%%  %s" % [int(used * 100.0), detail], Palette.TEAL)
 
 
+func _spark_width(cols: int) -> int:
+	return clampi(cols - 20, 6, 24)
+
+
+## Sample n of trace i: a pure function of (n, i). The trace is a conveyor
+## moving right one sample per 2 ticks (6 samples/s at the default tick rate).
+func _spark_glyph(n: int, i: int) -> String:
+	var v: float = _wave(2 * n, i * 3, 29 + i * 11) * 0.7 + float(_hash2(n, i) % 100) / 100.0 * 0.3
+	return _SPARK[clampi(int(v * 8.0), 0, 7)]
+
+
 func _w_sparklines(title: String, c0: int, r0: int, cols: int, rows: int) -> void:
 	_box(c0, r0, cols, rows, title, "")
 	var names := ["FIDELITY", "DRIFT", "RELAY LAG"]
-	var width: int = clampi(cols - 20, 6, 24)
+	var width: int = _spark_width(cols)
+	var head: int = floori(_spark_px / float(CW))
 	for i in range(3):
 		var trace := ""
 		for j in range(width):
-			var v: float = _wave(_frame - j * 2, i * 3, 29 + i * 11) * 0.7 + float(_hash2(_frame / 2 - j, i) % 100) / 100.0 * 0.3
-			trace += _SPARK[clampi(int(v * 8.0), 0, 7)]
+			trace += _spark_glyph(head - j, i)
 		_put(c0 + 2, r0 + 1 + i, names[i].substr(0, 11), Palette.TEAL)
+		_flag_strip = true
 		_put(c0 + 14, r0 + 1 + i, trace, Palette.TEAL_DIM if i != 1 else Palette.ORANGE_DIM)
+		_flag_strip = false
 
 
 func _w_rules(c0: int, r0: int, cols: int, rows: int) -> void:
@@ -647,17 +848,42 @@ func _w_rollup(title: String, c0: int, r0: int, cols: int, rows: int) -> void:
 	_put(c0 + 2, r0 + 1, txt, col)
 
 
+func _hex_base() -> int:
+	return floori(_hex_px / float(CH))
+
+
+## The 16 bytes of hex line k in group g (cached: a line is re-read every frame
+## while it scrolls past, but hashed once).
+func _hex_bytes(k: int, g: int) -> PackedInt32Array:
+	var key := k * 8 + g
+	if _hex_lines.has(key):
+		return _hex_lines[key]
+	if _hex_lines.size() > 512:
+		_hex_lines.clear()
+	var out := PackedInt32Array()
+	var addr: int = (k + g * 997) * 16
+	for j in range(16):
+		out.append(_hash2(addr + j, g) % 256)
+	_hex_lines[key] = out
+	return out
+
+
+func _hex_groups(cols: int) -> int:
+	return 2 if cols >= 90 else 1
+
+
 func _w_hex(c0: int, r0: int, cols: int, rows: int) -> void:
-	var base: int = _frame / 2
-	var groups: int = 2 if cols >= 90 else 1
-	for g in range(groups):
+	var base: int = _hex_base()
+	_flag_strip = true
+	for g in range(_hex_groups(cols)):
 		for r in range(rows):
-			var addr: int = (base + r + g * 997) * 16
-			var line := "%04d " % ((addr / 16) % 10000)
-			_put(c0 + g * 48, r0 + r, line, Palette.ORANGE)
+			var k: int = base + r
+			_put(c0 + g * 48, r0 + r, "%04d " % ((k + g * 997) % 10000), Palette.ORANGE)
+			var bytes := _hex_bytes(k, g)
 			for j in range(16):
-				var b: int = _hash2(addr + j, g) % 256
+				var b: int = bytes[j]
 				_put(c0 + g * 48 + 5 + j * 2 + j / 4, r0 + r, "%02X" % b, Palette.TEAL if b % 3 == 0 else Palette.TEAL_DIM)
+	_flag_strip = false
 
 
 func _w_daemon(title: String, c0: int, r0: int, cols: int, rows: int) -> void:

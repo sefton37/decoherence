@@ -1,6 +1,12 @@
 {
   "selected": "full_bus",
   "tick_hz": 12,
+  "smooth_scroll": {
+    "ticker_boot_px_per_sec": 120,
+    "ticker_shell_px_per_sec": 40,
+    "hex_px_per_sec": 120,
+    "spark_px_per_sec": 60
+  },
   "presets": [
     { "id": "field_bar", "name": "FIELD BAR", "widgets": ["titlebar", "status_bar", "lamp_pane"] },
     { "id": "ticker", "name": "TICKER", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters"] },
