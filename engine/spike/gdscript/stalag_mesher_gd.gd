@@ -149,16 +149,20 @@ static func _to_i32(v: int) -> int:
 	return u - 0x100000000 if u >= 0x80000000 else u
 
 
-static func _mix32(h: int) -> int:
-	h = ((h ^ (h >> 16)) * 0x45d9f3b) & MASK32
-	h = ((h ^ (h >> 16)) * 0x45d9f3b) & MASK32
-	return h ^ (h >> 16)
+# SPDX-License-Identifier: LicenseRef-PublicDomain
+# lowbias32: Chris Wellons, "Prospecting for Hash Functions", https://nullprogram.com/blog/2018/07/31/ (public domain)
+static func _lowbias32(x: int) -> int:
+	x = (x ^ (x >> 16)) & MASK32
+	x = (x * 0x7feb352d) & MASK32
+	x = (x ^ (x >> 15)) & MASK32
+	x = (x * 0x846ca68b) & MASK32
+	return (x ^ (x >> 16)) & MASK32
 
 
 # worldgen.js hash2: the JS products are exact doubles reduced mod 2^32 by `|0`.
 static func _hash2(ix: int, iz: int, seed: int) -> float:
 	var h := (seed & MASK32) ^ ((ix * 2654435761) & MASK32) ^ ((iz * 1234567891) & MASK32)
-	return float(_mix32(h)) / 4294967296.0
+	return float(_lowbias32(h)) / 4294967296.0
 
 
 static func _value_noise(x: float, z: float, seed: int) -> float:

@@ -2,38 +2,38 @@
   "candidates": {
     "gdextension": {
       "build_ms": [
-        43.174,
-        44.734,
-        42.565,
-        42.352,
-        42.904
+        41.519,
+        41.895,
+        41.982,
+        41.78,
+        41.343
       ],
-      "build_ms_median": 42.904,
+      "build_ms_median": 41.78,
       "centroid_q_sum": [
-        16260319872,
-        321132080,
-        17679960168
+        16165388816,
+        -431304744,
+        16291086232
       ],
       "class_loaded": true,
       "lib_path": "engine/spike/ext/bin/libstalagspike.linux.template_release.x86_64.so",
-      "tris_base": 127042
+      "tris_base": 117434
     },
     "gdscript": {
       "build_ms": [
-        1327.478,
-        1331.376,
-        1330.814,
-        1305.192,
-        1300.594
+        1244.022,
+        1248.968,
+        1250.802,
+        1266.317,
+        1246.542
       ],
-      "build_ms_median": 1327.478,
+      "build_ms_median": 1248.968,
       "centroid_q_sum": [
-        16260319872,
-        321132080,
-        17679960168
+        16165388816,
+        -431304744,
+        16291086232
       ],
       "class_loaded": true,
-      "tris_base": 127042
+      "tris_base": 117434
     }
   },
   "csharp": {
@@ -43,23 +43,23 @@
   "frame": {
     "adapter": "NVIDIA GeForce RTX 4070 Ti SUPER",
     "cpu_render_ms_median": {
-      "gdextension": 0.0610000006854534,
-      "gdscript": 0.0640000030398369
+      "gdextension": 0.0555000007152557,
+      "gdscript": 0.0599999986588955
     },
     "display_driver": "X11",
     "frame_ms_median": {
-      "gdextension": 22.9395,
-      "gdscript": 23.2245
+      "gdextension": 24.3525,
+      "gdscript": 22.555
     },
     "frame_ms_p95": {
-      "gdextension": 25.013,
-      "gdscript": 24.846
+      "gdextension": 25.032,
+      "gdscript": 23.008
     },
     "frames_sampled": 150,
     "frames_warmup": 30,
     "gpu_render_ms_median": {
-      "gdextension": 0.0649999976158142,
-      "gdscript": 0.0659999996423721
+      "gdextension": 0.507000029087067,
+      "gdscript": 0.063000001013279
     },
     "headless": false,
     "rendering_driver": "vulkan",
@@ -69,7 +69,7 @@
     ],
     "vsync": "disabled"
   },
-  "generated_epoch": 1794086486.19896,
+  "generated_epoch": 1794153916.18357,
   "godot_version": "4.5-stable (custom_build)",
   "params": {
     "extent": 72,
@@ -82,19 +82,19 @@
     "seed": 42
   },
   "js": {
-    "build_ms_median": 6711.8743859999995,
+    "build_ms_median": 5970.967081999999,
     "build_ms": [
-      6711.8743859999995,
-      6693.2631280000005,
-      6735.264887000001,
-      6601.280220000001,
-      6849.711962000001
+      5990.914745,
+      5991.728589999999,
+      5970.967081999999,
+      5947.541147,
+      5948.019815999996
     ],
-    "tris_base": 127042,
-    "tris_caps": 41301,
-    "tris_total": 168343,
+    "tris_base": 117434,
+    "tris_caps": 42392,
+    "tris_total": 159826,
     "includes_caps": true,
-    "plan_solve_ms": 2550.2286369999997,
+    "plan_solve_ms": 2414.501771,
     "node_version": "v22.22.0",
     "stalag_head": "8ee4d2bce610"
   },
@@ -102,6 +102,6 @@
     "gdscript": true,
     "gdextension": true
   },
-  "recommendation_line": "Recommendation (data only, Kel picks the language): gdextension has the lowest chunk build median, 30.9x faster than gdscript (build ms median: gdscript 1327.5, gdextension 42.9, js 6711.9 incl. caps; frame ms median: gdscript 23.22, gdextension 22.94); csharp unavailable in this Godot build; region 0.0,28.0,0.0,28.0, seed 42.",
+  "recommendation_line": "Recommendation (data only, Kel picks the language): gdextension has the lowest chunk build median, 29.9x faster than gdscript (build ms median: gdscript 1249, gdextension 41.8, js 5971 incl. caps; frame ms median: gdscript 22.56, gdextension 24.35); csharp unavailable in this Godot build; region 0.0,28.0,0.0,28.0, seed 42.",
   "generated_by": "engine/spike/run_spike.sh"
 }

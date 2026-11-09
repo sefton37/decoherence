@@ -1,0 +1,266 @@
+{
+  "adapter": "NVIDIA GeForce RTX 4070 Ti SUPER",
+  "classes": {
+    "StalagChunkMesher": true,
+    "StalagWorld": true
+  },
+  "fog": {
+    "f150": 0.969360124931081,
+    "f60": 0.410878751026553
+  },
+  "ground": {
+    "carved_samples": 1200,
+    "max_err_m": 0.0,
+    "samples": 2400,
+    "worst": []
+  },
+  "headless": false,
+  "holes": {
+    "hits": 0,
+    "loaded_radius_m": 56.0,
+    "per_view": [
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "spawn",
+        "outside_footprint": 0,
+        "samples": 2880
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "shore",
+        "outside_footprint": 69,
+        "samples": 2880
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "river",
+        "outside_footprint": 0,
+        "samples": 2880
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "distant",
+        "outside_footprint": 0,
+        "samples": 3600
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep0",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep1",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep2",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep3",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep4",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep5",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep6",
+        "outside_footprint": 0,
+        "samples": 2720
+      },
+      {
+        "first_hit": [],
+        "hits": 0,
+        "name": "sweep7",
+        "outside_footprint": 0,
+        "samples": 2720
+      }
+    ]
+  },
+  "mutation": "none",
+  "plan": {
+    "gd_hash": "4448de3c",
+    "js_hash": "4448de3c",
+    "ready_before_first_chunk": true,
+    "solve_on_main_thread": false
+  },
+  "project_name": "Decoherence",
+  "scale": {
+    "sf": 0.125
+  },
+  "shadow": {
+    "diff_frac": 0.0145442708333333
+  },
+  "shore_plan": {
+    "aim": [
+      -97.4,
+      -58.72
+    ],
+    "candidates": 494,
+    "dist_m": 3.82,
+    "height_m": 4.0,
+    "radius_m": 8.0,
+    "rule": "raised_vantage",
+    "stand": [
+      -88.0,
+      -80.0
+    ]
+  },
+  "shots": [
+    {
+      "blue_minus_red": 48.6288659793814,
+      "body_dist_m": 26.3058928759318,
+      "distinct_colors": 7452,
+      "file": "spawn.png",
+      "h": 720,
+      "mean_rgb_dist": 21.0508815499577,
+      "name": "spawn",
+      "selection": {
+        "rank": 0,
+        "rule": "geom_v1",
+        "stand": [
+          0.0,
+          0.0
+        ]
+      },
+      "w": 1280,
+      "water_diff_frac": 0.000421006944444444,
+      "water_diff_px": 97
+    },
+    {
+      "blue_minus_red": 43.7444188978714,
+      "body_dist_m": 3.64005494464026,
+      "distinct_colors": 8103,
+      "file": "shore.png",
+      "h": 720,
+      "mean_rgb_dist": 60.7794374729896,
+      "name": "shore",
+      "selection": {
+        "rank": 0,
+        "rule": "geom_v1",
+        "stand": [
+          -88.0,
+          -80.0
+        ]
+      },
+      "w": 1280,
+      "water_diff_frac": 0.117039930555556,
+      "water_diff_px": 26966
+    },
+    {
+      "blue_minus_red": 43.4901333655181,
+      "body_dist_m": 7.77817459305202,
+      "distinct_colors": 6589,
+      "file": "river.png",
+      "h": 720,
+      "mean_rgb_dist": 60.421488092786,
+      "name": "river",
+      "selection": {
+        "rank": 0,
+        "rule": "geom_v1",
+        "stand": [
+          -2.41,
+          33.59
+        ]
+      },
+      "w": 1280,
+      "water_diff_frac": 0.215768229166667,
+      "water_diff_px": 49713
+    },
+    {
+      "blue_minus_red": 42.7227414330218,
+      "body_dist_m": 39.5126562002607,
+      "distinct_colors": 9087,
+      "file": "distant.png",
+      "h": 720,
+      "mean_rgb_dist": 45.6209446181636,
+      "name": "distant",
+      "selection": {
+        "rank": 0,
+        "rule": "geom_v1",
+        "stand": [
+          -36.0,
+          4.0
+        ]
+      },
+      "w": 1280,
+      "water_diff_frac": 0.0181119791666667,
+      "water_diff_px": 4173
+    }
+  ],
+  "skin": {
+    "diff_frac": 0.751961805555556,
+    "dirt_tile_gd_hash": "a17bbcfa2e8d",
+    "dirt_tile_js_hash": "a17bbcfa2e8d",
+    "grass_tile_gd_hash": "abf5a95e0349",
+    "grass_tile_js_hash": "abf5a95e0349"
+  },
+  "sky": {
+    "horizon_err": 0.0,
+    "horizon_rgb": [
+      170,
+      204,
+      224
+    ],
+    "zenith_err": 0.0,
+    "zenith_rgb": [
+      90,
+      150,
+      208
+    ]
+  },
+  "still_body_cols": 3850,
+  "sweep": {
+    "dist_to_water_m": 12.0,
+    "max_water_diff_frac": 0.0242621527777778,
+    "stand": [
+      2.33,
+      14.4
+    ],
+    "yaw_steps": 8
+  },
+  "water": {
+    "buried_checked": 1733,
+    "buried_frac": 0.0,
+    "direct_builds_on_main": 27,
+    "expected_nodes": 15,
+    "loaded_end": 27,
+    "nodes": 15,
+    "nodes_after_shutdown": 0,
+    "on_main_thread": 0,
+    "orphans": 0,
+    "placement_err_m": 0.0,
+    "top_level_mesh_instances_end": 27,
+    "tris": 112924
+  },
+  "water_build_on_main": 0,
+  "generated_epoch": 1794159007.783147
+}

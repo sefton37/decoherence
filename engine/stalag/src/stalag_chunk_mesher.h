@@ -26,6 +26,9 @@ public:
 	// (cx * CHUNK_M, 0, cz * CHUNK_M), so the node's position places the chunk; `vertices`
 	// is the same array that went to the renderer.
 	static Dictionary build_chunk(int64_t p_cx, int64_t p_cz);
+	// {vertices (world metres), depth (per vertex), flow (per vertex), tris} of the cell-occupancy
+	// water for [x_min,x_max) x [z_min,z_max), straight from the engine (parity + placement checks).
+	static Dictionary build_water_arrays(double p_x_min, double p_x_max, double p_z_min, double p_z_max);
 	// {builds, on_main_thread, tris_base_last} since the last reset (builds the mesher ran).
 	static Dictionary get_build_stats();
 	static void reset_build_stats();

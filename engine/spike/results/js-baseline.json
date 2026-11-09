@@ -1,8 +1,10 @@
 {
-  "generated_epoch": 1794086468.266,
+  "generated_epoch": 1794153898.603,
   "generated_by": "tools/baseline/js_baseline.mjs",
   "node_version": "v22.22.0",
   "stalag_head": "8ee4d2bce610",
+  "carve_mode": "on",
+  "subst_mode": "lowbias32",
   "params": {
     "seed": 42,
     "extent": 72,
@@ -15,22 +17,36 @@
     }
   },
   "carve_nonzero_columns": 0,
-  "plan_solve_ms": 2550.2286369999997,
+  "plan_solve_ms": 2414.501771,
   "includes_caps": true,
-  "tris_base": 127042,
-  "tris_caps": 41301,
-  "tris_total": 168343,
+  "tris_base": 117434,
+  "tris_caps": 42392,
+  "tris_total": 159826,
   "centroid_q_sum_base": [
-    16260319872,
-    321132080,
-    17679960168
+    16165388816,
+    -431304744,
+    16291086232
   ],
+  "centroid_q_sum_caps": [
+    5828239525,
+    482969896,
+    5612554681
+  ],
+  "edge_stats": {
+    "verts": 74949,
+    "edges": 234778,
+    "m1": 2038,
+    "m2": 221505,
+    "m3p": 11235,
+    "open_interior": 0,
+    "degenerate": 0
+  },
   "build_ms": [
-    6711.8743859999995,
-    6693.2631280000005,
-    6735.264887000001,
-    6601.280220000001,
-    6849.711962000001
+    5990.914745,
+    5991.728589999999,
+    5970.967081999999,
+    5947.541147,
+    5948.019815999996
   ],
-  "build_ms_median": 6711.8743859999995
+  "build_ms_median": 5970.967081999999
 }

@@ -20,9 +20,12 @@ const MeshStats := preload("res://engine/stalag/tests/mesh_stats.gd")
 
 const WARMUP_FRAMES := 90
 const BASELINE_FRAMES := 700
-const WALK_TARGETS := [Vector2(60, -20), Vector2(104, 10), Vector2(100, 60), Vector2(50, 70), Vector2(0, 40)]
+# The route's SHAPE (kept from Spec #501, world-independent). Each anchor becomes a waypoint by the
+# geom_v1 rule in _pick_waypoint: nothing here is tuned to a world.
+const WALK_ANCHORS := [Vector2(60, -20), Vector2(104, 10), Vector2(100, 60), Vector2(50, 70), Vector2(0, 40)]
 const WINDOW_S := 1.0
-const WALK_TIMEOUT_S := 240.0
+# a probe parameter, not a bar: the geom_v1 route of the seed-7 world is about 850 m
+const WALK_TIMEOUT_S := 600.0
 const SHOT_W := 1280
 const SHOT_H := 720
 
@@ -106,6 +109,7 @@ func _run() -> void:
 	print("walk_probe: ring ready, loaded=%d" % _streamer.loaded_count())
 	await _phase_baseline()
 	print("walk_probe: baseline done")
+	await _phase_plan()
 	await _phase_walk()
 	print("walk_probe: walk done, rows=%d" % _rows.size())
 	await _phase_controller_tests()
@@ -138,10 +142,78 @@ func _phase_baseline() -> void:
 		_cpu_baseline.append(_cpu_last_ms)
 
 
+# ---------------------------------------------------------------- waypoints (rule geom_v1)
+## True when a flooded or river column lies within the 7 m square (half-metre columns) around (x, z).
+func _wet_within_3m(x: float, z: float) -> bool:
+	for gz in range(floori((z - 3.5) / 0.5), floori((z + 3.5) / 0.5) + 1):
+		for gx in range(floori((x - 3.5) / 0.5), floori((x + 3.5) / 0.5) + 1):
+			if StalagWorld.is_flooded(gx, gz) or StalagWorld.is_river_column(gx, gz):
+				return true
+	return false
+
+
+## Waypoint for one anchor: the 4 m lattice points with |x|,|z| <= 108 and no water within 3 m (for
+## anchors 2 and 3 also at least 100 m from the origin, so the unchanged max_radius bar stays
+## reachable), tried in order of distance to the anchor (ties by x, then z); the first one the
+## route planner can reach from `from` is the waypoint. Returns {leg, rec} or an empty dictionary.
+func _pick_waypoint(slot: int, anchor: Vector2, from: Vector2, limit: float) -> Dictionary:
+	var cands: Array = []
+	for xi in range(-27, 28):
+		for zi in range(-27, 28):
+			var c := Vector2(float(xi * 4), float(zi * 4))
+			if (slot == 1 or slot == 2) and c.length() < 100.0:
+				continue
+			cands.append(c)
+	cands.sort_custom(func(a: Vector2, b: Vector2) -> bool:
+		var da := a.distance_to(anchor)
+		var db := b.distance_to(anchor)
+		if da != db:
+			return da < db
+		if a.x != b.x:
+			return a.x < b.x
+		return a.y < b.y)
+	var tried := 0
+	for c in cands:
+		if _wet_within_3m(c.x, c.y):
+			continue
+		tried += 1
+		var leg: Array = RoutePlanner.plan(from, [c], limit)
+		if leg.is_empty():
+			continue
+		return {"leg": leg, "rec": {"slot": slot, "x": c.x, "z": c.y, "anchor": [anchor.x, anchor.y],
+				"anchor_dist_m": c.distance_to(anchor), "tried": tried, "wet_within_3m": false}}
+	return {}
+
+
+func _plan_geom_route(start: Vector2, limit: float) -> Array:
+	var route: Array = [start]
+	var recs: Array = []
+	var cur := start
+	for i in range(WALK_ANCHORS.size()):
+		var w := _pick_waypoint(i, WALK_ANCHORS[i], cur, limit)
+		if w.is_empty():
+			push_error("walk_probe: no reachable waypoint for anchor %d" % i)
+			return []
+		var leg: Array = w["leg"]
+		route.append_array(leg.slice(1))
+		cur = leg[leg.size() - 1]
+		recs.append(w["rec"])
+	_ctrl["target_rule"] = "geom_v1"
+	_ctrl["targets"] = recs
+	return route
+
+
+## The route is planned (a few hundred milliseconds of engine queries) BEFORE the walk starts and
+## given a few idle frames to drain, so the walk's frame samples measure walking, not planning.
+func _phase_plan() -> void:
+	var limit := StalagWorld.get_half_extent_m() - 1.0
+	_route = _plan_geom_route(Vector2(_walker.pos.x, _walker.pos.z), limit)
+	for _i in range(10):
+		await _frame()
+
+
 # ---------------------------------------------------------------- walk
 func _phase_walk() -> void:
-	var limit := StalagWorld.get_half_extent_m() - 1.0
-	_route = RoutePlanner.plan(Vector2(_walker.pos.x, _walker.pos.z), WALK_TARGETS, limit)
 	if _route.is_empty():
 		push_error("walk_probe: could not plan a route")
 		return
@@ -504,7 +576,7 @@ func _post_analysis() -> void:
 	var fw := _frame_stats(_frame_walk)
 	var cb := _frame_stats(_cpu_baseline)
 	var cw := _frame_stats(_cpu_walk)
-	for k in ["p95_ms", "max_ms", "mean_ms"]:
+	for k in ["p95_ms", "p99_ms", "max_ms", "mean_ms"]:
 		fb["cpu_" + k] = cb[k]
 		fw["cpu_" + k] = cw[k]
 	# the five costliest walk frames and whether a chunk was adopted/freed around them
@@ -530,13 +602,13 @@ func _max_comp(v: Vector3) -> float:
 
 func _frame_stats(a: PackedFloat64Array) -> Dictionary:
 	if a.is_empty():
-		return {"samples": 0, "p95_ms": 0.0, "max_ms": 0.0, "mean_ms": 0.0}
+		return {"samples": 0, "p95_ms": 0.0, "p99_ms": 0.0, "max_ms": 0.0, "mean_ms": 0.0}
 	var s := a.duplicate()
 	s.sort()
 	var sum := 0.0
 	for v in s:
 		sum += v
-	return {"samples": s.size(), "p95_ms": s[mini(s.size() - 1, int(ceil(0.95 * s.size())) - 1)], "max_ms": s[s.size() - 1], "mean_ms": sum / s.size()}
+	return {"samples": s.size(), "p95_ms": s[mini(s.size() - 1, int(ceil(0.95 * s.size())) - 1)], "p99_ms": s[mini(s.size() - 1, int(ceil(0.99 * s.size())) - 1)], "max_ms": s[s.size() - 1], "mean_ms": sum / s.size()}
 
 
 ## Streamed chunk nodes vs a direct engine build of the same region (content + placement).
@@ -555,8 +627,12 @@ func _check_placement() -> void:
 			picks.append(coords[i])
 	for c in picks:
 		var mi: MeshInstance3D = _streamer.chunk_node(c)
-		var arrays: Array = mi.mesh.surface_get_arrays(0)
-		var local: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		# Spec #517: a chunk mesh now has one surface per skin bucket (grass, dirt); the rendered
+		# terrain is all of them together.
+		var local := PackedVector3Array()
+		for si in range(mi.mesh.get_surface_count()):
+			var sa: Array = mi.mesh.surface_get_arrays(si)
+			local.append_array(sa[Mesh.ARRAY_VERTEX])
 		var xf := mi.global_transform
 		var world_v := PackedVector3Array()
 		world_v.resize(local.size())
@@ -723,6 +799,8 @@ func _finish() -> void:
 	_rec["project_name"] = str(ProjectSettings.get_setting("application/config/name"))
 	_rec["classes"] = {"StalagWorld": ClassDB.class_exists("StalagWorld"), "StalagChunkMesher": ClassDB.class_exists("StalagChunkMesher")}
 	_rec["scale"] = {"sf": StalagWorld.get_sf()}
+	# Spec #517 A2: tie the record to the world it walked (the DoD pins the hash).
+	_rec["plan_hash"] = StalagWorld.plan_hash()
 	_rec.erase("camera_mouse")
 	_rec.erase("camera_boom")
 	var f := FileAccess.open(_raw_path, FileAccess.WRITE)

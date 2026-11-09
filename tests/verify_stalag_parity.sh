@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+## RETIRED (Spec #517 S1.6 and A2): this carve-free gate compares the engine with the frozen prototype
+## as it was (world seed 42, no carve, unsubstituted primitives). The engine world is now seed 7,
+## carved, with substituted primitives, so it would fail on the plan alone. Use tests/verify_stalag_plan.sh.
+echo "verify_stalag_parity: RETIRED, see tests/verify_stalag_plan.sh" >&2; exit 2
 ## tests/verify_stalag_parity.sh -- Spec #501 engine-vs-JS parity MEASUREMENT.
 ##
 ## Runs the frozen prototype's buildTerrainSurface FRESH (tools/baseline/js_baseline.mjs,

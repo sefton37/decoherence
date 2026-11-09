@@ -1,0 +1,1008 @@
+{
+  "generated_epoch": 1794157738.649124,
+  "mutation": "none",
+  "oracle_subst": "lowbias32",
+  "headless": true,
+  "js_stalag_head": "8ee4d2bce610",
+  "plan": {
+    "arrays": [
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "carve",
+        "over_tol": 0
+      },
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "waterTw",
+        "over_tol": 0
+      },
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "waterType",
+        "over_tol": 0
+      },
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "flowX",
+        "over_tol": 0
+      },
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "flowZ",
+        "over_tol": 0
+      },
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "bedTargetLat",
+        "over_tol": 0
+      },
+      {
+        "bit_mismatch": 0,
+        "exact_mismatch": 0,
+        "first_bit_mismatch_index": [],
+        "max_abs_diff": 0.0,
+        "n": 802816,
+        "name": "bankTargetLat",
+        "over_tol": 0
+      }
+    ],
+    "dim": 896,
+    "g0": -448,
+    "gd_hash": "4448de3c",
+    "js_hash": "4448de3c",
+    "main_thread_polls": 27,
+    "seed": 7,
+    "solve_ms": 527.334399,
+    "solve_on_main_thread": false,
+    "type_counts_gd": [
+      749590,
+      17443,
+      26267,
+      9516,
+      0
+    ],
+    "type_counts_js": [
+      749590.0,
+      17443.0,
+      26267.0,
+      9516.0,
+      0.0
+    ]
+  },
+  "queries": {
+    "functions": [
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "waterLevelAt",
+        "wet_n": 2243
+      },
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "isFlooded",
+        "wet_n": 2243
+      },
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "courseLevelAt",
+        "wet_n": 2243
+      },
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "courseFallTopAt",
+        "wet_n": 2243
+      },
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "isRiverColumn",
+        "wet_n": 2243
+      },
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "getStrahlerOrder",
+        "wet_n": 2243
+      },
+      {
+        "mismatch": 0,
+        "n": 3206,
+        "name": "getFlowDir",
+        "wet_n": 2243
+      }
+    ],
+    "surface_height": {
+      "carved_n": 17510,
+      "coset_a_n": 12000,
+      "coset_b_n": 12000,
+      "mismatch": 0,
+      "n": 24000
+    }
+  },
+  "terrain": {
+    "regions": [
+      {
+        "region": {
+          "xMin": 0,
+          "xMax": 28,
+          "zMin": 0,
+          "zMax": 28
+        },
+        "carve_nonzero_cols": 95,
+        "js": {
+          "tris_base": 130752,
+          "tris_caps": 40082,
+          "grass_tris": 45359,
+          "dirt_tris": 125475,
+          "centroid_q_sum_base": [
+            18828624208,
+            -3394487640,
+            18729359408
+          ],
+          "centroid_q_sum_caps": [
+            5414001052,
+            527939104,
+            5421004706
+          ],
+          "uv_q_sum": [
+            -2728284288,
+            16028076861
+          ],
+          "edge_stats": {
+            "verts": 80766,
+            "edges": 251556,
+            "m1": 2078,
+            "m2": 238656,
+            "m3p": 10822,
+            "open_interior": 1,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            18828624208,
+            -3394487640,
+            18729359408
+          ],
+          "centroid_q_sum_caps": [
+            5414001052,
+            527939104,
+            5421004706
+          ],
+          "dirt_tris": 125475,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 251556,
+            "m1": 2078,
+            "m2": 238656,
+            "m3p": 10822,
+            "open_interior": 1,
+            "verts": 80766
+          },
+          "grass_tris": 45359,
+          "tris_base": 130752,
+          "tris_caps": 40082,
+          "uv_q_sum": [
+            -2728284288,
+            16028076861
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": 28,
+          "xMax": 56,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "carve_nonzero_cols": 215,
+        "js": {
+          "tris_base": 139540,
+          "tris_caps": 39088,
+          "grass_tris": 46131,
+          "dirt_tris": 132497,
+          "centroid_q_sum_base": [
+            59223334928,
+            -2375549264,
+            59041180240
+          ],
+          "centroid_q_sum_caps": [
+            16185877198,
+            836175896,
+            16237456860
+          ],
+          "uv_q_sum": [
+            -7827829371,
+            77996648065
+          ],
+          "edge_stats": {
+            "verts": 84791,
+            "edges": 263442,
+            "m1": 2062,
+            "m2": 250965,
+            "m3p": 10415,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            59223334928,
+            -2375549264,
+            59041180240
+          ],
+          "centroid_q_sum_caps": [
+            16185877198,
+            836175896,
+            16237456860
+          ],
+          "dirt_tris": 132497,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 263442,
+            "m1": 2062,
+            "m2": 250965,
+            "m3p": 10415,
+            "open_interior": 0,
+            "verts": 84791
+          },
+          "grass_tris": 46131,
+          "tris_base": 139540,
+          "tris_caps": 39088,
+          "uv_q_sum": [
+            -7827829371,
+            77996648065
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": 0,
+          "xMax": 28,
+          "zMin": 56,
+          "zMax": 84
+        },
+        "carve_nonzero_cols": 1194,
+        "js": {
+          "tris_base": 121254,
+          "tris_caps": 41204,
+          "grass_tris": 43755,
+          "dirt_tris": 118703,
+          "centroid_q_sum_base": [
+            16789304880,
+            -3050229976,
+            84773955616
+          ],
+          "centroid_q_sum_caps": [
+            5850506583,
+            687679564,
+            29089928810
+          ],
+          "uv_q_sum": [
+            -2844207334,
+            147238031348
+          ],
+          "edge_stats": {
+            "verts": 76477,
+            "edges": 238866,
+            "m1": 2073,
+            "m2": 225819,
+            "m3p": 10974,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            16789304880,
+            -3050229976,
+            84773955616
+          ],
+          "centroid_q_sum_caps": [
+            5850506583,
+            687679564,
+            29089928810
+          ],
+          "dirt_tris": 118703,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 238866,
+            "m1": 2073,
+            "m2": 225819,
+            "m3p": 10974,
+            "open_interior": 0,
+            "verts": 76477
+          },
+          "grass_tris": 43755,
+          "tris_base": 121254,
+          "tris_caps": 41204,
+          "uv_q_sum": [
+            -2844207334,
+            147238031348
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": -56,
+          "xMax": -28,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "carve_nonzero_cols": 6,
+        "js": {
+          "tris_base": 140194,
+          "tris_caps": 39486,
+          "grass_tris": 45815,
+          "dirt_tris": 133865,
+          "centroid_q_sum_base": [
+            -59548782600,
+            -2157963344,
+            59096414312
+          ],
+          "centroid_q_sum_caps": [
+            -16640705749,
+            960530442,
+            16425806070
+          ],
+          "uv_q_sum": [
+            7783374546,
+            80762615601
+          ],
+          "edge_stats": {
+            "verts": 85358,
+            "edges": 264859,
+            "m1": 2199,
+            "m2": 251920,
+            "m3p": 10740,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            -59548782600,
+            -2157963344,
+            59096414312
+          ],
+          "centroid_q_sum_caps": [
+            -16640705749,
+            960530442,
+            16425806070
+          ],
+          "dirt_tris": 133865,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 264859,
+            "m1": 2199,
+            "m2": 251920,
+            "m3p": 10740,
+            "open_interior": 0,
+            "verts": 85358
+          },
+          "grass_tris": 45815,
+          "tris_base": 140194,
+          "tris_caps": 39486,
+          "uv_q_sum": [
+            7783374546,
+            80762615601
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": -28,
+          "xMax": 0,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "carve_nonzero_cols": 98,
+        "js": {
+          "tris_base": 122354,
+          "tris_caps": 40202,
+          "grass_tris": 43714,
+          "dirt_tris": 118842,
+          "centroid_q_sum_base": [
+            -17774680624,
+            -3367100728,
+            51647298000
+          ],
+          "centroid_q_sum_caps": [
+            -5619952481,
+            487153742,
+            16945012830
+          ],
+          "uv_q_sum": [
+            2894230862,
+            75985146624
+          ],
+          "edge_stats": {
+            "verts": 76639,
+            "edges": 239019,
+            "m1": 2081,
+            "m2": 226025,
+            "m3p": 10913,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            -17774680624,
+            -3367100728,
+            51647298000
+          ],
+          "centroid_q_sum_caps": [
+            -5619952481,
+            487153742,
+            16945012830
+          ],
+          "dirt_tris": 118842,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 239019,
+            "m1": 2081,
+            "m2": 226025,
+            "m3p": 10913,
+            "open_interior": 0,
+            "verts": 76639
+          },
+          "grass_tris": 43714,
+          "tris_base": 122354,
+          "tris_caps": 40202,
+          "uv_q_sum": [
+            2894230862,
+            75985146624
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": 0,
+          "xMax": 28,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "carve_nonzero_cols": 822,
+        "js": {
+          "tris_base": 112220,
+          "tris_caps": 43862,
+          "grass_tris": 41255,
+          "dirt_tris": 114827,
+          "centroid_q_sum_base": [
+            15942411224,
+            -3482629664,
+            47109759816
+          ],
+          "centroid_q_sum_caps": [
+            5751825898,
+            460339938,
+            18293373360
+          ],
+          "uv_q_sum": [
+            -2913919386,
+            76495492424
+          ],
+          "edge_stats": {
+            "verts": 72944,
+            "edges": 229126,
+            "m1": 1992,
+            "m2": 215910,
+            "m3p": 11224,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            15942411224,
+            -3482629664,
+            47109759816
+          ],
+          "centroid_q_sum_caps": [
+            5751825898,
+            460339938,
+            18293373360
+          ],
+          "dirt_tris": 114827,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 229126,
+            "m1": 1992,
+            "m2": 215910,
+            "m3p": 11224,
+            "open_interior": 0,
+            "verts": 72944
+          },
+          "grass_tris": 41255,
+          "tris_base": 112220,
+          "tris_caps": 43862,
+          "uv_q_sum": [
+            -2913919386,
+            76495492424
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": -28,
+          "xMax": 0,
+          "zMin": -28,
+          "zMax": 0
+        },
+        "carve_nonzero_cols": 0,
+        "js": {
+          "tris_base": 123000,
+          "tris_caps": 38971,
+          "grass_tris": 44338,
+          "dirt_tris": 117633,
+          "centroid_q_sum_base": [
+            -16967859816,
+            -3267457080,
+            -17778462256
+          ],
+          "centroid_q_sum_caps": [
+            -5503109855,
+            538816673,
+            -5430489850
+          ],
+          "uv_q_sum": [
+            2626801613,
+            -41791505480
+          ],
+          "edge_stats": {
+            "verts": 76433,
+            "edges": 238130,
+            "m1": 2016,
+            "m2": 225259,
+            "m3p": 10855,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            -16967859816,
+            -3267457080,
+            -17778462256
+          ],
+          "centroid_q_sum_caps": [
+            -5503109855,
+            538816673,
+            -5430489850
+          ],
+          "dirt_tris": 117633,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 238130,
+            "m1": 2016,
+            "m2": 225259,
+            "m3p": 10855,
+            "open_interior": 0,
+            "verts": 76433
+          },
+          "grass_tris": 44338,
+          "tris_base": 123000,
+          "tris_caps": 38971,
+          "uv_q_sum": [
+            2626801613,
+            -41791505480
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": 84,
+          "xMax": 112,
+          "zMin": 84,
+          "zMax": 112
+        },
+        "carve_nonzero_cols": 1247,
+        "js": {
+          "tris_base": 111000,
+          "tris_caps": 51225,
+          "grass_tris": 38042,
+          "dirt_tris": 124183,
+          "centroid_q_sum_base": [
+            109362893936,
+            -1439163704,
+            108391872496
+          ],
+          "centroid_q_sum_caps": [
+            50033591818,
+            1478537747,
+            50335890260
+          ],
+          "uv_q_sum": [
+            -24565823328,
+            221852153042
+          ],
+          "edge_stats": {
+            "verts": 79156,
+            "edges": 240793,
+            "m1": 7041,
+            "m2": 222256,
+            "m3p": 11496,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            109362893936,
+            -1439163704,
+            108391872496
+          ],
+          "centroid_q_sum_caps": [
+            50033591818,
+            1478537747,
+            50335890260
+          ],
+          "dirt_tris": 124183,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 240793,
+            "m1": 7041,
+            "m2": 222256,
+            "m3p": 11496,
+            "open_interior": 0,
+            "verts": 79156
+          },
+          "grass_tris": 38042,
+          "tris_base": 111000,
+          "tris_caps": 51225,
+          "uv_q_sum": [
+            -24565823328,
+            221852153042
+          ]
+        }
+      },
+      {
+        "region": {
+          "xMin": -14,
+          "xMax": 14,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "carve_nonzero_cols": 920,
+        "js": {
+          "tris_base": 112610,
+          "tris_caps": 44044,
+          "grass_tris": 41141,
+          "dirt_tris": 115513,
+          "centroid_q_sum_base": [
+            -322638392,
+            -3503627168,
+            47024546008
+          ],
+          "centroid_q_sum_caps": [
+            75693803,
+            448681164,
+            18531656710
+          ],
+          "uv_q_sum": [
+            -339824449,
+            78281007411
+          ],
+          "edge_stats": {
+            "verts": 73206,
+            "edges": 229894,
+            "m1": 2014,
+            "m2": 216475,
+            "m3p": 11405,
+            "open_interior": 0,
+            "degenerate": 0
+          }
+        },
+        "gd": {
+          "centroid_q_sum_base": [
+            -322638392,
+            -3503627168,
+            47024546008
+          ],
+          "centroid_q_sum_caps": [
+            75693803,
+            448681164,
+            18531656710
+          ],
+          "dirt_tris": 115513,
+          "edge_stats": {
+            "degenerate": 0,
+            "edges": 229894,
+            "m1": 2014,
+            "m2": 216475,
+            "m3p": 11405,
+            "open_interior": 0,
+            "verts": 73206
+          },
+          "grass_tris": 41141,
+          "tris_base": 112610,
+          "tris_caps": 44044,
+          "uv_q_sum": [
+            -339824449,
+            78281007411
+          ]
+        }
+      }
+    ],
+    "neg_control": {
+      "region": {
+        "xMax": 28.0,
+        "xMin": 0.0,
+        "zMax": 28.0,
+        "zMin": 0.0
+      },
+      "shift_m": 0.5,
+      "differs": true
+    },
+    "thread_safety": {
+      "equal": true,
+      "region": {
+        "xMax": 28.0,
+        "xMin": 0.0,
+        "zMax": 28.0,
+        "zMin": 0.0
+      },
+      "threads": 4
+    }
+  },
+  "water": {
+    "regions": [
+      {
+        "kind": "lake",
+        "region": {
+          "xMin": 0,
+          "xMax": 28,
+          "zMin": 0,
+          "zMax": 28
+        },
+        "js": {
+          "tris": 900,
+          "centroid_q_sum": [
+            42262440,
+            11250000,
+            244768840
+          ],
+          "depth_q_sum": 30000000,
+          "flow_nonzero_tris": 0
+        },
+        "gd": {
+          "centroid_q_sum": [
+            42262440,
+            11250000,
+            244768840
+          ],
+          "depth_q_sum": 30000000,
+          "flow_nonzero_tris": 0,
+          "tris": 900
+        }
+      },
+      {
+        "kind": "river",
+        "region": {
+          "xMin": 28,
+          "xMax": 56,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "js": {
+          "tris": 1508,
+          "centroid_q_sum": [
+            808816568,
+            49010000,
+            808659736
+          ],
+          "depth_q_sum": 50040000,
+          "flow_nonzero_tris": 1508
+        },
+        "gd": {
+          "centroid_q_sum": [
+            808816568,
+            49010000,
+            808659736
+          ],
+          "depth_q_sum": 50040000,
+          "flow_nonzero_tris": 1508,
+          "tris": 1508
+        }
+      },
+      {
+        "kind": "spring",
+        "region": {
+          "xMin": 0,
+          "xMax": 28,
+          "zMin": 56,
+          "zMax": 84
+        },
+        "js": {
+          "tris": 5900,
+          "centroid_q_sum": [
+            680533800,
+            155670000,
+            4476790200
+          ],
+          "depth_q_sum": 177000000,
+          "flow_nonzero_tris": 5772
+        },
+        "gd": {
+          "centroid_q_sum": [
+            680533800,
+            155670000,
+            4476790200
+          ],
+          "depth_q_sum": 177000000,
+          "flow_nonzero_tris": 5772,
+          "tris": 5900
+        }
+      },
+      {
+        "kind": "seam",
+        "region": {
+          "xMin": -14,
+          "xMax": 14,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "js": {
+          "tris": 11280,
+          "centroid_q_sum": [
+            461722576,
+            141000000,
+            4044149456
+          ],
+          "depth_q_sum": 513000000,
+          "flow_nonzero_tris": 2312
+        },
+        "gd": {
+          "centroid_q_sum": [
+            461722576,
+            141000000,
+            4044149456
+          ],
+          "depth_q_sum": 513000000,
+          "flow_nonzero_tris": 2312,
+          "tris": 11280
+        }
+      },
+      {
+        "kind": "dry",
+        "region": {
+          "xMin": -56,
+          "xMax": -28,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "js": {
+          "tris": 0,
+          "centroid_q_sum": [
+            0,
+            0,
+            0
+          ],
+          "depth_q_sum": 0,
+          "flow_nonzero_tris": 0
+        },
+        "gd": {
+          "centroid_q_sum": [
+            0,
+            0,
+            0
+          ],
+          "depth_q_sum": 0,
+          "flow_nonzero_tris": 0,
+          "tris": 0
+        }
+      },
+      {
+        "kind": "lake",
+        "region": {
+          "xMin": -28,
+          "xMax": 0,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "js": {
+          "tris": 1040,
+          "centroid_q_sum": [
+            -9416736,
+            13000000,
+            340475104
+          ],
+          "depth_q_sum": 36000000,
+          "flow_nonzero_tris": 0
+        },
+        "gd": {
+          "centroid_q_sum": [
+            -9416736,
+            13000000,
+            340475104
+          ],
+          "depth_q_sum": 36000000,
+          "flow_nonzero_tris": 0,
+          "tris": 1040
+        }
+      },
+      {
+        "kind": "river",
+        "region": {
+          "xMin": 0,
+          "xMax": 28,
+          "zMin": 28,
+          "zMax": 56
+        },
+        "js": {
+          "tris": 10240,
+          "centroid_q_sum": [
+            471139312,
+            128000000,
+            3703674352
+          ],
+          "depth_q_sum": 477000000,
+          "flow_nonzero_tris": 2312
+        },
+        "gd": {
+          "centroid_q_sum": [
+            471139312,
+            128000000,
+            3703674352
+          ],
+          "depth_q_sum": 477000000,
+          "flow_nonzero_tris": 2312,
+          "tris": 10240
+        }
+      }
+    ],
+    "seam": {
+      "full_tris": 11280,
+      "left_tris": 1040,
+      "right_tris": 10240
+    },
+    "neg_control": {
+      "region": {
+        "xMax": 14.0,
+        "xMin": -14.0,
+        "zMax": 56.0,
+        "zMin": 28.0
+      },
+      "shift_m": 14.0,
+      "differs": true
+    },
+    "thread_safety": {
+      "equal": true,
+      "region": {
+        "xMax": 28.0,
+        "xMin": 0.0,
+        "zMax": 28.0,
+        "zMin": 0.0
+      },
+      "threads": 4
+    }
+  }
+}

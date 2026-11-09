@@ -109,17 +109,21 @@ struct FaceTables {
 };
 
 // ---------------------------------------------------------------- hashing and noise
-inline uint32_t mix32(uint32_t h) {
-	h = (h ^ (h >> 16)) * 0x45d9f3bu;
-	h = (h ^ (h >> 16)) * 0x45d9f3bu;
-	h = h ^ (h >> 16);
-	return h;
+// SPDX-License-Identifier: LicenseRef-PublicDomain
+// lowbias32: Chris Wellons, "Prospecting for Hash Functions", https://nullprogram.com/blog/2018/07/31/ (public domain)
+inline uint32_t lowbias32(uint32_t x) {
+	x ^= x >> 16;
+	x *= 0x7feb352du;
+	x ^= x >> 15;
+	x *= 0x846ca68bu;
+	x ^= x >> 16;
+	return x;
 }
 
 // worldgen.js hash2: the JS products are exact doubles reduced mod 2^32 by `|0`.
 inline double hash2(int64_t ix, int64_t iz, int32_t seed) {
 	uint32_t h = (uint32_t)seed ^ (uint32_t)(ix * 2654435761LL) ^ (uint32_t)(iz * 1234567891LL);
-	return (double)mix32(h) / 4294967296.0;
+	return (double)lowbias32(h) / 4294967296.0;
 }
 
 inline double fade(double t) { return t * t * t * (t * (t * 6 - 15) + 10); }

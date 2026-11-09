@@ -6,6 +6,9 @@ env = SConscript("godot-cpp/SConstruct")
 
 env.Append(CPPPATH=["src/"])
 env.Append(CXXFLAGS=["-ffp-contract=off"])
+# Spec #517: the plan solve reports a failed invariant by throwing inside stalag_plan.cpp
+# (caught there, never crossing into Godot); godot-cpp defaults to -fno-exceptions.
+env.Append(CXXFLAGS=["-fexceptions"])
 sources = Glob("src/*.cpp")
 
 library = env.SharedLibrary(

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Spec #494: MEASURED JS baseline for the engine-language spike.
 //
-// Imports the frozen prototype read-only from $STALAG_DIR (default ~/dev/stalag),
+// Runs the frozen prototype read-only from $STALAG_DIR (default ~/dev/stalag), with the
+// Spec #517 A2 primitive substitutions of tools/baseline/proto_subst.mjs by default,
 // times buildTerrainSurface for one region, and records the triangle count and the
 // order-independent integer centroid checksum the Godot candidates must reproduce.
 //
@@ -14,17 +15,21 @@
 //                       oracle: the frozen src/ is COPIED to a temp dir, carve.js is stubbed
 //                       there to carveDepth => 0, and the copy is what runs. STALAG_DIR is
 //                       never written to, in either mode.
+//   JS_BASELINE_SUBST   lowbias32 (default: hash finalizer, hypot and log2 substituted, the
+//                       same world the engine builds) | none (the historical, unsubstituted
+//                       prototype, which only the retired Spec #494/#501 records describe)
 //   STALAG_DIR          prototype checkout (default ~/dev/stalag); never written to
 //
 // Nothing here is hard-coded from a previous run: every number is computed below.
 
 import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { installMath, prepareTree } from './proto_subst.mjs';
 
-const SEED = 42;           // index.html WORLD_SEED
+const SEED = 42;           // the Spec #494 spike keeps seed 42 (the engine world uses 7); index.html uses 42 too
 const EXTENT = Number(process['env'].JS_BASELINE_EXTENT || 72); // 72 = the #494 small world
 const FLAT_THRESHOLD = 0;
 const SF = 0.125;          // lattice -> metres; same value as stalag worldmesh.js SF
@@ -52,17 +57,16 @@ if (carveMode !== 'on' && carveMode !== 'off') {
   process.exit(2);
 }
 
-// Carve-free oracle (Spec #501): run a COPY of the frozen src/ with carve.js stubbed.
-let runDir = stalagDir;
-let tmpCopy = null;
+// The prototype always runs from a COPY (so the hash substitution never touches the original);
+// with carve off (Spec #501) carve.js in the copy is stubbed as well.
+const substMode = E.JS_BASELINE_SUBST || 'lowbias32';
+const tmpCopy = mkdtempSync(join(tmpdir(), 'stalag-oracle-'));
+const runDir = prepareTree(stalagDir, tmpCopy, substMode).dir;
+installMath(substMode);
 if (carveMode === 'off') {
-  tmpCopy = mkdtempSync(join(tmpdir(), 'stalag-oracle-'));
-  cpSync(join(stalagDir, 'src'), join(tmpCopy, 'src'), { recursive: true });
-  cpSync(join(stalagDir, 'package.json'), join(tmpCopy, 'package.json'));
-  writeFileSync(join(tmpCopy, 'src', 'carve.js'),
+  writeFileSync(join(runDir, 'src', 'carve.js'),
     'export const GUARD_INNER = 70;\nexport const GUARD_OUTER = 110;\n' +
     'export function carveDepth() { return 0; }\nexport function channelAt() { return 0; }\n');
-  runDir = tmpCopy;
 }
 const { buildTerrainSurface } = await import(pathToFileURL(join(runDir, 'src/worldmesh.js')).href);
 const { carveDepth } = await import(pathToFileURL(join(runDir, 'src/carve.js')).href);
@@ -162,6 +166,7 @@ const out = {
   node_version: process.version,
   stalag_head: head,
   carve_mode: carveMode,
+  subst_mode: substMode,
   params: { seed: SEED, extent: EXTENT, flatThreshold: FLAT_THRESHOLD, region },
   carve_nonzero_columns: carveNonzero,
   plan_solve_ms: planSolveMs,
@@ -176,5 +181,5 @@ const out = {
   build_ms_median: median(buildMs),
 };
 writeFileSync(outPath, JSON.stringify(out, null, 2) + '\n');
-if (tmpCopy) rmSync(tmpCopy, { recursive: true, force: true });
+rmSync(tmpCopy, { recursive: true, force: true });
 console.log(`js_baseline[${carveMode}]: region ${regionStr} base=${trisBase} caps=${trisCaps} median=${out.build_ms_median.toFixed(0)} ms -> ${outPath}`);

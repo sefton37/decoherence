@@ -1,6 +1,7 @@
 #include "register_types.h"
 
 #include "stalag_chunk_mesher.h"
+#include "stalag_plan.h"
 #include "stalag_world.h"
 
 #include <gdextension_interface.h>
@@ -22,6 +23,7 @@ void uninitialize_stalag_module(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) {
 		return;
 	}
+	stalag::shutdown_plan(); // the plan worker must not outlive the library
 }
 
 extern "C" {

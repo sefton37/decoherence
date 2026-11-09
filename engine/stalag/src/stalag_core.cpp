@@ -11,7 +11,9 @@
 // worldmesh.js (surfaceHeightBase, cap passes, caps emission, isSolidWorld),
 // character-controller.js (groundEnvelopeAt, groundFloor, blockedBetween).
 //
-// The terrain is carve-free: surface height is surfaceHeightBase, nothing is lowered.
+// Spec #517: the terrain is carved. Surface height is surfaceHeightBase minus the water
+// plan's carveDepth (worldmesh.js surfaceHeight); without a plan (not yet solved, or the
+// carve_off test mutation) the carve is 0.
 //
 // Float discipline: all noise is double precision with the same operation order as the
 // JS; the SConstruct adds -ffp-contract=off so no fused multiply-add changes rounding.
@@ -19,6 +21,9 @@
 // builds are safe.
 
 #include "stalag_core.h"
+
+#include "stalag_plan.h"
+#include "stalag_to_cell.h"
 
 #include <algorithm>
 #include <array>
@@ -37,8 +42,13 @@ namespace {
 
 
 // (SF, the lattice -> metres scale, is declared once in stalag_core.h.)
-constexpr int TERRACE_LAT = 4;
-constexpr int SLAB_DEPTH = 4;
+// Solid cells below each column's surface. The prototype's default is 4 (2 m), which is enough
+// for its carve-free terrain but not for carved cliffs: two neighbouring columns can differ by
+// 32 lattice units (4 m) in this world, and a wall taller than the slab leaves an open gap in the
+// middle of the face, so the ground reads as sky from the side (Spec #517 A4.5). 12 cells (6 m)
+// covers the steepest measured neighbour step with margin. The oracle passes the same depth to
+// the prototype's own slabDepth parameter (js_world_oracle.mjs SLAB_DEPTH).
+constexpr int SLAB_DEPTH = 12;
 constexpr int RMARGIN = 4;
 constexpr int JMARGIN = 8;
 constexpr int SIDE_WALL_MIN = 12;
@@ -47,35 +57,16 @@ constexpr double SIDE_ROUGH = 0.12;
 constexpr int32_t UNSET = std::numeric_limits<int32_t>::min();
 
 // ---------------------------------------------------------------- TO cell tables
-const int VERTICES[24][3] = {
-	{ -2, -1, 0 }, { -2, 0, -1 }, { -2, 0, 1 }, { -2, 1, 0 },
-	{ -1, -2, 0 }, { -1, 0, -2 }, { -1, 0, 2 }, { -1, 2, 0 },
-	{ 0, -2, -1 }, { 0, -2, 1 }, { 0, -1, -2 }, { 0, -1, 2 },
-	{ 0, 1, -2 }, { 0, 1, 2 }, { 0, 2, -1 }, { 0, 2, 1 },
-	{ 1, -2, 0 }, { 1, 0, -2 }, { 1, 0, 2 }, { 1, 2, 0 },
-	{ 2, -1, 0 }, { 2, 0, -1 }, { 2, 0, 1 }, { 2, 1, 0 }
-};
-
-// 14 faces: 6 squares (4 verts) then 8 hexagons (6 verts); index == NEIGHBOR_OFFSETS index.
-const int FACE_LEN[14] = { 4, 4, 4, 4, 4, 4, 6, 6, 6, 6, 6, 6, 6, 6 };
-const int FACES[14][6] = {
-	{ 22, 20, 21, 23, -1, -1 }, { 1, 0, 2, 3, -1, -1 }, { 14, 7, 15, 19, -1, -1 },
-	{ 9, 4, 8, 16, -1, -1 }, { 13, 6, 11, 18, -1, -1 }, { 10, 5, 12, 17, -1, -1 },
-	{ 19, 15, 13, 18, 22, 23 }, { 21, 17, 12, 14, 19, 23 }, { 18, 11, 9, 16, 20, 22 },
-	{ 20, 16, 8, 10, 17, 21 }, { 7, 3, 2, 6, 13, 15 }, { 12, 5, 1, 3, 7, 14 },
-	{ 6, 2, 0, 4, 9, 11 }, { 8, 4, 0, 1, 5, 10 }
-};
-
-const int NEIGHBOR_OFFSETS[14][3] = {
-	{ 4, 0, 0 }, { -4, 0, 0 }, { 0, 4, 0 }, { 0, -4, 0 }, { 0, 0, 4 }, { 0, 0, -4 },
-	{ 2, 2, 2 }, { 2, 2, -2 }, { 2, -2, 2 }, { 2, -2, -2 },
-	{ -2, 2, 2 }, { -2, 2, -2 }, { -2, -2, 2 }, { -2, -2, -2 }
-};
+constexpr auto &VERTICES = TO_VERTICES;
+constexpr auto &FACE_LEN = TO_FACE_LEN;
+constexpr auto &FACES = TO_FACES;
+constexpr auto &NEIGHBOR_OFFSETS = TO_NEIGHBOR_OFFSETS;
 
 struct FaceTables {
 	std::vector<int> tris[14]; // flat triples of VERTICES indices
 	std::vector<int> tris_alt[14]; // squares only: the other diagonal
 	float normal[14][3];
+	double normald[14][3]; // the same normals un-rounded (skin UVs are computed from these)
 	bool grass[14]; // outward normal y above GRASS.upThreshold (0.3) -> grass colour, else dirt
 	FaceTables() {
 		for (int fi = 0; fi < 14; fi++) {
@@ -89,6 +80,9 @@ struct FaceTables {
 			cy /= FACE_LEN[fi];
 			cz /= FACE_LEN[fi];
 			double len = std::sqrt(cx * cx + cy * cy + cz * cz);
+			normald[fi][0] = cx / len;
+			normald[fi][1] = cy / len;
+			normald[fi][2] = cz / len;
 			normal[fi][0] = (float)(cx / len);
 			normal[fi][1] = (float)(cy / len);
 			normal[fi][2] = (float)(cz / len);
@@ -113,17 +107,10 @@ struct FaceTables {
 };
 
 // ---------------------------------------------------------------- hashing and noise
-inline uint32_t mix32(uint32_t h) {
-	h = (h ^ (h >> 16)) * 0x45d9f3bu;
-	h = (h ^ (h >> 16)) * 0x45d9f3bu;
-	h = h ^ (h >> 16);
-	return h;
-}
-
 // worldgen.js hash2: the JS products are exact doubles reduced mod 2^32 by `|0`.
 inline double hash2(int64_t ix, int64_t iz, int32_t seed) {
 	uint32_t h = (uint32_t)seed ^ (uint32_t)(ix * 2654435761LL) ^ (uint32_t)(iz * 1234567891LL);
-	return (double)mix32(h) / 4294967296.0;
+	return (double)lowbias32(h) / 4294967296.0;
 }
 
 inline double fade(double t) { return t * t * t * (t * (t * 6 - 15) + 10); }
@@ -165,7 +152,7 @@ double cell_hash(int32_t cx, int32_t cy, int32_t cz, int32_t seed) {
 
 inline int32_t xor_seed(int32_t seed, uint32_t k) { return (int32_t)((uint32_t)seed ^ k); }
 
-double mesa_lift(int32_t cx, int32_t cz, int32_t seed) {
+double mesa_lift(double cx, double cz, int32_t seed) {
 	const double MESA_CX = 6.0, MESA_CZ = 0.0, MESA_HALF = 2.5;
 	const int MESA_LIFT = 16;
 	double wx = cx * SF, wz = cz * SF;
@@ -185,7 +172,7 @@ double mesa_lift(int32_t cx, int32_t cz, int32_t seed) {
 	return 12 + std::floor(cell_hash(gi, 10, gj, seed) * 4) * 4;
 }
 
-double cliff_lift(int32_t cx, int32_t cz, int32_t seed) {
+double cliff_lift(double cx, double cz, int32_t seed) {
 	double wx = cx * SF, wz = cz * SF;
 	double a = value_noise(wx * 0.045 + 17, wz * 0.045 + 4, xor_seed(seed, 0x1f83d9abu));
 	if (a <= 0.80) return 0;
@@ -195,10 +182,10 @@ double cliff_lift(int32_t cx, int32_t cz, int32_t seed) {
 	return lift;
 }
 
-double ridged_relief(int32_t cx, int32_t cz, int32_t seed) {
+double ridged_relief(double cx, double cz, int32_t seed) {
 	const double FEAT = 56, AMP = 12, GUARD_INNER = 70, GUARD_OUTER = 110;
 	double wx = cx * SF, wz = cz * SF;
-	double r = std::sqrt(wx * wx + wz * wz);
+	double r = det_hypot(wx, wz);
 	if (r <= GUARD_INNER) return 0;
 	double t = (r - GUARD_INNER) / (GUARD_OUTER - GUARD_INNER);
 	double gm = r >= GUARD_OUTER ? 1 : t * t * (3 - 2 * t);
@@ -209,7 +196,7 @@ double ridged_relief(int32_t cx, int32_t cz, int32_t seed) {
 }
 
 // worldmesh.js surfaceHeightBase (pre-carve; valid on carve-free regions only).
-double shb(int32_t cx, int32_t cz, int32_t seed) {
+double shb(double cx, double cz, int32_t seed) {
 	return terrain_height(cx, cz, seed) + ridged_relief(cx, cz, seed) + mesa_lift(cx, cz, seed) + cliff_lift(cx, cz, seed);
 }
 
@@ -313,6 +300,7 @@ struct TopCell {
 
 struct Mesher {
 	int32_t seed;
+	const WaterPlan *plan = nullptr;
 	double floor_half;
 	double x_min, x_max, z_min, z_max;
 	// dense lazy column cache indexed by lattice (i, k): cx = 4i + 2k, cz = 2k
@@ -346,7 +334,7 @@ struct Mesher {
 		return compute_ht(cx, cz);
 	}
 	int32_t compute_ht(int32_t cx, int32_t cz) const {
-		double h = shb(cx, cz, seed);
+		double h = surface_height(cx, cz, seed, plan);
 		return (int32_t)(std::floor(h / TERRACE_LAT) * TERRACE_LAT);
 	}
 	bool in_foot(int32_t cx, int32_t cz) const {
@@ -367,11 +355,12 @@ struct Mesher {
 
 } // anonymous namespace
 
-void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_max, double p_z_min, double p_z_max, SurfaceMesh &out) {
+void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_max, double p_z_min, double p_z_max, SurfaceMesh &out, const WaterPlan *p_plan) {
 	static const FaceTables FT;
 
 	Mesher M;
 	M.seed = p_seed;
+	M.plan = p_plan;
 	M.floor_half = 4.0 * extent * SF;
 	M.x_min = p_x_min;
 	M.x_max = p_x_max;
@@ -409,7 +398,8 @@ void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_ma
 
 	// Per-column bound of the cy values that can matter. Any empty cell that yields
 	// output (side cap / bottom cap) needs a solid cell within |dy| <= 4 inside the
-	// 13-column box below, and solid cells span [hT-16, hT]; hence [Hmin-20, Hmax+4].
+	// 13-column box below, and solid cells span [hT - 4*SLAB_DEPTH, hT]; hence
+	// [Hmin - 4*SLAB_DEPTH - 4, Hmax + 4].
 	static const int BOX[13][2] = { { 0, 0 }, { 4, 0 }, { -4, 0 }, { 0, 4 }, { 0, -4 }, { 4, 4 }, { 4, -4 }, { -4, 4 }, { -4, -4 }, { 2, 2 }, { 2, -2 }, { -2, 2 }, { -2, -2 } };
 	auto cy_bounds = [&](int32_t cx, int32_t cz, int32_t &lo, int32_t &hi) -> bool {
 		bool any = false;
@@ -422,7 +412,7 @@ void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_ma
 			hmin = std::min(hmin, h);
 			hmax = std::max(hmax, h);
 		}
-		lo = hmin - 20;
+		lo = hmin - SLAB_DEPTH * TERRACE_LAT - 4;
 		hi = hmax + 4;
 		return any;
 	};
@@ -541,6 +531,11 @@ void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_ma
 					const std::vector<int> &tr =
 							(fi == 2 || fi == 3) && M.force_x_split.count(face_key(cx, cy, cz, fi)) ? FT.tris_alt[fi] : FT.tris[fi];
 					const float *colr = FT.grass[fi] ? GRASS_COL : DIRT_COL;
+					for (size_t ti = 0; ti + 2 < tr.size(); ti += 3) {
+						base.tri_nrm.push_back(FT.normald[fi][0]);
+						base.tri_nrm.push_back(FT.normald[fi][1]);
+						base.tri_nrm.push_back(FT.normald[fi][2]);
+					}
 					for (int vi : tr) {
 						base.pos.push_back((float)((cx + VERTICES[vi][0]) * SF));
 						base.pos.push_back((float)((cy + VERTICES[vi][1]) * SF));
@@ -573,11 +568,14 @@ void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_ma
 		const double ux = p[1][0] - p[0][0], uy = p[1][1] - p[0][1], uz = p[1][2] - p[0][2];
 		const double vx = p[2][0] - p[0][0], vy = p[2][1] - p[0][1], vz = p[2][2] - p[0][2];
 		double nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
-		double len = std::sqrt(nx * nx + ny * ny + nz * nz);
+		double len = det_hypot3(nx, ny, nz); // worldmesh.js pushCapTri: Math.hypot(...) || 1
 		if (len == 0) len = 1;
 		nx /= len;
 		ny /= len;
 		nz /= len;
+		caps.tri_nrm.push_back(nx);
+		caps.tri_nrm.push_back(ny);
+		caps.tri_nrm.push_back(nz);
 		for (int q = 0; q < 3; q++) {
 			for (int ax = 0; ax < 3; ax++) caps.pos.push_back((float)p[q][ax]);
 			caps.nrm.push_back((float)nx);
@@ -681,6 +679,85 @@ void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_ma
 	emit_family(side_insts, DIRT_COL);
 }
 
+
+// ================================================================ world-skin.js
+namespace {
+inline double dot3(const double *a, const double *b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+inline void norm3(const double *a, double *o) {
+	double l = det_hypot3(a[0], a[1], a[2]);
+	if (l == 0) l = 1;
+	o[0] = a[0] / l;
+	o[1] = a[1] / l;
+	o[2] = a[2] / l;
+}
+inline void cross3(const double *a, const double *b, double *o) {
+	o[0] = a[1] * b[2] - a[2] * b[1];
+	o[1] = a[2] * b[0] - a[0] * b[2];
+	o[2] = a[0] * b[1] - a[1] * b[0];
+}
+// Tangent frame: bit = world-up projected into the face plane (+Z on top/bottom faces).
+void face_frame(const double *n, double *tan, double *bit) {
+	double up[3] = { 0, 1, 0 };
+	if (std::fabs(dot3(up, n)) > 0.99) {
+		up[0] = 0;
+		up[1] = 0;
+		up[2] = 1;
+	}
+	const double d = dot3(up, n);
+	const double t[3] = { up[0] - n[0] * d, up[1] - n[1] * d, up[2] - n[2] * d };
+	norm3(t, bit);
+	double c[3];
+	cross3(bit, n, c);
+	norm3(c, tan);
+}
+} // namespace
+
+void skin_surface(const SurfaceMesh &in, int32_t seed, const WaterPlan *plan, SkinnedSurface &out) {
+	const double TILE_WORLD = 0.5, SURF_TOL = 0.35, UP_THRESHOLD = 0.3;
+	auto surf_y = [&](double wx, double wz) {
+		const double hT = std::floor(surface_height(wx / SF, wz / SF, seed, plan) / 4) * 4;
+		return (hT + 2) * SF;
+	};
+	const Soup *parts[2] = { &in.base, &in.caps };
+	for (const Soup *part : parts) {
+		const size_t nt = part->pos.size() / 9;
+		for (size_t ti = 0; ti < nt; ti++) {
+			const size_t t = ti * 9;
+			double fn[3];
+			norm3(&part->tri_nrm[ti * 3], fn);
+			bool is_grass = fn[1] > UP_THRESHOLD;
+			if (is_grass) {
+				const double cxw = ((double)part->pos[t] + part->pos[t + 3] + part->pos[t + 6]) / 3;
+				const double czw = ((double)part->pos[t + 2] + part->pos[t + 5] + part->pos[t + 8]) / 3;
+				const double top_y = std::max({ (double)part->pos[t + 1], (double)part->pos[t + 4], (double)part->pos[t + 7] });
+				if (top_y < surf_y(cxw, czw) - SURF_TOL) is_grass = false;
+			}
+			SkinBucket &b = is_grass ? out.grass : out.dirt;
+			double tan[3], bit[3];
+			face_frame(fn, tan, bit);
+			for (int v = 0; v < 3; v++) {
+				const size_t o = t + v * 3;
+				const double p[3] = { part->pos[o], part->pos[o + 1], part->pos[o + 2] };
+				const double u = dot3(p, tan) / TILE_WORLD, w = dot3(p, bit) / TILE_WORLD;
+				b.pos.push_back(part->pos[o]);
+				b.pos.push_back(part->pos[o + 1]);
+				b.pos.push_back(part->pos[o + 2]);
+				b.nrm.push_back(part->nrm[o]);
+				b.nrm.push_back(part->nrm[o + 1]);
+				b.nrm.push_back(part->nrm[o + 2]);
+				b.col.push_back(part->col[o]);
+				b.col.push_back(part->col[o + 1]);
+				b.col.push_back(part->col[o + 2]);
+				b.uv.push_back((float)u);
+				b.uv.push_back((float)w);
+				// the prototype stores UVs in a Float32Array and checksums those values
+				out.uv_q_sum[0] += (int64_t)std::floor((double)(float)u * 1e4 + 0.5);
+				out.uv_q_sum[1] += (int64_t)std::floor((double)(float)w * 1e4 + 0.5);
+			}
+		}
+	}
+}
+
 // ================================================================ world queries
 // Carve-free occupancy for the controller: worldmesh.js isSolidWorld (unbounded footprint).
 namespace {
@@ -692,16 +769,27 @@ struct HtSlot {
 };
 constexpr int HT_SLOTS = 8192;
 
-// Per-thread memo of surfaceHeightBase: ground scans ask the same few columns hundreds
+// Per-thread memo of surfaceHeight: ground scans ask the same few columns hundreds
 // of times; recomputing five noise octaves per probe would dominate the controller.
+// The memo is keyed to the published plan (and the carve test switch), so a query
+// answered before the plan was ready can never outlive it.
 double cached_height(int32_t cx, int32_t cz) {
 	thread_local std::vector<HtSlot> slots(HT_SLOTS, HtSlot{ 0, 0, 0.0, false });
+	thread_local const WaterPlan *slots_plan = nullptr;
+	thread_local bool slots_carve_off = false;
+	const WaterPlan *plan = shared_plan();
+	const bool carve_off = carve_disabled();
+	if (plan != slots_plan || carve_off != slots_carve_off) {
+		for (HtSlot &s : slots) s.valid = false;
+		slots_plan = plan;
+		slots_carve_off = carve_off;
+	}
 	uint32_t hh = ((uint32_t)cx * 73856093u) ^ ((uint32_t)cz * 19349663u);
 	HtSlot &s = slots[hh & (HT_SLOTS - 1)];
 	if (s.valid && s.cx == cx && s.cz == cz) return s.h;
 	s.cx = cx;
 	s.cz = cz;
-	s.h = shb(cx, cz, WORLD_SEED);
+	s.h = surface_height(cx, cz, WORLD_SEED, plan);
 	s.valid = true;
 	return s.h;
 }
@@ -761,7 +849,9 @@ constexpr double PLAYER_RADIUS = 0.3; // character-controller.js PLAYER_RADIUS
 
 } // namespace
 
-double surface_height_base(int32_t cx, int32_t cz, int32_t seed) { return shb(cx, cz, seed); }
+double surface_height_base(double cx, double cz, int32_t seed) { return shb(cx, cz, seed); }
+double cliff_lift_at(double cx, double cz, int32_t seed) { return cliff_lift(cx, cz, seed); }
+double surface_height_world(int32_t cx, int32_t cz) { return cached_height(cx, cz); }
 
 bool is_solid_world(int32_t cx, int32_t cy, int32_t cz) {
 	return solid_pred_inf(cx, cy, cz) || is_cap_cell(cx, cy, cz) || is_bottom_cap_cell(cx, cy, cz);
