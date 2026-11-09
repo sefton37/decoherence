@@ -20,3 +20,8 @@ config/features=PackedStringArray("4.5")
 
 Signals="*res://frontdoor/scripts/signal_bus.gd"
 ProbeDriver="*res://frontdoor/scripts/probe_driver.gd"
+
+[display]
+
+window/size/viewport_width=1920
+window/size/viewport_height=1080
