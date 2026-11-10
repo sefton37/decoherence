@@ -111,6 +111,9 @@ func setup(preset_id: String, viewport: Vector2i, synthetic: bool = false) -> vo
 	_data = parsed if typeof(parsed) == TYPE_DICTIONARY else {}
 	_synthetic = synthetic
 	_tick_hz = float(_data.get("tick_hz", 12))
+	# Spec #541 D2: one dial dims all chrome (this node and its conveyor strips)
+	# without touching the terminal.
+	modulate = Color(1, 1, 1, clampf(float(_data.get("chrome_alpha", 1.0)), 0.0, 1.0))
 	var sc = _data.get("smooth_scroll", {})
 	if typeof(sc) == TYPE_DICTIONARY:
 		for k in _scroll:

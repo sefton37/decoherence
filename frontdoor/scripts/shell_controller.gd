@@ -24,6 +24,7 @@ signal world_requested
 
 const MODULES_PATH := "res://frontdoor/data/modules.json"
 const DIR_COMMAND := "dir"
+const DEFAULT_WINDOWED := "1920x1080"
 
 enum State { SHELL, CHAT, WORLD }
 
@@ -50,6 +51,9 @@ var _system_prompt: String = ""
 var _decode_grammar: String = ""
 var _decode_schema: Dictionary = {}
 var _text_cps: float = 160.0
+
+## The windowed `display` value F11 / Alt+Enter returns to (Spec #541 D12).
+var _last_windowed: String = DEFAULT_WINDOWED
 
 ## Bumped on every submitted line and every state change: a routing result
 ## whose epoch no longer matches is stale and silently dropped.
@@ -298,17 +302,32 @@ func _handle_set_command(cmd: String) -> void:
 
 
 ## Validates, applies and persists one setting. Returns true on success.
-func _apply_setting(key: String, value: String) -> bool:
+## `silent` (Spec #541 D12, the F11 / Alt+Enter toggle) skips the terminal line.
+func _apply_setting(key: String, value: String, silent: bool = false) -> bool:
 	if not SettingsStore.is_valid(_schema, key, value):
-		_out("SETTING NOT RECOGNIZED: %s %s" % [key.to_upper(), value.to_upper()], Palette.ORANGE)
+		if not silent:
+			_out("SETTING NOT RECOGNIZED: %s %s" % [key.to_upper(), value.to_upper()], Palette.ORANGE)
 		return false
 	_settings[key] = value
 	if key == "text_speed":
 		_text_cps = SettingsStore.text_cps(value)
 	var saved := SettingsStore.save_settings(_settings)
 	Signals.setting_changed.emit(key, value)
-	_out("SETTING %s -> %s%s" % [key.to_upper(), value.to_upper(), "" if saved else "  (NOT SAVED)"], Palette.TEAL)
+	if not silent:
+		_out("SETTING %s -> %s%s" % [key.to_upper(), value.to_upper(), "" if saved else "  (NOT SAVED)"], Palette.TEAL)
 	return true
+
+
+## F11 / Alt+Enter (Spec #541 D12): flips `display` between fullscreen and the
+## last windowed value (default 1920x1080) through the normal settings path --
+## validated, persisted, announced on Signals.setting_changed -- but silent.
+func toggle_display() -> void:
+	var current := String(_settings.get("display", DEFAULT_WINDOWED))
+	if current == "fullscreen":
+		_apply_setting("display", _last_windowed, true)
+	else:
+		_last_windowed = current
+		_apply_setting("display", "fullscreen", true)
 
 
 ## --- Router path ----------------------------------------------------------

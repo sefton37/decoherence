@@ -10,9 +10,9 @@
 
 [sub_resource type="ShaderMaterial" id="1"]
 shader = ExtResource("5")
-shader_parameter/scanline_intensity = 0.25
+shader_parameter/scanline_intensity = 0.15
 shader_parameter/scanline_spacing_px = 4.0
-shader_parameter/vignette_strength = 0.4
+shader_parameter/vignette_strength = 0.28
 shader_parameter/flicker = 0.0
 
 [node name="Boot" type="Control"]

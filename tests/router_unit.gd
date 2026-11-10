@@ -172,7 +172,7 @@ func _unit_settings(schema) -> void:
 	var corrupt := SettingsStore.load_settings(schema, path)
 	_ok("settings_corrupt_defaults", corrupt["status"] == "corrupt" and corrupt["settings"] == d, "status=" + String(corrupt["status"]))
 	var crt := SettingsStore.crt_params("normal")
-	_ok("settings_crt_normal_is_scene_value", crt[0] == 0.25 and crt[1] == 0.4 and SettingsStore.crt_params("off")[0] == 0.0, "crt params drifted")
+	_ok("settings_crt_normal_is_scene_value", crt[0] == 0.15 and crt[1] == 0.28 and SettingsStore.crt_params("off")[0] == 0.0, "crt params drifted")
 	_ok("settings_flicker_factors", SettingsStore.flicker_factor("full") == 1.0 and SettingsStore.flicker_factor("half") == 0.5 and SettingsStore.flicker_factor("off") == 0.0, "factors drifted")
 	_ok("settings_display_request", SettingsStore.display_request("1280x720")["size"] == Vector2i(1280, 720) and SettingsStore.display_request("fullscreen")["fullscreen"], "display parse")
 

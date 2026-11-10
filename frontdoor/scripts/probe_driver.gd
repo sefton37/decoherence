@@ -435,11 +435,14 @@ func _world_finish() -> void:
 ##   e2e_fastpath / e2e_thinking / e2e_dispatch   shell behavior through the
 ##                real model
 ##   e2e_settings / e2e_relaunch / e2e_corrupt    settings apply + persistence
+##   tone / scale (Spec #541)   rendered-pixel measurements of the calm chrome,
+##                the input row + cursor, and the fullscreen content scale;
+##                results go to $DECOHERENCE_PROBE_OUT_DIR
 ## All of them drive the shell through Signals.terminal_line_submitted, the
 ## same send path a real Enter keypress uses.
 ## ===========================================================================
 
-const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot"]
+const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale"]
 const EXT_WATCHDOG_SECONDS := 1500.0
 const RESOLVE_TIMEOUT_SEC := 25.0
 
@@ -591,6 +594,10 @@ func _run_ext() -> void:
 			await _run_seam()
 		"shell_shot":
 			await _run_shell_shot()
+		"tone":
+			await _run_tone()
+		"scale":
+			await _run_scale()
 	_ext_quit(0)
 
 
@@ -1018,3 +1025,366 @@ func _run_shell_shot() -> void:
 		print("PROBE_SHELL_SHOT text=%s source=%s action=%s" % [text, String(res.get("source", "")), String(res.get("action", ""))])
 		await _wait_seconds(1.5)
 	await _wait_seconds(2.0)
+
+
+## ===========================================================================
+## Spec #541 modes: `tone` and `scale`. Both measure RENDERED pixels (the
+## viewport texture), never a flag in the data structure, and both type
+## through real InputEventKey events so the genuine _input paths run.
+## Output dir: DECOHERENCE_PROBE_OUT_DIR (required).
+## ===========================================================================
+
+const LIT_LUMA := 0.2
+
+
+func _out_dir() -> String:
+	var d := OS.get_environment("DECOHERENCE_PROBE_OUT_DIR")
+	DirAccess.make_dir_recursive_absolute(d)
+	return d
+
+
+func _write_json(path: String, data: Dictionary) -> void:
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f != null:
+		f.store_string(JSON.stringify(data, "  "))
+		f.close()
+
+
+func _key_event(keycode: int, unicode: int = 0, alt: bool = false) -> InputEventKey:
+	var ev := InputEventKey.new()
+	ev.pressed = true
+	ev.keycode = keycode as Key
+	ev.unicode = unicode
+	ev.alt_pressed = alt
+	return ev
+
+
+func _press(keycode: int, unicode: int = 0, alt: bool = false) -> void:
+	Input.parse_input_event(_key_event(keycode, unicode, alt))
+	await get_tree().process_frame
+
+
+func _type_text(text: String) -> void:
+	for i in range(text.length()):
+		await _press(KEY_NONE, text.unicode_at(i))
+
+
+func _type_line(text: String) -> void:
+	await _type_text(text)
+	await _press(KEY_ENTER)
+
+
+func _grab() -> Image:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	img.convert(Image.FORMAT_RGB8)
+	return img
+
+
+## Pixel statistics over `r` (physical pixels) of an RGB8 image: mean luma of
+## every pixel, mean luma of the lit ones (luma >= LIT_LUMA), and the lit
+## bounding box.
+func _region_stats(img: Image, r: Rect2i) -> Dictionary:
+	var w := img.get_width()
+	var h := img.get_height()
+	var rr := r.intersection(Rect2i(0, 0, w, h))
+	var data := img.get_data()
+	var n := 0
+	var lit := 0
+	var sum_all := 0.0
+	var sum_lit := 0.0
+	var x0 := 1 << 30
+	var y0 := 1 << 30
+	var x1 := -1
+	var y1 := -1
+	for y in range(rr.position.y, rr.end.y):
+		var o := (y * w + rr.position.x) * 3
+		for x in range(rr.position.x, rr.end.x):
+			var l := (0.2126 * data[o] + 0.7152 * data[o + 1] + 0.0722 * data[o + 2]) / 255.0
+			o += 3
+			n += 1
+			sum_all += l
+			if l >= LIT_LUMA:
+				lit += 1
+				sum_lit += l
+				if x < x0:
+					x0 = x
+				if x > x1:
+					x1 = x
+				if y < y0:
+					y0 = y
+				if y > y1:
+					y1 = y
+	return {
+		"n": n, "lit": lit,
+		"mean": sum_all / maxf(1.0, float(n)),
+		"lit_mean": sum_lit / maxf(1.0, float(lit)),
+		"bbox_w": (x1 - x0 + 1) if lit > 0 else 0,
+		"bbox_h": (y1 - y0 + 1) if lit > 0 else 0,
+	}
+
+
+func _phys(r: Rect2, factor: float) -> Rect2i:
+	return Rect2i(Vector2i((r.position * factor).round()), Vector2i((r.size * factor).round()))
+
+
+## Run-length analysis of a blink series [[t_ms, luma], ...]: the on/off
+## threshold is the midpoint of the observed range (a series with no real
+## swing has zero transitions by construction).
+func _blink_stats(series: Array) -> Dictionary:
+	var lo := 1.0
+	var hi := 0.0
+	for p in series:
+		lo = minf(lo, float(p[1]))
+		hi = maxf(hi, float(p[1]))
+	var swing := hi - lo >= 0.08
+	var thr := (lo + hi) * 0.5
+	var on := 0
+	var off := 0
+	var transitions := 0
+	var prev := -1
+	var change_ms: Array = []
+	for p in series:
+		var state := 1 if (swing and float(p[1]) > thr) else 0
+		if state == 1:
+			on += 1
+		else:
+			off += 1
+		if prev != -1 and state != prev:
+			transitions += 1
+			change_ms.append(int(p[0]))
+		prev = state
+	var half := 0.0
+	if change_ms.size() >= 2:
+		half = float(int(change_ms[change_ms.size() - 1]) - int(change_ms[0])) / float(change_ms.size() - 1)
+	return {"samples": series.size(), "on": on, "off": off, "transitions": transitions, "half_period_ms": int(round(half))}
+
+
+func _cursor_luma(term: TerminalGrid, factor: float) -> float:
+	var img := await _grab()
+	var r := term.cursor_rect().grow(-2.0)
+	return float(_region_stats(img, _phys(r, factor))["mean"])
+
+
+func _run_tone() -> void:
+	var term := _terminal_node()
+	var factor := get_window().content_scale_factor
+	await _type_line("help")
+	await _wait_seconds(3.0)
+	var img := await _grab()
+	var out_dir := _out_dir()
+	img.save_png(out_dir + "/tone.png")
+
+	# Backdrop: an empty region, plus negative controls for the instrument.
+	var vp := get_viewport().get_visible_rect().size
+	var empty := _region_stats(img, _phys(Rect2(1100, 100, 700, 500), factor))
+	var grey_img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	grey_img.fill(Color(0.3, 0.3, 0.3))
+	var bg_img := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	bg_img.fill(Palette.BG)
+	var grey_luma: float = _region_stats(grey_img, Rect2i(0, 0, 64, 64))["mean"]
+	var bg_luma: float = _region_stats(bg_img, Rect2i(0, 0, 64, 64))["mean"]
+
+	# Terminal text vs chrome, same frame.
+	var term_stats := _region_stats(img, _phys(Rect2(0, 0, PanelLayout.TERM_W, PanelLayout.TERM_H), factor))
+	var chrome_sum := 0.0
+	var chrome_lit := 0
+	var report: Dictionary = _panels_node().layout_report()
+	for p in report["panels"]:
+		var cs := _region_stats(img, _phys(Rect2(p[0], p[1], p[2], p[3]), factor))
+		chrome_sum += float(cs["lit_mean"]) * int(cs["lit"])
+		chrome_lit += int(cs["lit"])
+	var chrome_lit_mean := chrome_sum / maxf(1.0, float(chrome_lit))
+
+	# Input row: the bar must lift the row above a plain empty row.
+	var cr := term.cursor_rect()
+	var bar := _region_stats(img, _phys(Rect2(700, cr.position.y, 280, cr.size.y), factor))
+	var plain := _region_stats(img, _phys(Rect2(700, cr.position.y + 2.0 * cr.size.y, 280, cr.size.y), factor))
+	var lift: float = float(bar["mean"]) - float(plain["mean"])
+
+	# Cursor blink: sample the rendered pixels at the cursor cell for 3 s.
+	await _wait_seconds(1.0)
+	var series: Array = []
+	var t0 := Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 3000:
+		series.append([Time.get_ticks_msec() - t0, await _cursor_luma(term, factor)])
+	var blink := _blink_stats(series)
+	var flat: Array = []
+	for i in range(60):
+		flat.append([i * 50, 0.5])
+	var neg_flat: Dictionary = _blink_stats(flat)
+
+	# Solid while typing: type at an OFF phase; the cursor must be on at once.
+	var solid_trials := 0
+	var solid_ok := true
+	var lo := 1.0
+	var hi := 0.0
+	for p in series:
+		lo = minf(lo, float(p[1]))
+		hi = maxf(hi, float(p[1]))
+	var mid := (lo + hi) * 0.5
+	for trial in range(3):
+		var waited := 0
+		while await _cursor_luma(term, factor) > mid and waited < 120:
+			waited += 1
+		if waited >= 120:
+			solid_ok = false
+			break
+		await _press(KEY_NONE, "x".unicode_at(0))
+		solid_trials += 1
+		var after_key := await _cursor_luma(term, factor)
+		await _wait_seconds(0.3)
+		var later := await _cursor_luma(term, factor)
+		if after_key <= mid or later <= mid:
+			solid_ok = false
+	for i in range(solid_trials):
+		await _press(KEY_BACKSPACE)
+
+	# Echo: direct call (no line_rendered), then the real typed path.
+	var before_lr := _ext_rendered.size()
+	term.write_player_line("</think>zz")
+	var last_text := String(term.rows_snapshot().back()["text"])
+	var delta := _ext_rendered.size() - before_lr
+	var neutralized := last_text.findn("</think") == -1 and last_text.begins_with("> [/think")
+	await _type_line("hello probe")
+	await _wait_seconds(0.5)
+	var row_present := false
+	for row in term.rows_snapshot():
+		if String(row["text"]) == "> hello probe":
+			row_present = true
+
+	var result := {
+		"viewport": "%dx%d" % [int(vp.x), int(vp.y)],
+		"empty_luma": empty["mean"],
+		"term_lit_mean": term_stats["lit_mean"],
+		"chrome_lit_mean": chrome_lit_mean,
+		"input_row_lift": lift,
+		"neg": {"grey_luma": grey_luma, "bg_luma": bg_luma},
+		"cursor": {
+			"samples": blink["samples"], "on": blink["on"], "off": blink["off"],
+			"transitions": blink["transitions"], "half_period_ms": blink["half_period_ms"],
+			"solid_while_typing": solid_ok and solid_trials >= 3,
+			"neg_flat_transitions": neg_flat["transitions"],
+		},
+		"echo": {"row_present": row_present, "line_rendered_delta": delta, "marker_neutralized": neutralized},
+	}
+	_write_json(out_dir + "/tone.json", result)
+	print("PROBE_TONE " + JSON.stringify(result))
+
+
+func _display_state(win: Window) -> String:
+	if win.mode == Window.MODE_FULLSCREEN or win.mode == Window.MODE_EXCLUSIVE_FULLSCREEN:
+		return "fullscreen"
+	return "windowed"
+
+
+func _persisted_display() -> String:
+	var f := FileAccess.open("user://" + SettingsStore.FILE_NAME, FileAccess.READ)
+	if f == null:
+		return ""
+	var parsed = JSON.parse_string(f.get_as_text())
+	f.close()
+	return String(parsed.get("display", "")) if typeof(parsed) == TYPE_DICTIONARY else ""
+
+
+func _scale_consistent(win: Window) -> bool:
+	var factor := UiScale.factor_for(win.size)
+	var mat := _overlay_material()
+	return is_equal_approx(win.content_scale_factor, factor) \
+		and is_equal_approx(float(mat.get_shader_parameter("scanline_spacing_px")), UiScale.crt_spacing(factor))
+
+
+func _wait_mode(win: Window, want: String) -> void:
+	var t0 := Time.get_ticks_msec()
+	while _display_state(win) != want and Time.get_ticks_msec() - t0 < 3000:
+		await get_tree().process_frame
+	await _wait_frames(20)
+
+
+func _run_scale() -> void:
+	var term := _terminal_node()
+	var win := get_window()
+	await _type_line("help")
+	await _wait_seconds(3.0)
+	var img := await _grab()
+	var out_dir := _out_dir()
+	var factor := win.content_scale_factor
+	var vp := get_viewport().get_visible_rect().size
+	var tag := "%dx%d" % [win.size.x, win.size.y]
+	img.save_png("%s/scale_%s.png" % [out_dir, tag])
+	var rep: Dictionary = _panels_node().layout_report()
+	var stats := _region_stats(img, _phys(Rect2(0, 0, PanelLayout.TERM_W, PanelLayout.TERM_H), factor))
+	# Negative control for the bbox instrument: a known lit rectangle on a dark
+	# image must come back at exactly its size, and a dark image at zero.
+	var ctl := Image.create(200, 100, false, Image.FORMAT_RGB8)
+	ctl.fill(Color(0, 0, 0))
+	ctl.fill_rect(Rect2i(20, 10, 60, 30), Color(1, 1, 1))
+	var ctl_stats := _region_stats(ctl, Rect2i(0, 0, 200, 100))
+	var dark_stats := _region_stats(Image.create(50, 50, false, Image.FORMAT_RGB8), Rect2i(0, 0, 50, 50))
+	var bbox_ok: bool = int(ctl_stats["bbox_w"]) == 60 and int(ctl_stats["bbox_h"]) == 30 and int(dark_stats["bbox_w"]) == 0
+	var result := {
+		"win": tag,
+		"factor": factor,
+		"vp": "%dx%d" % [int(vp.x), int(vp.y)],
+		"tier": rep["tier"],
+		"overlaps": rep["overlaps"],
+		"in_bounds": rep["in_bounds"],
+		"panel_count": rep["panel_count"],
+		"crt_spacing": _overlay_material().get_shader_parameter("scanline_spacing_px"),
+		"term_bbox_w": stats["bbox_w"],
+		"term_bbox_h": stats["bbox_h"],
+		"neg": {"bbox_ok": bbox_ok},
+	}
+	_write_json("%s/scale_%s.json" % [out_dir, tag], result)
+	print("PROBE_SCALE " + JSON.stringify(result))
+	if OS.get_environment("DECOHERENCE_SCALE_TOGGLE") == "1":
+		await _run_toggle(term, win, out_dir)
+
+
+## F11 and Alt+Enter through the real key path. Fullscreen on the Xvfb display
+## is the screen-sized window; the real monitor is a user-observable check.
+func _run_toggle(term: TerminalGrid, win: Window, out_dir: String) -> void:
+	var submitted := [0]
+	term.line_submitted.connect(func(_t): submitted[0] += 1)
+	var rows0 := term.rows_snapshot().size()
+	var lr0 := _ext_rendered.size()
+	await _press(KEY_F11)
+	await _wait_mode(win, "fullscreen")
+	var f11_to := _display_state(win)
+	var f11_factor_ok := _scale_consistent(win)
+	var persisted := _persisted_display()
+	var silent_f11 := term.rows_snapshot().size() == rows0 and _ext_rendered.size() == lr0
+	await _type_line("settings")
+	await _wait_seconds(1.5)
+	var shows := ""
+	for line in _ext_rendered:
+		var t := String(line)
+		if t.strip_edges().begins_with("DISPLAY = "):
+			shows = t.strip_edges().substr("DISPLAY = ".length()).split(" ", false)[0]
+	await _press(KEY_F11)
+	await _wait_mode(win, "windowed")
+	var f11_back := _display_state(win)
+	var back_factor_ok := _scale_consistent(win)
+	# Alt+Enter with text in the buffer: it must toggle and must not submit.
+	await _type_text("abc")
+	var subs0: int = submitted[0]
+	var rows1 := term.rows_snapshot().size()
+	var lr1 := _ext_rendered.size()
+	await _press(KEY_ENTER, 0, true)
+	await _wait_mode(win, "fullscreen")
+	var toggled := _display_state(win) == "fullscreen"
+	var silent_alt := term.rows_snapshot().size() == rows1 and _ext_rendered.size() == lr1
+	var alt_submitted: int = submitted[0] - subs0
+	await _press(KEY_ENTER, 0, true)
+	await _wait_mode(win, "windowed")
+	for i in range(3):
+		await _press(KEY_BACKSPACE)
+	var result := {
+		"f11": {"to": f11_to, "back": f11_back, "factor_matches": f11_factor_ok and back_factor_ok},
+		"alt_enter": {"submitted": alt_submitted, "toggled": toggled},
+		"persisted": persisted,
+		"settings_shows": shows,
+		"silent": silent_f11 and silent_alt,
+	}
+	_write_json(out_dir + "/toggle.json", result)
+	print("PROBE_TOGGLE " + JSON.stringify(result))

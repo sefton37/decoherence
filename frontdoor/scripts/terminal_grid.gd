@@ -18,6 +18,7 @@ class_name TerminalGrid
 signal line_submitted(text: String)
 
 const FONT_PATH := "res://assets/fonts/DejaVuSansMono.ttf"
+const STYLE_PATH := "res://frontdoor/data/terminal_style.json"
 
 @export var cell_width: float = 10.0
 @export var cell_height: float = 20.0
@@ -34,6 +35,15 @@ var _stream_row_index: int = -1
 
 var _input_active: bool = false
 var _input_buffer: String = ""
+
+## Spec #541: input-row bar and blinking block cursor. Values come from
+## data/terminal_style.json (the defaults here only cover a missing file).
+var _cursor_blink_ms: int = 530
+var _cursor_solid_after_key_ms: int = 600
+var _input_bar_alpha: float = 0.14
+var _blink_origin_ms: int = 0
+var _last_key_ms: int = -1000000
+var _cursor_drawn_on: bool = true
 
 ## Spec #519: a transient row (never part of the scrollback, never emitted as
 ## a rendered line) drawn between the last row and the input prompt, and a
@@ -54,6 +64,7 @@ const _ALIEN_BRAILLE := ["⠁", "⠃", "⠉", "⠙", "⠑", "⠋", "⠛", "⠓",
 func _ready() -> void:
 	_font = load(FONT_PATH)
 	focus_mode = Control.FOCUS_ALL
+	_load_style()
 
 
 func _draw() -> void:
@@ -66,15 +77,24 @@ func _draw() -> void:
 		var shown: String = row["text"]
 		if row.has("reveal"):
 			shown = shown.substr(0, int(row["reveal"]))
-		_draw_text_fixed_pitch(shown, Vector2(4, y), row["color"])
+		_draw_text_fixed_pitch(shown, Vector2(4, y), _text_color(row["color"]))
 	var next_row: int = visible.size() + 1
 	if _transient_text != "":
-		_draw_text_fixed_pitch(_transient_text, Vector2(4, next_row * cell_height), _transient_color)
+		_draw_text_fixed_pitch(_transient_text, Vector2(4, next_row * cell_height), _text_color(_transient_color))
 		next_row += 1
 	if _input_active:
-		var prompt := "> " + _input_buffer
 		var y2: float = next_row * cell_height
-		_draw_text_fixed_pitch(prompt, Vector2(4, y2), Palette.TEAL)
+		draw_rect(_input_bar_rect(next_row), Color(Palette.TEAL, _input_bar_alpha))
+		_draw_text_fixed_pitch("> " + _input_buffer, Vector2(4, y2), Palette.TEAL_BRIGHT)
+		_cursor_drawn_on = _cursor_on()
+		if _cursor_drawn_on:
+			draw_rect(_cursor_rect_for_row(next_row), Palette.TEAL_BRIGHT)
+
+
+## Terminal text reads brighter than the chrome (Spec #541 D6): rows written in
+## the base TEAL are drawn as TEAL_BRIGHT; every other colour is untouched.
+func _text_color(c: Color) -> Color:
+	return Palette.TEAL_BRIGHT if c == Palette.TEAL else c
 
 
 func _draw_text_fixed_pitch(text: String, pos: Vector2, color: Color) -> void:
@@ -176,6 +196,7 @@ func end_stream_line() -> void:
 func set_input_line_active(active: bool) -> void:
 	_input_active = active
 	_input_buffer = ""
+	_blink_origin_ms = Time.get_ticks_msec()
 	queue_redraw()
 
 
@@ -184,7 +205,11 @@ func _input(event: InputEvent) -> void:
 		return
 	if not (event is InputEventKey) or not event.pressed or event.echo:
 		return
+	_last_key_ms = Time.get_ticks_msec()
 	if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+		# Alt+Enter is the fullscreen toggle (boot_controller.gd), never a submit.
+		if event.alt_pressed:
+			return
 		var text := _input_buffer
 		_input_buffer = ""
 		queue_redraw()
@@ -259,6 +284,8 @@ func write_line_typed(text: String, color, cps: float) -> void:
 
 
 func _process(delta: float) -> void:
+	if _input_active and _cursor_on() != _cursor_drawn_on:
+		queue_redraw()
 	if _typing.is_empty():
 		return
 	var row: Dictionary = _typing[0]
@@ -283,3 +310,76 @@ func clear_transient_line() -> void:
 func has_transient_line() -> bool:
 	return _transient_text != ""
 
+
+
+## --- Spec #541 additions ---------------------------------------------------
+
+func _load_style() -> void:
+	var parsed = IntentRouter.load_json(STYLE_PATH)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return
+	_cursor_blink_ms = maxi(1, int(parsed.get("cursor_blink_ms", _cursor_blink_ms)))
+	_cursor_solid_after_key_ms = int(parsed.get("cursor_solid_after_key_ms", _cursor_solid_after_key_ms))
+	_input_bar_alpha = clampf(float(parsed.get("input_bar_alpha", _input_bar_alpha)), 0.0, 1.0)
+
+
+## Cursor phase: solid for `cursor_solid_after_key_ms` after any keypress, then
+## `cursor_blink_ms` on / `cursor_blink_ms` off measured from the line's
+## activation. Real elapsed time (this is UI, not a synthetic widget).
+func _cursor_on() -> bool:
+	var now := Time.get_ticks_msec()
+	if now - _last_key_ms < _cursor_solid_after_key_ms:
+		return true
+	return ((now - _blink_origin_ms) / _cursor_blink_ms) % 2 == 0
+
+
+## Row index (1-based, same convention as _draw) the input prompt sits on.
+func _input_row_index() -> int:
+	var count: int = mini(_rows.size(), max_visible_rows)
+	return count + 1 + (1 if _transient_text != "" else 0)
+
+
+func _input_bar_rect(row_index: int) -> Rect2:
+	return Rect2(0, row_index * cell_height - cell_height + 4, PanelLayout.TERM_W, cell_height)
+
+
+func _cursor_rect_for_row(row_index: int) -> Rect2:
+	var col: int = 2 + _input_buffer.length()
+	return Rect2(4 + col * cell_width, row_index * cell_height - cell_height + 4, cell_width, cell_height)
+
+
+## The block cursor's rectangle in this control's local (logical) pixels --
+## where it is drawn while on. Public so probes and the chatroom can sample
+## the rendered pixels there.
+func cursor_rect() -> Rect2:
+	return _cursor_rect_for_row(_input_row_index())
+
+
+## Echoes the player's own submitted line into the scrollback as `> text`.
+## Unlike write_line() this does NOT emit Signals.line_rendered: the frozen
+## probe contracts (#371/#519) count system output only. A pasted reasoning
+## marker is neutralised so it never reads as system output.
+func write_player_line(text: String) -> void:
+	for wrapped in _wrap("> " + _neutralize_markers(text), max_cols):
+		_rows.append({"text": wrapped, "color": Palette.TEAL})
+	_trim_scrollback()
+	queue_redraw()
+
+
+func _neutralize_markers(text: String) -> String:
+	var out := text
+	for marker in ["</think", "<think"]:
+		var at := out.to_lower().find(marker)
+		while at != -1:
+			out = out.substr(0, at) + "[" + out.substr(at + 1)
+			at = out.to_lower().find(marker)
+	return out
+
+
+## A deep copy of the scrollback rows, [{"text": String, "color": Color}], for
+## probes and the chatroom. Mutating the result never touches the terminal.
+func rows_snapshot() -> Array:
+	var out: Array = []
+	for row in _rows:
+		out.append({"text": String(row["text"]), "color": row["color"]})
+	return out

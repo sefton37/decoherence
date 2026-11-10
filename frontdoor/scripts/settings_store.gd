@@ -16,7 +16,7 @@ const FILE_NAME := "settings.json"
 ## CRT: [scanline_intensity, vignette_strength]. "normal" equals the scene's
 ## shipped values so defaults reproduce today's look exactly.
 const _CRT_PARAMS := {
-	"normal": [0.25, 0.4],
+	"normal": [0.15, 0.28],
 	"off": [0.0, 0.0],
 	"low": [0.12, 0.2],
 	"high": [0.45, 0.6],

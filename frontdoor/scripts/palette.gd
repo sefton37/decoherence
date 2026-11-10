@@ -14,3 +14,8 @@ const ORANGE := Color(0.95, 0.55, 0.15)
 const TEAL_DIM := Color(0.08, 0.42, 0.39)
 const ORANGE_DIM := Color(0.55, 0.32, 0.10)
 const BG := Color(0.02, 0.05, 0.05)
+
+## Terminal text (Spec #541 D6): a tint of TEAL, brighter than the chrome so the
+## conversation reads ahead of the OS dressing. TerminalGrid remaps TEAL rows to
+## this at draw time; the chrome keeps TEAL / TEAL_DIM.
+const TEAL_BRIGHT := Color(0.55, 1.0, 0.93)

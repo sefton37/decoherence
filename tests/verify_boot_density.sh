@@ -6,7 +6,7 @@
 ## PROBE_DENSITY row into $OUT_DIR/summary.jsonl:
 ##   off,field_bar,ticker,wire_room,full_bus at 1920x1080, plus wire_room and
 ##   full_bus at 1280x720  = 7 rows (off = today's plain boot, the density and
-##   timing baseline).
+##   timing baseline). Spec #541 adds calm_bus at both sizes = 9 rows in all.
 ## Each row carries layout rects, overlap count, mean active panel cells, unique
 ## frames, boot time to shell_ready, lamp state, and palette pixel fractions.
 ##
@@ -54,5 +54,8 @@ for preset in off field_bar ticker wire_room full_bus; do
 done
 run_one wire_room 1280x720
 run_one full_bus 1280x720
+## Spec #541: the calm default, at both sizes (9 rows in all).
+run_one calm_bus 1920x1080
+run_one calm_bus 1280x720
 
 exit "$fail"

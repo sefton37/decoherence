@@ -91,6 +91,12 @@ const BOOT_GALLERY_FRAME_SEC := 1.0 / 12.0
 
 
 func _ready() -> void:
+	# Spec #541 D5/D10: a dark backdrop instead of the engine's default grey,
+	# and content scaling for large windows, both set in code (project.godot is
+	# untouched).
+	RenderingServer.set_default_clear_color(Palette.BG)
+	get_window().size_changed.connect(_apply_scale)
+	_apply_scale()
 	if OS.get_environment("DECOHERENCE_ANIM_GALLERY") == "1":
 		_terminal.set_input_line_active(false)
 		await _run_gallery_sequence()
@@ -127,6 +133,33 @@ func _setup_panels() -> void:
 
 func _on_viewport_resized() -> void:
 	_panels.set_viewport(Vector2i(get_viewport_rect().size))
+
+
+## Spec #541 D10/D11: Window.content_scale_factor = UiScale.factor_for(window),
+## and the CRT scanline spacing follows it (the shader works in physical
+## pixels). Idempotent; runs on every window size change (a mode switch to or
+## from fullscreen included) and after the display setting is applied.
+func _apply_scale() -> void:
+	var win := get_window()
+	var factor := UiScale.factor_for(win.size)
+	if not is_equal_approx(win.content_scale_factor, factor):
+		win.content_scale_factor = factor
+	var material: ShaderMaterial = _crt_overlay.material
+	if material != null:
+		material.set_shader_parameter("scanline_spacing_px", UiScale.crt_spacing(factor))
+
+
+## Spec #541 D12: F11 and Alt+Enter toggle fullscreen through the settings path
+## (persisted, silent). TerminalGrid ignores Enter while Alt is held, so the
+## chord never submits a line.
+func _input(event: InputEvent) -> void:
+	if not (event is InputEventKey) or not event.pressed or event.echo:
+		return
+	var is_f11: bool = event.keycode == KEY_F11
+	var is_alt_enter: bool = event.alt_pressed and (event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER)
+	if is_f11 or is_alt_enter:
+		_shell.toggle_display()
+		get_viewport().set_input_as_handled()
 
 
 func _module_count() -> int:
@@ -388,6 +421,10 @@ func _on_first_handler_reply(_text: String) -> void:
 ## directly (DOD-37 / TRAP-1) -- doing so would let a decoy chat-shaped
 ## line sent during SHELL state reach the Handler behind the shell's back.
 func _on_terminal_line_submitted(text: String) -> void:
+	# Spec #541 D9: the player's own words land in the scrollback first (does
+	# not touch line_rendered); an empty Enter is not echoed.
+	if not text.strip_edges().is_empty():
+		_terminal.write_player_line(text)
 	Signals.terminal_line_submitted.emit(text)
 
 

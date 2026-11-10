@@ -1,17 +1,19 @@
 {
-  "selected": "full_bus",
+  "selected": "calm_bus",
   "tick_hz": 12,
+  "chrome_alpha": 0.7,
   "smooth_scroll": {
-    "ticker_boot_px_per_sec": 120,
-    "ticker_shell_px_per_sec": 40,
+    "ticker_boot_px_per_sec": 80,
+    "ticker_shell_px_per_sec": 30,
     "hex_px_per_sec": 120,
-    "spark_px_per_sec": 60
+    "spark_px_per_sec": 40
   },
   "presets": [
     { "id": "field_bar", "name": "FIELD BAR", "widgets": ["titlebar", "status_bar", "lamp_pane"] },
     { "id": "ticker", "name": "TICKER", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters"] },
     { "id": "wire_room", "name": "WIRE ROOM", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters", "sparklines", "section_rules", "led_tile", "glyph_noise"] },
-    { "id": "full_bus", "name": "FULL BUS", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters", "sparklines", "section_rules", "led_tile", "glyph_noise", "rollup", "hex_stream", "daemon_log", "mem_meter"] }
+    { "id": "full_bus", "name": "FULL BUS", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters", "sparklines", "section_rules", "led_tile", "glyph_noise", "rollup", "hex_stream", "daemon_log", "mem_meter"] },
+    { "id": "calm_bus", "name": "CALM BUS", "widgets": ["titlebar", "status_bar", "lamp_pane", "bus_ticker", "meters", "sparklines", "section_rules", "led_tile", "rollup", "mem_meter"] }
   ],
   "widgets": [
     { "id": "titlebar", "label": "TITLE BAR", "motif": "titlebar_dots", "source": "synthetic", "slot": "title" },
