@@ -852,6 +852,8 @@ constexpr double PLAYER_RADIUS = 0.3; // character-controller.js PLAYER_RADIUS
 double surface_height_base(double cx, double cz, int32_t seed) { return shb(cx, cz, seed); }
 double cliff_lift_at(double cx, double cz, int32_t seed) { return cliff_lift(cx, cz, seed); }
 double surface_height_world(int32_t cx, int32_t cz) { return cached_height(cx, cz); }
+double hash_cell(int32_t cx, int32_t cy, int32_t cz, int32_t seed) { return cell_hash(cx, cy, cz, seed); }
+double noise_value(double x, double z, int32_t seed) { return value_noise(x, z, seed); }
 
 bool is_solid_world(int32_t cx, int32_t cy, int32_t cz) {
 	return solid_pred_inf(cx, cy, cz) || is_cap_cell(cx, cy, cz) || is_bottom_cap_cell(cx, cy, cz);

@@ -1,7 +1,9 @@
 #include "register_types.h"
 
 #include "stalag_chunk_mesher.h"
+#include "stalag_flora.h"
 #include "stalag_plan.h"
+#include "stalag_wind.h"
 #include "stalag_world.h"
 
 #include <gdextension_interface.h>
@@ -17,6 +19,8 @@ void initialize_stalag_module(ModuleInitializationLevel p_level) {
 	}
 	GDREGISTER_CLASS(StalagWorld);
 	GDREGISTER_CLASS(StalagChunkMesher);
+	GDREGISTER_CLASS(StalagFlora);
+	GDREGISTER_CLASS(StalagWind);
 }
 
 void uninitialize_stalag_module(ModuleInitializationLevel p_level) {

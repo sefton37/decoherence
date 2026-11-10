@@ -14,6 +14,8 @@ signal chunk_loaded(coord: Vector2i)
 signal chunk_unloaded(coord: Vector2i)
 ## The water plan could not be solved (an invariant failed); no chunk will ever load.
 signal plan_failed(message: String)
+## Spec #545: a chunk's flora root was attached (the probe checks this never happens before the plan).
+signal flora_attached(coord: Vector2i)
 
 ## Load every chunk within LOAD_RADIUS (Chebyshev, in chunks) of the focus chunk; free
 ## those beyond UNLOAD_RADIUS. The gap is hysteresis so the boundary does not thrash.
@@ -30,6 +32,17 @@ var grass_material: Material
 var dirt_material: Material
 var water_material: Material
 
+## Spec #545: flora is game policy too. The world scene hands in {form id: {mesh, material, casts}};
+## the chunk's placement arrives from the worker inside build_chunk and is adopted one chunk per
+## frame, the frame after the terrain and water (never in the same frame as the water upload).
+var flora_assets: Dictionary = {}
+var flora_enabled: bool = true
+## Probe hooks (negative controls only): place the flora on the main thread / shift it vertically.
+var sync_flora: bool = false
+var flora_y_offset: float = 0.0
+var flora_adopt_ms: Array = []  # main-thread cost of attaching one chunk's flora
+var flora_instances: int = 0  # instances live now
+
 ## Debug/negative-control hook: build on the main thread (what the streamer must NOT do).
 var sync_build: bool = false
 
@@ -42,6 +55,8 @@ var _material: StandardMaterial3D
 var _plan_failed_emitted := false
 var _stopped := false  # set by shutdown(): no further builds are ever requested
 var _pending_water: Array = []  # [coord, mesh]: attached one per frame, the frame after its chunk
+var _pending_flora: Array = []  # [coord, flora dict or null]: attached one per frame after the water
+var _flora_counts := {}  # Vector2i -> instances attached to that chunk
 var _focus_chunk := Vector2i(1 << 30, 1 << 30)
 var _chunks := {}  # Vector2i -> MeshInstance3D
 var _in_flight := {}  # Vector2i -> task id
@@ -61,6 +76,7 @@ func _ready() -> void:
 	# The whole-world water plan is solved once, on a worker thread, and the streamer asks for
 	# no chunk until it is ready: every chunk's terrain and water are functions of it.
 	StalagWorld.start_plan()
+	StalagFlora.set_enabled(flora_enabled)
 
 
 ## The chunk's water child (a MeshInstance3D owned by the chunk node), or null.
@@ -86,7 +102,7 @@ func cap() -> int:
 
 ## True when the focus ring is adopted, nothing is being built, and every water mesh is attached.
 func settled() -> bool:
-	return ring_ready() and _in_flight.is_empty() and _done.is_empty() and _pending_water.is_empty()
+	return ring_ready() and _in_flight.is_empty() and _done.is_empty() and _pending_water.is_empty() and _pending_flora.is_empty()
 
 
 func focus_chunk() -> Vector2i:
@@ -152,8 +168,9 @@ func _process(_delta: float) -> void:
 		return
 	if _focus_chunk.x == (1 << 30):
 		return
-	_attach_water()
-	_adopt_finished()
+	# One heavy main-thread step per frame: a chunk's water, else its flora, else the next terrain.
+	if not _attach_water() and not _attach_flora():
+		_adopt_finished()
 	_request_missing()
 	_unload_far()
 	stats["max_loaded"] = maxi(stats["max_loaded"], _chunks.size())
@@ -192,19 +209,65 @@ func _build_job(c: Vector2i) -> void:
 
 ## The water mesh of a chunk is a child of the chunk node (so unloading the chunk frees it),
 ## attached the frame AFTER the terrain so one frame never pays for both uploads.
-func _attach_water() -> void:
+func _attach_water() -> bool:
 	if _pending_water.is_empty():
-		return
+		return false
 	var item = _pending_water.pop_front()
 	var mi: MeshInstance3D = _chunks.get(item[0])
 	if mi == null:
-		return  # the chunk was unloaded before its water arrived
+		return true  # the chunk was unloaded before its water arrived
 	var wi := MeshInstance3D.new()
 	wi.name = "Water"
 	wi.mesh = item[1]
 	wi.material_override = water_material if water_material != null else _material
 	wi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mi.add_child(wi)
+	return true
+
+
+## One chunk's flora: a "Flora" node under the chunk node holding one MultiMeshInstance3D per form
+## (shared mesh and material). Attached the frame after the terrain and water, one chunk per frame.
+func _attach_flora() -> bool:
+	if _pending_flora.is_empty():
+		return false
+	var item = _pending_flora.pop_front()
+	var coord: Vector2i = item[0]
+	var mi: MeshInstance3D = _chunks.get(coord)
+	if mi == null:
+		return true  # the chunk was unloaded before its flora arrived
+	var t0 := Time.get_ticks_usec()
+	# Normally the worker's result; the sync_flora control places it HERE, on the main thread.
+	var data: Dictionary = item[1] if item[1] != null else StalagFlora.build_chunk_flora(coord.x, coord.y)
+	var root := Node3D.new()
+	root.name = "Flora"
+	var total := 0
+	for id in data.keys():
+		var a: Dictionary = flora_assets.get(id, {})
+		if a.is_empty():
+			continue
+		var e: Dictionary = data[id]
+		var buf: PackedFloat32Array = e["buffer"]
+		if flora_y_offset != 0.0:
+			for k in range(7, buf.size(), 12):  # origin.y of each 12-float transform row block
+				buf[k] += flora_y_offset
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = a["mesh"]
+		mm.instance_count = int(e["count"])
+		mm.buffer = buf
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = id
+		mmi.multimesh = mm
+		mmi.material_override = a["material"]
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if a["casts"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mmi)
+		total += int(e["count"])
+	mi.add_child(root)
+	_flora_counts[coord] = total
+	flora_instances += total
+	flora_adopt_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	flora_attached.emit(coord)
+	return true
 
 
 func _adopt_finished() -> void:
@@ -241,6 +304,11 @@ func _adopt(c: Vector2i, res: Dictionary) -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	if res.has("water"):
 		_pending_water.append([c, res["water"]["mesh"]])
+	if flora_enabled and not flora_assets.is_empty():
+		if sync_flora:
+			_pending_flora.append([c, null])
+		elif res.has("flora"):
+			_pending_flora.append([c, res["flora"]])
 	add_child(mi)
 	_chunks[c] = mi
 	stats["loads"] += 1
@@ -252,6 +320,8 @@ func _unload_far() -> void:
 		if _chebyshev(c, _focus_chunk) > UNLOAD_RADIUS:
 			var mi: MeshInstance3D = _chunks[c]
 			_chunks.erase(c)
+			flora_instances -= int(_flora_counts.get(c, 0))
+			_flora_counts.erase(c)
 			remove_child(mi)
 			mi.queue_free()
 			stats["unloads"] += 1
@@ -269,6 +339,9 @@ func shutdown() -> void:
 		WorkerThreadPool.wait_for_task_completion(_in_flight[c])
 	_in_flight.clear()
 	_pending_water.clear()
+	_pending_flora.clear()
+	_flora_counts.clear()
+	flora_instances = 0
 	_mutex.lock()
 	_done.clear()
 	_mutex.unlock()

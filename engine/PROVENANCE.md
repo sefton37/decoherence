@@ -45,3 +45,9 @@ taken from the named source.
 | `1.5707963267948966` | pi/2 as one double (`PIO2`) in `det_atan2` | pi / 2, correctly rounded to a double | mathematical constant |
 | `3.141592653589793` | pi as one double (`PI`) in `det_atan2` | pi, correctly rounded to a double | mathematical constant |
 | `4.1887902047863905` | 4 pi / 3 as a double, a probe input in the test-vector builder | 4 pi / 3, correctly rounded | mathematical constant |
+| `0.6931471805599453` | `LN2` in `det_pow` (`stalag_det.h`, `proto_subst.mjs`) | derived (Spec #545 Phase A): ln 2, correctly rounded to a double (the natural log of two, computed with a decimal arithmetic library at 80 digits) | mathematical constant |
+| `0.6931471796706319` | `LN2_A` in `det_exp` (`stalag_det.h`, `proto_subst.mjs`) | derived (Spec #545 Phase A): ln 2 clipped to a 30-bit grid, so that k times it is exact for \|k\| < 2^23; pieces A + B + C sum to ln 2 | mathematical constant |
+| `8.893134232496047` | `LN2_B` in `det_exp` (e-10 scaled piece) | derived (Spec #545 Phase A): the next 30-bit slice of ln 2 after `LN2_A` | mathematical constant |
+| `6.390629507645039` | `LN2_C` in `det_exp` (e-19 scaled piece) | derived (Spec #545 Phase A): the remainder of ln 2 after A and B, as a double | mathematical constant |
+| `709.782712893384` | overflow threshold of `det_exp` | derived (Spec #545 Phase A): ln of the largest double, rounded down to 12 digits; above it the result is infinity | mathematical constant |
+| `0x5f3759df` | seed salt of the meadow patch mask in `place_flora_region` (`stalag_flora.cpp`) | the prototype's `foliage-placement.js` (tag prototype-final) valueNoise salt; the number also appears in fast-inverse-square-root literature (lineage from the implementer's recollection); used here only as a seed salt, no code taken | a number; no code taken |

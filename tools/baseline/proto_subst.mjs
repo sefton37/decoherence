@@ -142,6 +142,39 @@ export function detLog2(x) {
   return e + ((2 * s) * p) * 1.4426950408889634;
 }
 
+// ---- exp and pow: clean-room twins of det_exp / det_pow (Spec #545 Phase A); same order as stalag_det.h ----
+const LOG2E = 1.4426950408889634;
+const LN2 = 0.6931471805599453;
+const LN2_A = 0.6931471796706319;
+const LN2_B = 8.893134232496047e-10;
+const LN2_C = 6.390629507645039e-19;
+export function detExp(x) {
+  if (x !== x) return NaN;
+  if (x > 709.782712893384) return Infinity;
+  if (x < -745.2) return 0;
+  const k = Math.floor(x * LOG2E + 0.5);
+  const r = ((x - k * LN2_A) - k * LN2_B) - k * LN2_C;
+  let p = 1;
+  for (let n = 18; n >= 1; n--) p = 1 + (r / n) * p;
+  let ki = k;
+  while (ki > 0) { p = p * 2; ki--; }
+  while (ki < 0) { p = p * 0.5; ki++; }
+  return p;
+}
+export function detPow(x, y) {
+  if (y === 0) return 1;
+  if (x !== x || y !== y) return NaN;
+  if (x === 0) return y > 0 ? 0 : Infinity;
+  if (x < 0) return NaN;
+  if (x === Infinity) return y > 0 ? x : 0;
+  return detExp(y * (detLog2(x) * LN2));
+}
+// Opt-in (flora oracle only): the S1 plan hash must not move, so installMath never does this.
+export function installExpPow() {
+  Math.exp = detExp;
+  Math.pow = detPow;
+}
+
 // What each mode swaps: [hash2 finalizer, Math.hypot, Math.log2]
 const PLAN = {
   lowbias32: { hash: true, overrides: ['atan2', 'cos', 'hypot', 'log2', 'sin'] },
@@ -284,6 +317,18 @@ function makeVectors() {
   for (const kind of [0, 1, 2]) for (const a of grid) for (const b of kind === 2 ? grid : [0]) tspecial.push([kind, a, b]);
   add('trig_special', 3, tspecial.length, (i) => tspecial[i],
     (kind, a, b) => (kind === 0 ? detSin(a) : kind === 1 ? detCos(a) : detAtan2(a, b)));
+  // exp and pow (Spec #545): small, the windfield decay range, the full range, special values
+  add('exp_small', 1, 200000, () => [signed() * 2], detExp);
+  add('exp_decay', 1, 200000, () => [-rnd() * 40], detExp);
+  add('exp_wide', 1, 200000, () => [(rnd() - 0.5) * 1500], detExp);
+  const expSpecial = [0, -0, NaN, Infinity, -Infinity, 709.782712893384, 709.79, -745.2, -745, -744.4, -708.4, -709, 1e-300, -1e-300, 1, -1, 0.5, 5e-324];
+  while (expSpecial.length < 100000) expSpecial.push((rnd() - 0.5) * 1480);
+  add('exp_special', 1, expSpecial.length, (i) => [expSpecial[i]], detExp);
+  add('pow_boundary', 2, 200000, () => [Math.max(rnd(), 1e-9) * (1 + rnd() * 0.5), 0.143], detPow);
+  add('pow_general', 2, 200000, () => [rnd() * 1000 + 1e-6, signed() * 3], detPow);
+  const powSpecial = [[0, 0.143], [0, 0], [0, -1], [1, 0.143], [1, 7], [2, 0], [NaN, 1], [3, NaN], [-2, 0.5], [Infinity, 2], [Infinity, -2], [5e-324, 0.143], [1e300, 0.143], [0.5, 1000], [2, 1000]];
+  while (powSpecial.length < 100000) powSpecial.push([rnd() * 3, signed() * 4]);
+  add('pow_special', 2, powSpecial.length, (i) => powSpecial[i], detPow);
   return fams;
 }
 

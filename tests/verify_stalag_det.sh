@@ -15,6 +15,7 @@
 ##        libm_hypot    the C library hypot instead (negative control)
 ##        libm_log2     the C library log2 instead (negative control)
 ##        libm_trig     the C library sin, cos and atan2 instead (negative control)
+##        libm_exp      the C library exp and pow instead (negative control, Spec #545)
 
 set -uo pipefail
 
@@ -27,6 +28,7 @@ case "$VARIANT" in
     libm_hypot) FLAGS="-std=c++17 -O2 -ffp-contract=off -DCHECK_LIBM_HYPOT" ;;
     libm_log2) FLAGS="-std=c++17 -O2 -ffp-contract=off -DCHECK_LIBM_LOG2" ;;
     libm_trig) FLAGS="-std=c++17 -O2 -ffp-contract=off -DCHECK_LIBM_TRIG" ;;
+    libm_exp) FLAGS="-std=c++17 -O2 -ffp-contract=off -DCHECK_LIBM_EXP" ;;
     *) echo "verify_stalag_det: bad DET_VARIANT '$VARIANT'" >&2; exit 2 ;;
 esac
 

@@ -20,6 +20,7 @@ const SPAWN_YAW := -PI / 2.0  ## look along +x, toward the demo mesa in front of
 ## Asset and shader paths for the prototype's look (tiles baked by tools/bake_skin.mjs).
 const TERRAIN_SHADER := "res://engine/stalag/shaders/stalag_terrain.gdshader"
 const WATER_SHADER := "res://engine/stalag/shaders/stalag_water.gdshader"
+const FloraAssets := preload("res://game/world/flora_assets.gd")
 const GRASS_TILE := "res://game/world/assets/grass_top.png"
 const DIRT_TILE := "res://game/world/assets/dirt_side.png"
 const FLIP_TEX := "res://game/world/assets/water_flip.png"
@@ -30,6 +31,11 @@ const SUN_POSITION := Vector3(80.0, 120.0, 50.0)
 var grass_mat: ShaderMaterial
 var dirt_mat: ShaderMaterial
 var water_mat: ShaderMaterial
+## Spec #545: the meadow's sprites, rock meshes, materials and the wind feed (game policy).
+var flora: RefCounted
+## The shared wind clock, in seconds. The probe freezes or sets it; otherwise it runs with the frame.
+var flora_clock: float = 0.0
+var flora_clock_frozen: bool = false
 
 ## The probe drives the walker itself; real key reads are skipped while it does.
 var scripted_input: bool = false
@@ -55,6 +61,9 @@ func _build_look() -> void:
 	streamer.grass_material = grass_mat
 	streamer.dirt_material = dirt_mat
 	streamer.water_material = water_mat
+	flora = FloraAssets.new()
+	streamer.flora_assets = flora.forms
+	flora.set_time(flora_clock)
 	sun.look_at_from_position(SUN_POSITION, Vector3.ZERO)
 	_warm_shaders()
 
@@ -122,8 +131,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	streamer.set_focus(walker.pos)
+	if not flora_clock_frozen:
+		flora_clock += delta
+	flora.set_time(flora_clock)  # one clock and the weather front for the whole meadow
 	if scripted_input:
 		return
 	var f: Vector3 = cam.forward_xz()

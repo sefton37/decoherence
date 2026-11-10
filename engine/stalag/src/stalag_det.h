@@ -137,6 +137,55 @@ inline double det_atan2(double y, double x) {
 	return (y < 0.0 || std::signbit(y)) ? -r : r;
 }
 
+// ---- exponential and power (Spec #545 Phase A): clean-room exp and pow ------------------------
+// The prototype's windfield.js (tag prototype-final) calls Math.exp and Math.pow; the oracle
+// substitutes the twins in tools/baseline/proto_subst.mjs (installExpPow), in this exact order.
+// exp: x = k * ln 2 + r with k the nearest integer to x * (1 / ln 2) and ln 2 carried in three
+// pieces on a 30-bit grid (so k times a piece is exact for |k| < 2^23), then the Taylor series
+// of exp r in nested form for |r| <= ln2 / 2, then k exact doublings or halvings. Domain: all
+// doubles; NaN in gives NaN, results above the largest double give infinity, below the
+// smallest subnormal give 0. The pieces are derived values, listed in engine/PROVENANCE.md.
+// pow(x, y) = exp(y * ln x) with ln x = log2 x * ln 2, for x > 0; the usual special cases
+// (y = 0, x = 0, x = infinity) are handled first and x < 0 gives NaN (not used by the game).
+namespace det_exp_detail {
+constexpr double LOG2E = 1.4426950408889634;
+constexpr double LN2 = 0.6931471805599453;
+constexpr double LN2_A = 0.6931471796706319;
+constexpr double LN2_B = 8.893134232496047e-10;
+constexpr double LN2_C = 6.390629507645039e-19;
+} // namespace det_exp_detail
+
+inline double det_exp(double x) {
+	using namespace det_exp_detail;
+	if (x != x) return std::numeric_limits<double>::quiet_NaN();
+	if (x > 709.782712893384) return std::numeric_limits<double>::infinity();
+	if (x < -745.2) return 0.0;
+	const double k = std::floor(x * LOG2E + 0.5);
+	const double r = ((x - k * LN2_A) - k * LN2_B) - k * LN2_C;
+	double p = 1.0;
+	for (int n = 18; n >= 1; n--) p = 1.0 + (r / (double)n) * p;
+	int ki = (int)k;
+	while (ki > 0) {
+		p = p * 2.0;
+		ki--;
+	}
+	while (ki < 0) {
+		p = p * 0.5;
+		ki++;
+	}
+	return p;
+}
+
+inline double det_pow(double x, double y) {
+	using namespace det_exp_detail;
+	if (y == 0.0) return 1.0;
+	if (x != x || y != y) return std::numeric_limits<double>::quiet_NaN();
+	if (x == 0.0) return y > 0.0 ? 0.0 : std::numeric_limits<double>::infinity();
+	if (x < 0.0) return std::numeric_limits<double>::quiet_NaN();
+	if (x == std::numeric_limits<double>::infinity()) return y > 0.0 ? x : 0.0;
+	return det_exp(y * (det_log2(x) * LN2));
+}
+
 // SPDX-License-Identifier: LicenseRef-PublicDomain
 // lowbias32: Chris Wellons, "Prospecting for Hash Functions", https://nullprogram.com/blog/2018/07/31/ (public domain)
 inline uint32_t lowbias32(uint32_t x) {

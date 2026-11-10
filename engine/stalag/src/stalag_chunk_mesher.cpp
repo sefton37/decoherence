@@ -1,6 +1,7 @@
 #include "stalag_chunk_mesher.h"
 
 #include "stalag_core.h"
+#include "stalag_flora.h"
 #include "stalag_plan.h"
 #include "stalag_water.h"
 
@@ -203,6 +204,9 @@ Dictionary StalagChunkMesher::build_chunk(int64_t p_cx, int64_t p_cz) {
 		wd["tris"] = (int64_t)(nv / 3);
 		res["water"] = wd;
 	}
+	// Flora (Spec #545): placed here, on the worker, once the shared plan is ready (it needs the
+	// flood and course queries); the streamer adopts it one chunk per frame after the terrain.
+	if (plan) res["flora"] = StalagFlora::build_chunk_flora(p_cx, p_cz);
 	res["vertices"] = all_v;
 	res["tris"] = (int64_t)(all_v.size() / 3);
 	res["surface_kinds"] = kinds; // surface index -> "grass" | "dirt" (a bucket may be empty)

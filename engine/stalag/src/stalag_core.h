@@ -56,6 +56,10 @@ void skin_surface(const SurfaceMesh &in, int32_t seed, const WaterPlan *plan, Sk
 // Reentrant: no shared mutable state.
 void build_surface(int32_t seed, int32_t extent, double x_min, double x_max, double z_min, double z_max, SurfaceMesh &out, const WaterPlan *plan);
 
+// ---- hashing and noise (Spec #545: shared by the wind and flora ports)
+double hash_cell(int32_t cx, int32_t cy, int32_t cz, int32_t seed); // worldmesh.js cellHash, [0, 1)
+double noise_value(double x, double z, int32_t seed); // worldgen.js valueNoise, [0, 1)
+
 // ---- world queries (carved by the shared plan, seed WORLD_SEED, unbounded footprint like isSolidWorld)
 double surface_height_base(double cx, double cz, int32_t seed); // lattice units, pre-carve
 double cliff_lift_at(double cx, double cz, int32_t seed); // worldmesh.js cliffLift

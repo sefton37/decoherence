@@ -5,6 +5,7 @@
 //   -DCHECK_LIBM_HYPOT the C library hypot instead (must show hypot mismatches only)
 //   -DCHECK_LIBM_LOG2  the C library log2 instead (must show log2 mismatches only)
 //   -DCHECK_LIBM_TRIG  the C library sin, cos, atan2 instead (trig families only)
+//   -DCHECK_LIBM_EXP   the C library exp and pow instead (exp and pow families only; Spec #545)
 // and one build with fused multiply-add contraction enabled (must show mismatches).
 // Comparison is bitwise; NaN equals NaN.
 //
@@ -65,6 +66,21 @@ double f_atan2(double y, double x) {
 #endif
 }
 
+double f_exp(double x) {
+#ifdef CHECK_LIBM_EXP
+	return std::exp(x);
+#else
+	return stalag::det_exp(x);
+#endif
+}
+double f_pow(double x, double y) {
+#ifdef CHECK_LIBM_EXP
+	return std::pow(x, y);
+#else
+	return stalag::det_pow(x, y);
+#endif
+}
+
 bool same(double a, double b) {
 	if (std::isnan(a) && std::isnan(b)) return true;
 	uint64_t x, y;
@@ -106,6 +122,8 @@ int main(int argc, char **argv) {
 			else if (nm == "cos") got = f_cos(v[0]);
 			else if (nm == "atan2") got = f_atan2(v[0], v[1]);
 			else if (nm == "trig_special") got = v[0] == 0 ? f_sin(v[1]) : (v[0] == 1 ? f_cos(v[1]) : f_atan2(v[1], v[2]));
+			else if (nm.rfind("exp", 0) == 0) got = f_exp(v[0]);
+			else if (nm.rfind("pow", 0) == 0) got = f_pow(v[0], v[1]);
 			else if (nm == "lowbias32") got = (double)stalag::lowbias32((uint32_t)v[0]);
 			else got = f_log2(v[0]);
 			if (!same(got, expect[i])) bad++;
