@@ -27,6 +27,10 @@ extends Node
 ## never satisfy its own fabrication guard (DOD-30-equivalent) by accident.
 const PROBE_MESSAGE := "Hello, this is an automated readiness probe."
 
+## The second line of the default chat probe (Spec #542): once the contact has
+## reached out, an ask keyword for the entanglement fact makes the first model turn.
+const PROBE_QUESTION := "What is the entanglement?"
+
 ## A chat-shaped line sent DURING the shell phase, before any launch
 ## command -- deliberately NOT "dir" and NOT the launch command, so it can
 ## only ever reach the Handler if the shell's dir/launch gate is purely
@@ -240,8 +244,16 @@ func _on_chat_opened() -> void:
 	if _finished:
 		return
 	print("PROBE_LAUNCH_OK")
+	# Spec #542 amendment: the room answers a first message with a scripted voice and
+	# an ordinary voice reaches out shortly after; the model is first reached by the
+	# next line, which asks about the entanglement.
 	Signals.handler_reply_complete.connect(_on_handler_reply_complete, CONNECT_ONE_SHOT)
+	Signals.chatroom_handler_found.connect(_on_probe_contact, CONNECT_ONE_SHOT)
 	Signals.terminal_line_submitted.emit(PROBE_MESSAGE)
+
+
+func _on_probe_contact() -> void:
+	Signals.terminal_line_submitted.emit(PROBE_QUESTION)
 
 
 ## Fires once the Handler's streamed reply to the real message has fully
@@ -442,7 +454,7 @@ func _world_finish() -> void:
 ## same send path a real Enter keypress uses.
 ## ===========================================================================
 
-const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale"]
+const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale", "chatroom_flow", "chatroom_gatefail", "chatroom_degrade", "chatroom_mutate", "chatroom_leak", "chatroom_leak_neg", "chatroom_live", "chatroom_handoff"]
 const EXT_WATCHDOG_SECONDS := 1500.0
 const RESOLVE_TIMEOUT_SEC := 25.0
 
@@ -598,6 +610,22 @@ func _run_ext() -> void:
 			await _run_tone()
 		"scale":
 			await _run_scale()
+		"chatroom_flow":
+			await _run_chatroom_flow()
+		"chatroom_gatefail":
+			await _run_chatroom_gatefail()
+		"chatroom_degrade":
+			await _run_chatroom_degrade()
+		"chatroom_mutate":
+			await _run_chatroom_mutate()
+		"chatroom_leak":
+			await _run_chatroom_leak()
+		"chatroom_leak_neg":
+			await _run_chatroom_leak_neg()
+		"chatroom_live":
+			await _run_chatroom_live()
+		"chatroom_handoff":
+			await _run_chatroom_handoff()
 	_ext_quit(0)
 
 
@@ -1388,3 +1416,802 @@ func _run_toggle(term: TerminalGrid, win: Window, out_dir: String) -> void:
 	}
 	_write_json(out_dir + "/toggle.json", result)
 	print("PROBE_TOGGLE " + JSON.stringify(result))
+
+
+## ===========================================================================
+## Spec #542 modes (additive): the chatroom, driven through the real send path
+## (TerminalGrid.line_submitted -> echo -> terminal_line_submitted -> shell ->
+## submit_player_line -> Chatroom). Results go to
+## $DECOHERENCE_PROBE_OUT_DIR/<mode>.part.json; tests/verify_chatroom.sh merges
+## the parts into <MODE>.json. A fake model (tests/fake_handler.py) is reached
+## through DECOHERENCE_OLLAMA_PORT; CHATROOM_FAKE_LOG and CHATROOM_FAKE_MODE_FILE
+## name its request log and its mode file.
+## ===========================================================================
+
+const CR_BANNED := "(?i)handler|recruit|objective|quest|mission"
+const CR_PROGRESS := "(?i)progress|checklist|learned|ticked|tick off|\\[x\\]|✓|✔|[0-9]+ ?/ ?[0-9]+ (facts|known|briefed)|try typing|you can (ask|type)|type (enter|accept)|hint|tutorial|tip:|ask me|objective|quest"
+const CR_IDENT := "ENTRY_OFFERED|BRIEFING|offer_entry|\\bf_[a-z]+\\b|channel7|chatroom_|first_player_message"
+const CR_HELLO := "hello anyone here"
+const CR_ASKS := ["what is the entanglement", "who is the colonist", "how do orders work", "what is my job at the homestead"]
+const CR_LAZY := ["ok", "hmm", "interesting", "go on", "right", "and then", "uh huh", "sure", "continue", "yes", "no", "maybe"]
+
+var _cr_counts := {"reply": 0, "found": 0, "offered": 0, "granted": 0, "left": 0}
+var _cr_req_at_found := -1
+
+
+func _cr() -> Chatroom:
+	return _scene().get_node("Chatroom")
+
+
+func _cr_on_reply(_t: String) -> void:
+	_cr_counts["reply"] += 1
+
+
+func _cr_on_found() -> void:
+	_cr_counts["found"] += 1
+	_cr_req_at_found = _llm_node().request_count
+
+
+func _cr_on_offered() -> void:
+	_cr_counts["offered"] += 1
+
+
+func _cr_on_granted() -> void:
+	_cr_counts["granted"] += 1
+
+
+func _cr_on_left() -> void:
+	_cr_counts["left"] += 1
+
+
+func _cr_connect() -> void:
+	Signals.handler_reply_complete.connect(_cr_on_reply)
+	Signals.chatroom_handler_found.connect(_cr_on_found)
+	Signals.chatroom_entry_offered.connect(_cr_on_offered)
+	Signals.chatroom_entry_granted.connect(_cr_on_granted)
+	Signals.chatroom_left.connect(_cr_on_left)
+
+
+func _cr_say(text: String) -> void:
+	_terminal_node().line_submitted.emit(text)
+
+
+func _wait_for(pred: Callable, timeout_sec: float) -> bool:
+	var end := Time.get_ticks_msec() + int(timeout_sec * 1000.0)
+	while Time.get_ticks_msec() < end:
+		if pred.call():
+			return true
+		await get_tree().process_frame
+	return bool(pred.call())
+
+
+func _cr_turns_done(cr: Chatroom) -> int:
+	return cr.accepted_replies + cr.rejected_replies + cr.degraded_turns
+
+
+## Leaves the current room (if inside), starts a fresh session and opens `chat`.
+func _cr_new_session(seed_value: int) -> void:
+	var cr := _cr()
+	if cr.is_inside():
+		_cr_say("leave")
+		await _wait_frames(3)
+	cr.reset_session(seed_value)
+	_cr_say("chat")
+	await _wait_for(cr.is_inside, 8.0)
+
+
+## First message, then wait for the contact to reach out.
+func _cr_contact() -> bool:
+	var cr := _cr()
+	_cr_say(CR_HELLO)
+	return await _wait_for(func(): return cr.state == ChatroomScript.ST_BRIEFING, 8.0)
+
+
+## One player line to the contact, then wait until that turn has completed.
+func _cr_ask(text: String, timeout_sec: float = 20.0) -> Dictionary:
+	var cr := _cr()
+	var before := _cr_turns_done(cr)
+	var t0 := Time.get_ticks_msec()
+	_cr_say(text)
+	var done: bool = await _wait_for(func(): return _cr_turns_done(cr) > before, timeout_sec)
+	await _wait_frames(2)
+	return {"done": done, "ms": Time.get_ticks_msec() - t0}
+
+
+func _cr_ambient(cr: Chatroom) -> Array:
+	return cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.AMBIENT)
+
+
+func _cr_body(row: String) -> String:
+	var at := row.find("> ")
+	return row.substr(at + 2) if at >= 0 else row
+
+
+func _cr_letter_run(text: String) -> bool:
+	var re := RegEx.new()
+	re.compile("[A-Za-z]{3,}")
+	return re.search(text) != null
+
+
+func _cr_hits(pattern: String, rows: Array) -> int:
+	var re := RegEx.new()
+	re.compile(pattern)
+	var n := 0
+	for r in rows:
+		if re.search(String(r)) != null:
+			n += 1
+	return n
+
+
+func _cr_fake_log() -> Array:
+	var out: Array = []
+	var f := FileAccess.open(OS.get_environment("CHATROOM_FAKE_LOG"), FileAccess.READ)
+	if f == null:
+		return out
+	while not f.eof_reached():
+		var line := f.get_line()
+		if line.is_empty():
+			continue
+		var parsed = JSON.parse_string(line)
+		if typeof(parsed) == TYPE_DICTIONARY:
+			out.append(parsed)
+	f.close()
+	return out
+
+
+## Structured completions only: the chat requests that carry a response format.
+func _cr_fake_structured() -> Array:
+	return _cr_fake_log().filter(func(r): return String(r.get("path", "")) == "/api/chat" and typeof(r.get("body", null)) == TYPE_DICTIONARY and r["body"].get("format", null) != null)
+
+
+func _cr_set_mode(mode: String) -> void:
+	var f := FileAccess.open(OS.get_environment("CHATROOM_FAKE_MODE_FILE"), FileAccess.WRITE)
+	if f != null:
+		f.store_string(mode)
+		f.close()
+
+
+func _cr_shot(shot_name: String) -> void:
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(_out_dir() + "/" + shot_name + ".png")
+
+
+func _cr_part(mode: String, data: Dictionary) -> void:
+	_write_json(_out_dir() + "/" + mode + ".part.json", data)
+
+
+func _cr_locked_in_prompt(cr: Chatroom) -> int:
+	var briefing: Dictionary = ChatroomScript.read_json(ChatroomScript.data_dir() + "/handler_briefing.json")
+	var unlocked := cr.unlocked_facts()
+	var blob := ""
+	for m in cr.last_messages:
+		blob += String(m["content"]) + "\n"
+	var n := 0
+	for f in briefing["facts"]:
+		if not unlocked.has(String(f["id"])) and blob.contains(String(f["text"])):
+			n += 1
+	return n
+
+
+## True when some fact is unlocked although none of the player's lines carry one of its ask keywords.
+func _cr_unasked_fact(cr: Chatroom, lines: Array) -> bool:
+	var briefing: Dictionary = ChatroomScript.read_json(ChatroomScript.data_dir() + "/handler_briefing.json")
+	for f in briefing["facts"]:
+		if not cr.unlocked_facts().has(String(f["id"])):
+			continue
+		var asked := false
+		for line in lines:
+			for kw in f["ask_keywords"]:
+				if ChatroomScript.kw_hit(String(line), String(kw)):
+					asked = true
+		if not asked:
+			return true
+	return false
+
+
+## --- flow ----------------------------------------------------------------------
+
+func _run_chatroom_flow() -> void:
+	var cr := _cr()
+	var shell := _shell_node()
+	var llm := _llm_node()
+	shell.world_dry_run = true
+	_cr_connect()
+	var render_from := _ext_rendered.size()
+	var out := {}
+
+	# --- Session T: idle room, then the trigger negatives, then the first message ---
+	await _cr_new_session(222)
+	var req_open := llm.request_count
+	var found_before := int(_cr_counts["found"])
+	await _wait_seconds(66.0)
+	var idle_ms := Time.get_ticks_msec() - cr.opened_ms
+	var idle_rows: Array = _cr_ambient(cr)
+	var idle_found := int(_cr_counts["found"]) - found_before
+	var idle_llm := llm.request_count - req_open
+
+	var rendered_idle: Array = _ext_rendered.slice(render_from)
+	var scrambled := 0
+	var leaks := 0
+	var gaps: Array = []
+	var delays: Array = []
+	var excess := 0
+	for i in range(idle_rows.size()):
+		var e: Dictionary = idle_rows[i]
+		var body := _cr_body(String(e["row"]))
+		if body != String(e["plain"]) and body.length() == String(e["plain"]).length() and rendered_idle.has(String(e["row"])):
+			scrambled += 1
+		if _cr_letter_run(body):
+			leaks += 1
+		if e.has("next_delay_ms") and float(e.get("rate", 1.0)) == 1.0:
+			delays.append(int(e["next_delay_ms"]))
+		if i + 1 < idle_rows.size():
+			var gap := int(idle_rows[i + 1]["t_ms"]) - int(e["t_ms"])
+			gaps.append(gap)
+			excess = maxi(excess, gap - int(e.get("next_delay_ms", gap)))
+	var distinct: Array = []
+	for d in delays:
+		if not distinct.has(d):
+			distinct.append(d)
+	var plain_seq: Array = idle_rows.map(func(e): return String(e["plain"]))
+	var line_count: int = ChatroomScript.entry_room(cr.room_script())["ambient"]["lines"].size()
+	var head: Array = plain_seq.slice(0, line_count)
+	var no_repeat := idle_rows.size() >= line_count
+	for i in range(head.size()):
+		if head.slice(0, i).has(head[i]):
+			no_repeat = false
+	var variants := 0
+	var seen_plain: Array = []
+	for e in idle_rows:
+		var p := String(e["plain"])
+		if seen_plain.has(p):
+			continue
+		seen_plain.append(p)
+		var bodies: Array = []
+		for e2 in idle_rows:
+			if String(e2["plain"]) == p and not bodies.has(_cr_body(String(e2["row"]))):
+				bodies.append(_cr_body(String(e2["row"])))
+		if bodies.size() >= 2:
+			variants += 1
+	var control_row := "XEN-4> relay seven holds the south arc"
+	var ambient := {
+		"rows": idle_rows.size(),
+		"within_ms": (int(idle_rows[4]["t_ms"]) - cr.opened_ms) if idle_rows.size() >= 5 else -1,
+		"scrambled_rows": scrambled,
+		"plaintext_leaks": leaks,
+		"llm_requests": idle_llm,
+		"control_leak_detected": _cr_letter_run(_cr_body(control_row)),
+		"interval_min_ms": delays.min() if not delays.is_empty() else -1,
+		"interval_max_ms": delays.max() if not delays.is_empty() else -1,
+		"interval_distinct": distinct.size(),
+		"observed_gap_excess_ms": excess,
+		"no_repeat_before_bag_exhausted": no_repeat,
+		"same_plain_variants": variants,
+	}
+
+	# typed but never sent; an empty line; a whitespace line: none of them is a message
+	var typed_found0 := int(_cr_counts["found"])
+	await _type_text("hel")
+	await _wait_seconds(3.0)
+	var typed_unsent := int(_cr_counts["found"]) - typed_found0
+	for i in range(3):
+		await _press(KEY_BACKSPACE)
+	var empty_found0 := int(_cr_counts["found"])
+	_cr_say("")
+	_cr_say("   ")
+	await _wait_seconds(4.0)
+	var empty_line := int(_cr_counts["found"]) - empty_found0
+
+	# the first message: a scripted voice answers, then (and only then) the contact reaches out
+	var responder_log0 := cr.emission_log.size()
+	var req_msg := llm.request_count
+	var t_msg := Time.get_ticks_msec()
+	_cr_say(CR_HELLO)
+	await _wait_frames(1)
+	_cr_say("qwxz")
+	await _wait_for(func(): return cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.RESPONDER).size() >= 2, 3.0)
+	var resp: Array = cr.emission_log.slice(responder_log0).filter(func(e): return int(e["beat"]) == Chatroom.Beat.RESPONDER)
+	var resp_llm := llm.request_count - req_msg
+	var resp_scrambled := resp.size() >= 2
+	for e in resp:
+		if _cr_body(String(e["row"])) == String(e["plain"]) or _cr_letter_run(_cr_body(String(e["row"]))):
+			resp_scrambled = false
+	var fallback_replied := resp.size() >= 2 and String(resp[1]["plain"]) != String(resp[0]["plain"])
+	await _wait_for(func(): return cr.state == ChatroomScript.ST_BRIEFING, 6.0)
+	await _wait_seconds(3.0)
+	var contact_delay := cr.contact_ms - t_msg
+	var contact_rows: Array = cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.CONTACT)
+	var label_re := RegEx.new()
+	label_re.compile("^<[A-Z]+-[0-9]+> ")
+	var handle_in_idle := false
+	for e in idle_rows:
+		if String(e["handle"]) == cr.contact_handle():
+			handle_in_idle = true
+	var plain_label := not contact_rows.is_empty() and label_re.search(String(contact_rows[0]["row"])) != null and String(contact_rows[0]["handle"]) == cr.contact_handle()
+	var trigger := {
+		"idle_ms": idle_ms,
+		"idle_rows": idle_rows.size(),
+		"idle_contacts": idle_found,
+		"idle_llm_requests": idle_llm,
+		"typed_unsent_contacts": typed_unsent,
+		"empty_line_contacts": empty_line,
+		"contact_before_first_message": cr.contact_ms >= 0 and cr.contact_ms < t_msg,
+		"first_message_contact": cr.state == ChatroomScript.ST_BRIEFING,
+		"contact_delay_ms": contact_delay,
+		"contact_delay_ok": contact_delay >= 900 and contact_delay <= 2300,
+		"contacts": int(_cr_counts["found"]) - found_before,
+		"first_llm_request_after_contact": _cr_req_at_found == req_open and llm.request_count == req_open,
+		"contact_handle_seen_in_idle": handle_in_idle,
+		"contact_label_plain": plain_label,
+	}
+	out["responder"] = {
+		"replied": resp.size() >= 1 and int(resp[0]["t_ms"]) - t_msg <= 2500,
+		"ms": (int(resp[0]["t_ms"]) - t_msg) if resp.size() >= 1 else -1,
+		"llm_requests": resp_llm,
+		"fallback_replied": fallback_replied,
+		"scrambled": resp_scrambled,
+	}
+
+	# ambient keeps running, slower, after the contact
+	var post_from := cr.emission_log.size()
+	var contact_at := cr.contact_ms
+	await _wait_seconds(45.0)
+	var post: Array = cr.emission_log.slice(post_from).filter(func(e): return int(e["beat"]) == Chatroom.Beat.AMBIENT and int(e["t_ms"]) >= contact_at)
+	var lo := int(ChatroomScript.entry_room(cr.room_script())["ambient"]["interval_ms"][0])
+	var rate := float(ChatroomScript.entry_room(cr.room_script())["ambient"]["rate_after_contact"])
+	var post_gaps: Array = []
+	for i in range(post.size() - 1):
+		post_gaps.append(int(post[i + 1]["t_ms"]) - int(post[i]["t_ms"]))
+	var post_mean := 0.0
+	for g in post_gaps:
+		post_mean += float(g)
+	post_mean = post_mean / maxf(1.0, float(post_gaps.size()))
+	var pre_mean := 0.0
+	for g in gaps:
+		pre_mean += float(g)
+	pre_mean = pre_mean / maxf(1.0, float(gaps.size()))
+	var gap_floor_ok := true
+	for g in post_gaps:
+		if float(g) < float(lo) / rate - 20.0:
+			gap_floor_ok = false
+	out["contact"] = {
+		"ambient_continues": post.size() >= 3,
+		"ambient_rate_ok": post.size() >= 3 and gap_floor_ok and post_mean >= 1.8 * pre_mean,
+		"post_rows": post.size(),
+		"post_mean_gap_ms": int(post_mean),
+		"pre_mean_gap_ms": int(pre_mean),
+	}
+	await _cr_shot("flow_room")
+
+	# --- Seeded replay: same seed identical, other seed differs, unseeded differ ---
+	var runs := {}
+	for key in [["a", 5151], ["b", 5151], ["c", 5152], ["u1", -1], ["u2", -1]]:
+		await _cr_new_session(int(key[1]))
+		await _wait_for(func(): return _cr_ambient(cr).size() >= 4, 25.0)
+		runs[String(key[0])] = _cr_ambient(cr).slice(0, 4).map(func(e): return String(e["row"]))
+	ambient["seeded_repeat_identical"] = runs["a"] == runs["b"] and runs["a"].size() == 4
+	ambient["seeded_other_seed_differs"] = runs["a"] != runs["c"]
+	ambient["unseeded_runs_differ"] = runs["u1"] != runs["u2"]
+	out["ambient"] = ambient
+	out["trigger"] = trigger
+	out["chat_opened"] = 1 if _ext_chat_opened else 0
+
+	# --- Session B (lazy): twelve lines with no ask keyword unlock and offer nothing ---
+	await _cr_new_session(333)
+	await _cr_contact()
+	var lazy_lines: Array = []
+	var first_reply_new := -1
+	var unasked := false
+	var locked_in_prompt := 0
+	var auto_unlock := false
+	for l in CR_LAZY:
+		await _cr_ask(String(l))
+		lazy_lines.append(String(l))
+		if first_reply_new < 0:
+			first_reply_new = cr.unlocked_facts().size()
+		locked_in_prompt += _cr_locked_in_prompt(cr)
+		if _cr_unasked_fact(cr, lazy_lines):
+			unasked = true
+	var lazy_unlocks := cr.unlocked_facts().size()
+	var lazy_offered := cr.state == ChatroomScript.ST_OFFERED or int(_cr_counts["offered"]) > 0
+	auto_unlock = lazy_unlocks > 0
+
+	# --- Session B (asking): the facts unlock only from the player's own questions ---
+	await _cr_new_session(334)
+	await _cr_contact()
+	var asked_lines: Array = []
+	var max_new := 0
+	var say_max := 0
+	var wire_equals_built := true
+	var world_before_accept := 0
+	var offered0 := int(_cr_counts["offered"])
+	for q in CR_ASKS:
+		var unl_before: int = cr.unlocked_facts().size()
+		await _cr_ask(String(q))
+		asked_lines.append(String(q))
+		max_new = maxi(max_new, cr.unlocked_facts().size() - unl_before)
+		say_max = maxi(say_max, String(cr.last_verdict.get("say", "")).length())
+		locked_in_prompt += _cr_locked_in_prompt(cr)
+		if _cr_unasked_fact(cr, asked_lines):
+			unasked = true
+		var wire: Array = _cr_fake_structured()
+		if wire.is_empty() or String(wire[wire.size() - 1]["body"]["messages"][0]["content"]) != String(cr.last_messages[0]["content"]):
+			wire_equals_built = false
+		world_before_accept = maxi(world_before_accept, shell.world_request_count)
+	var ready_at: int = cr.ready_at_turn
+	var offered_before_due := int(_cr_counts["offered"]) - offered0
+	await _cr_ask("ok")
+	say_max = maxi(say_max, String(cr.last_verdict.get("say", "")).length())
+	var state_after_offer := cr.state
+	await _wait_seconds(6.0)
+	await _cr_shot("flow_offer")
+
+	# look-alike accept words are ordinary lines, not accepts
+	var world0 := shell.world_request_count
+	await _cr_ask("еnter")
+	await _cr_ask("ｅｎｔｅｒ")
+	var cyrillic_world := shell.world_request_count - world0
+	var still_offered := cr.state == ChatroomScript.ST_OFFERED
+	world_before_accept = maxi(world_before_accept, shell.world_request_count)
+	_cr_say("enter")
+	await _wait_frames(3)
+	var accept_world := shell.world_request_count - world0
+	_cr_say("leave")
+	await _wait_frames(3)
+	var leave_state := shell.current_state_name()
+	_cr_say("chat")
+	await _wait_frames(5)
+	var resumed := cr.state
+
+	out["briefing"] = {
+		"first_reply_new_facts": first_reply_new,
+		"max_new_facts_per_turn": max_new,
+		"say_max_len": say_max,
+		"locked_text_in_prompt": locked_in_prompt,
+		"wire_equals_built_prompt": wire_equals_built,
+		"unasked_fact_revealed": unasked,
+		"auto_unlock_fired": auto_unlock,
+		"lazy_turns": lazy_lines.size(),
+		"lazy_unlocks": lazy_unlocks,
+		"lazy_offered": lazy_offered,
+		"credited": cr.credited_facts(),
+		"ready_at_turn": ready_at,
+		"offer_before_due": offered_before_due,
+	}
+
+	# --- Entry attacks, each against the fake model's attack modes ---
+	await _cr_new_session(335)
+	await _cr_contact()
+	var offered1 := int(_cr_counts["offered"])
+	var w1 := shell.world_request_count
+	_cr_set_mode("early_offer")
+	await _cr_ask("what is the entanglement")
+	var downgraded := bool(cr.last_verdict.get("downgraded", false)) and cr.state == ChatroomScript.ST_BRIEFING and int(_cr_counts["offered"]) == offered1
+	for word in ["enter", "accept", "i accept"]:
+		await _cr_ask(word)
+	var early_accept := shell.world_request_count - w1
+	_cr_set_mode("text_entry")
+	await _cr_ask("ok")
+	var text_world := shell.world_request_count - w1
+	var text_state_ok := cr.state == ChatroomScript.ST_BRIEFING
+	_cr_set_mode("unknown_act")
+	var acc0 := cr.accepted_replies
+	await _cr_ask("who is the colonist")
+	var unknown_rejected := (not bool(cr.last_verdict.get("ok", true))) and String(cr.last_verdict.get("reason", "")) == "unknown_act" and cr.accepted_replies == acc0 and cr.state == ChatroomScript.ST_BRIEFING
+	_cr_set_mode("ok")
+	out["entry"] = {
+		"early_offer_downgraded": downgraded,
+		"early_accept_world_requests": early_accept,
+		"text_only_world_requests": text_world if text_state_ok else -1,
+		"cyrillic_accept_world_requests": cyrillic_world if still_offered else -1,
+		"unknown_act_rejected": unknown_rejected,
+		"state_after_offer": state_after_offer,
+		"accept_world_requests": accept_world,
+		"world_requested_after_accept_only": world_before_accept == 0 and cyrillic_world == 0 and accept_world == 1,
+		"resumed_state": resumed,
+	}
+	out["leave"] = {"state": leave_state}
+	out["signals"] = {"handler_reply_complete": int(_cr_counts["reply"])}
+
+	# --- What the room put on screen, from the first room open on ---
+	var rows_all: Array = []
+	var snap := _terminal_node().rows_snapshot()
+	var title := String(ChatroomScript.entry_room(cr.room_script()).get("title", ""))
+	var started := false
+	for r in snap:
+		if String(r["text"]) == title:
+			started = true
+		if started:
+			rows_all.append(String(r["text"]))
+	var rendered_all: Array = _ext_rendered.slice(render_from)
+	var scan: Array = rows_all.duplicate()
+	scan.append_array(rendered_all)
+	var ctl := "HANDLER 2/4 facts known ENTRY_OFFERED"
+	out["visible"] = {
+		"rows_scanned": rows_all.size(),
+		"rendered_scanned": rendered_all.size(),
+		"banned_hits": _cr_hits(CR_BANNED, scan),
+		"identifier_hits": _cr_hits(CR_IDENT, scan),
+		"progress_ui_rows": _cr_hits(CR_PROGRESS, scan),
+		"control_hit_detected": _cr_hits(CR_BANNED, [ctl]) == 1 and _cr_hits(CR_IDENT, [ctl]) == 1 and _cr_hits(CR_PROGRESS, [ctl]) == 1,
+	}
+	_cr_part("flow", out)
+
+
+## --- degrade: gate failure, then a mid-room outage ------------------------------------
+
+func _run_chatroom_gatefail() -> void:
+	var cr := _cr()
+	var shell := _shell_node()
+	var mark := _ext_rendered.size()
+	_cr_say("chat")
+	await _wait_seconds(6.0)
+	var refused := _ext_rendered.slice(mark).any(func(t): return String(t).begins_with("CORTEX LINK FAILED -- CHAT MODULE UNAVAILABLE"))
+	_cr_part("gatefail", {"refused": refused, "state": shell.current_state_name(), "ambient_rows": cr.emission_log.size()})
+
+
+func _run_chatroom_degrade() -> void:
+	var cr := _cr()
+	var shell := _shell_node()
+	shell.world_dry_run = true
+	_cr_connect()
+	await _cr_new_session(444)
+	await _cr_contact()
+	await _cr_ask("what is the entanglement")
+	_cr_set_mode("down")
+	var mark := _ext_rendered.size()
+	var offered0 := int(_cr_counts["offered"])
+	var acc0 := cr.accepted_replies
+	await _cr_ask("who is the colonist")
+	var degrade_line := String(cr.room_script()["handler"]["degrade_line"])
+	var shown := _ext_rendered.slice(mark).has(degrade_line)
+	var entry_possible := cr.entry_allowed() or int(_cr_counts["offered"]) > offered0 or shell.world_request_count > 0
+	var state_same := cr.state == ChatroomScript.ST_BRIEFING and cr.accepted_replies == acc0
+	_cr_set_mode("ok")
+	await _cr_ask("who is the colonist")
+	_cr_part("degrade", {"degrade_line": shown and state_same, "entry_possible": entry_possible, "recovered_after_retry": cr.accepted_replies == acc0 + 1})
+
+
+## --- mutate: the script is data -------------------------------------------------------------
+
+func _run_chatroom_mutate() -> void:
+	var cr := _cr()
+	_cr_connect()
+	var variant := OS.get_environment("CHATROOM_MUTATE_VARIANT")
+	await _cr_new_session(555)
+	await _wait_for(func(): return _cr_ambient(cr).size() >= 4, 25.0)
+	var rows: Array = _cr_ambient(cr)
+	var marker_seen := false
+	var plain_equal := not rows.is_empty()
+	var leaks := 0
+	for e in rows:
+		var body := _cr_body(String(e["row"]))
+		if body.contains("zqmarker"):
+			marker_seen = true
+		if body != String(e["plain"]):
+			plain_equal = false
+		if _cr_letter_run(body):
+			leaks += 1
+	var prompt_marker := false
+	if variant == "changed":
+		await _cr_contact()
+		await _cr_ask("what is the entanglement")
+		var wire: Array = _cr_fake_structured()
+		if not wire.is_empty():
+			prompt_marker = String(wire[wire.size() - 1]["body"]["messages"][0]["content"]).contains("ZQFACTMARK")
+	_cr_part("mutate_" + variant, {"variant": variant, "rows": rows.size(), "marker_visible": marker_seen, "rows_equal_plain": plain_equal, "plaintext_leaks": leaks, "briefing_marker_in_prompt": prompt_marker})
+
+
+## --- leak: the #615 in-Godot think-leak check on the room's real forwarding path ----------------
+
+## A think marker, a code fence, or a REASON_WINDOW-character run of the reasoning
+## text that is NOT also in the prompt (a thinking model quotes the facts and the
+## player's line in its reasoning, and a clean reply may quote them too; that overlap
+## is the prompt, not a leak of the chain of thought).
+func _cr_leak_scan(text: String, reasoning: String, prompt_blob: String) -> bool:
+	var low := text.to_lower()
+	if low.contains("<think") or low.contains("</think") or low.contains("reasoning_content") or text.contains("```"):
+		return true
+	if reasoning.length() >= ReplySanitizer.REASON_WINDOW:
+		var flat_r := " ".join(reasoning.split(" ", false))
+		var flat_t := " ".join(text.split(" ", false))
+		var i := 0
+		while i + ReplySanitizer.REASON_WINDOW <= flat_r.length():
+			var window := flat_r.substr(i, ReplySanitizer.REASON_WINDOW)
+			if flat_t.contains(window) and not prompt_blob.contains(window):
+				return true
+			i += 6
+	return false
+
+
+var _cr_reasoning_seen: String = ""
+
+
+func _cr_on_probe_reasoning(reasoning: String) -> void:
+	_cr_reasoning_seen = reasoning
+
+
+func _run_chatroom_leak() -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	_cr_connect()
+	var render_from := _ext_rendered.size()
+	var reasoning_min := 1 << 30
+	var all_reasoning := ""
+	var prompt_blob := ""
+	var flagged: Array = []
+	for run in range(3):
+		await _cr_new_session(900 + run)
+		await _cr_contact()
+		for q in CR_ASKS:
+			await _cr_ask(String(q), 90.0)
+		# a thinking-ENABLED request through the same client, with the same prompt: the
+		# reasoning is real (so "nothing leaked" is not vacuous) and is what the scan compares to
+		var done := {"v": false}
+		_cr_reasoning_seen = ""
+		llm.complete_structured(cr.last_messages, {"thinking": true, "max_tokens": 1500, "timeout_ms": 120000, "reasoning_probe": Callable(self, "_cr_on_probe_reasoning")}, func(_r): done["v"] = true)
+		await _wait_for(func(): return bool(done["v"]), 130.0)
+		reasoning_min = mini(reasoning_min, llm.last_reasoning_chars)
+		all_reasoning += " " + _cr_reasoning_seen
+		for m in cr.last_messages:
+			prompt_blob += " ".join(String(m["content"]).split(" ", false)) + " "
+	var rendered: Array = _ext_rendered.slice(render_from)
+	var rows: Array = _terminal_node().rows_snapshot().map(func(r): return String(r["text"]))
+	var leaks := 0
+	for t in rendered:
+		if _cr_leak_scan(String(t), all_reasoning, prompt_blob):
+			leaks += 1
+			flagged.append(String(t).left(80))
+	for t in rows:
+		if _cr_leak_scan(String(t), all_reasoning, prompt_blob):
+			leaks += 1
+			flagged.append(String(t).left(80))
+	# Negative control through the same scan: reasoning pasted into a reply MUST be caught.
+	var tail := " ".join(all_reasoning.split(" ", false))
+	tail = tail.substr(maxi(tail.length() - 120, 0))
+	var control_fires := _cr_leak_scan("ANSWER: " + tail, all_reasoning, prompt_blob)
+	if not control_fires:
+		leaks += 1
+		flagged.append("scan control did not fire")
+	var turns := cr.accepted_replies + cr.rejected_replies
+	var cfg = ChatroomScript.read_json("res://data/llm_config.json")
+	var source := LlmClient.resolve_source(cfg if typeof(cfg) == TYPE_DICTIONARY else {}, OS.get_environment("DECOHERENCE_LLM_SOURCE"))
+	# The room's only input is the shell's pass-through on submit_player_line (DOD-9 pins
+	# the single connection), so lines it received and answered went down that path.
+	var forward := "submit_player_line" if cr.lines_received >= CR_ASKS.size() and turns >= 1 else "other"
+	_cr_part("leak", {"runs": 3, "reasoning_chars_min": reasoning_min, "forward_path": forward, "rendered_checked": rendered.size(), "rows_checked": rows.size(), "leaks": leaks, "source": source, "reasoning_total_chars": all_reasoning.length(), "turns": turns, "flagged": flagged.slice(0, 5), "scan_control_fires": control_fires})
+
+
+func _run_chatroom_leak_neg() -> void:
+	var cr := _cr()
+	_cr_connect()
+	await _cr_new_session(910)
+	await _cr_contact()
+	var res := {}
+	for pair in [["leaky_think", "think_marker", "neg_think_marker_rejected"], ["leaky_window", "reasoning_window", "neg_window_rejected"], ["leaky_fence", "code_fence", "neg_code_fence_rejected"]]:
+		_cr_set_mode(String(pair[0]))
+		var mark := _ext_rendered.size()
+		var acc0 := cr.accepted_replies
+		await _cr_ask("what is the entanglement")
+		var shown: Array = _ext_rendered.slice(mark)
+		var clean := true
+		for t in shown:
+			var low := String(t).to_lower()
+			if low.contains("<think") or low.contains("```") or low.contains("reveal everything i know"):
+				clean = false
+		res[String(pair[2])] = String(cr.last_verdict.get("reason", "")) == String(pair[1]) and cr.accepted_replies == acc0 and clean
+	_cr_set_mode("ok")
+	_cr_part("leak_neg", res)
+
+
+## --- live: the real model, a keyword-asking scripted player ---------------------------------------
+
+func _run_chatroom_live() -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	_cr_connect()
+	var req_open := llm.request_count
+	await _cr_new_session(777)
+	await _cr_contact()
+	var requests_during_ambient := llm.request_count - req_open
+	var briefing: Dictionary = ChatroomScript.read_json(ChatroomScript.data_dir() + "/handler_briefing.json")
+	var cfg: Dictionary = ChatroomScript.read_json(ChatroomScript.data_dir() + "/readiness.json")
+	var phrase := {"f_entanglement": "what is the entanglement", "f_proxy": "who is the colonist", "f_orders": "how do orders work", "f_homestead": "what is my job at the homestead"}
+	var alt := {"f_entanglement": "tell me about the link", "f_proxy": "who is the proxy", "f_orders": "what orders can i give", "f_homestead": "why the homestead"}
+	var turns := 0
+	var valid := 0
+	var max_prompt := 0
+	var max_out := 0
+	var over := 0
+	var tries := {}
+	var transcript: Array = []
+	var sample: Array = []
+	# A curious player first asks about things the offer does not depend on, then about the
+	# required facts; the offer follows once the code judges them ready.
+	var warm: Array = ["what can i see", "can i back out of this", "what happens when it glitches"]
+	while turns < 14 and cr.state != ChatroomScript.ST_OFFERED:
+		var line := "go on"
+		if turns < warm.size():
+			line = String(warm[turns])
+		else:
+			for need in cfg["required_facts"]:
+				if not cr.credited_facts().has(String(need)):
+					tries[need] = int(tries.get(need, 0)) + 1
+					line = String(phrase[need]) if int(tries[need]) % 2 == 1 else String(alt[need])
+					break
+		var acc0 := cr.accepted_replies
+		await _cr_ask(line, 60.0)
+		turns += 1
+		if cr.accepted_replies > acc0:
+			valid += 1
+		max_prompt = maxi(max_prompt, llm.last_prompt_tokens)
+		max_out = maxi(max_out, llm.last_out_tokens)
+		if String(cr.last_verdict.get("reason", "")) == "say_too_long":
+			over += 1
+		transcript.append({"line": line, "ok": cr.last_verdict.get("ok", false), "reason": cr.last_verdict.get("reason", ""), "say": cr.last_verdict.get("say", ""), "act": cr.last_verdict.get("act", ""), "prompt_tokens": llm.last_prompt_tokens, "unlocked": cr.unlocked_facts(), "credited": cr.credited_facts(), "history_messages": cr.last_messages.size()})
+		if turns == 3:
+			sample = cr.last_messages
+	await _cr_shot("live_room")
+	var llm_cfg = ChatroomScript.read_json("res://data/llm_config.json")
+	var oc: Dictionary = llm_cfg.get("ollama", {})
+	_cr_part("live", {
+		"source": LlmClient.resolve_source(llm_cfg, OS.get_environment("DECOHERENCE_LLM_SOURCE")),
+		"model": String(oc.get("model", "")),
+		"num_ctx": int(oc.get("num_ctx", 0)),
+		"turns": turns,
+		"valid_rate": float(valid) / maxf(1.0, float(turns)),
+		"max_prompt_tokens": max_prompt,
+		"max_out_tokens": max_out,
+		"reached_offer": cr.state == ChatroomScript.ST_OFFERED,
+		"turns_to_offer": cr.player_turns(),
+		"requests_during_ambient": requests_during_ambient,
+		"say_over_limit": over,
+		"facts": briefing["facts"].size(),
+		"ready_at_turn": cr.ready_at_turn,
+		"transcript": transcript,
+		"sample_messages_turn3": sample,
+	})
+
+
+## --- handoff: chat -> offer -> accept -> the real world -> back to a live shell ------------------------
+
+func _run_chatroom_handoff() -> void:
+	var cr := _cr()
+	var shell := _shell_node()
+	_cr_connect()
+	await _cr_new_session(666)
+	await _cr_contact()
+	for q in CR_ASKS:
+		await _cr_ask(String(q))
+	await _cr_ask("ok")
+	var offered := cr.state == ChatroomScript.ST_OFFERED
+	var early_world := get_tree().get_first_node_in_group("stalag_world") != null
+	_cr_say("enter")
+	var entered: bool = await _wait_for(func(): return get_tree().get_first_node_in_group("stalag_world") != null, 20.0)
+	var chunks := 0
+	var grounded := false
+	var w := get_tree().get_first_node_in_group("stalag_world")
+	if w != null:
+		var streamer: Node = w.get_node("Streamer")
+		await _wait_for(func(): return streamer.ring_ready() and streamer.pending_count() == 0 and w.is_grounded() and w.chunks_loaded() >= WORLD_MIN_CHUNKS, 90.0)
+		await _wait_frames(30)
+		chunks = w.chunks_loaded()
+		grounded = w.is_grounded()
+		await _cr_shot("handoff_world")
+		w.request_exit()
+	var exited: bool = await _wait_for(func(): return get_tree().get_first_node_in_group("stalag_world") == null and shell.current_state_name() == "SHELL", 15.0)
+	await _wait_frames(5)
+	var mark := _ext_rendered.size()
+	_cr_say("dir")
+	var alive: bool = await _wait_for(func(): return _ext_rendered.slice(mark).any(func(t): return String(t).begins_with("DIRECTORY LISTING")), 5.0)
+	_cr_say("chat")
+	await _wait_frames(10)
+	_cr_part("handoff", {
+		"entered_only_after_accept": offered and not early_world and entered,
+		"world_entered": entered,
+		"chunks": chunks,
+		"grounded": grounded,
+		"exited": exited,
+		"shell_alive": alive,
+		"resumed_state": cr.state,
+	})

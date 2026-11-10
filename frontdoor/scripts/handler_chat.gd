@@ -5,10 +5,11 @@ class_name HandlerChat
 ## data/handler_persona.json's injected_facts to build the one system
 ## message sent once per session (conversation history is otherwise kept
 ## purely in-memory for the process's lifetime -- no save/persistence, per
-## the spec's out-of-scope fence on saves). Listens for
-## Signals.submit_player_line, streams partial/delta token output into the
-## shared TerminalGrid via LlmClient.send_chat(), and emits
-## Signals.handler_reply_complete once a full reply has arrived.
+## the spec's out-of-scope fence on saves). Since Spec #542 the chatroom
+## (chatroom.gd) is the sole consumer of the player-line channel and this node
+## no longer listens to it; _on_submit_player_line stays callable as the legacy
+## streaming path, which streams token output into the shared TerminalGrid via
+## LlmClient.send_chat() and emits Signals.handler_reply_complete.
 
 const PERSONA_PATH := "res://frontdoor/data/handler_persona.json"
 
@@ -25,8 +26,6 @@ func setup(terminal_grid: TerminalGrid, llm_client: LlmClient) -> void:
 	_terminal = terminal_grid
 	_llm = llm_client
 	_load_persona()
-	if not Signals.submit_player_line.is_connected(_on_submit_player_line):
-		Signals.submit_player_line.connect(_on_submit_player_line)
 
 
 func _load_persona() -> void:

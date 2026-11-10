@@ -1,0 +1,220 @@
+{
+  "schema": 1,
+  "draft": true,
+  "_note": "PLACEHOLDER CONTENT for Kel's pen. Every line, handle, cue word and number below is a stand-in so the mechanism can be built and tested; rewrite freely. The format (keys and types) is the contract; the words are not.",
+  "entry_room": "channel7",
+  "scramble": {
+    "pools": [
+      "braille",
+      "box",
+      "block"
+    ],
+    "keep_spaces": true,
+    "legible_ratio": 0.0,
+    "reveal_words": [],
+    "seed": "per_session",
+    "seed_note": "per_session = drawn fresh each session; DECOHERENCE_CHATROOM_SEED fixes it for tests"
+  },
+  "limits": {
+    "max_input_chars": 200,
+    "say_max_chars": 240
+  },
+  "rooms": [
+    {
+      "id": "channel7",
+      "title": "DECOHERENCE // OPEN CHANNEL 7",
+      "banner": [
+        "CHANNEL 7 :: UNREGISTERED NODE JOINED",
+        "TRAFFIC BELOW IS UNTRANSLATED."
+      ],
+      "voices": [
+        {
+          "id": "v1",
+          "handle": "XEN-4"
+        },
+        {
+          "id": "v2",
+          "handle": "OBL-17"
+        },
+        {
+          "id": "v3",
+          "handle": "THRESH"
+        },
+        {
+          "id": "v4",
+          "handle": "NUL-9"
+        },
+        {
+          "id": "v5",
+          "handle": "WREN-22"
+        }
+      ],
+      "ambient": {
+        "interval_ms": [
+          1400,
+          3600
+        ],
+        "max_per_minute": 24,
+        "lines": [
+          {
+            "voice": "v1",
+            "plain": "relay seven holds the south arc, drift at 0.3"
+          },
+          {
+            "voice": "v2",
+            "plain": "who has the window after the next fold"
+          },
+          {
+            "voice": "v3",
+            "plain": "negative on the ledger, nothing is recorded here"
+          },
+          {
+            "voice": "v4",
+            "plain": "pair eleven is stable, pair twelve is asking again"
+          },
+          {
+            "voice": "v1",
+            "plain": "a new node on the line, unregistered, listening"
+          },
+          {
+            "voice": "v2",
+            "plain": "the translation cache is cold, repeat the last frame"
+          },
+          {
+            "voice": "v3",
+            "plain": "somebody tell the pool we are short again"
+          },
+          {
+            "voice": "v4",
+            "plain": "checksum mismatch on the third band, resend"
+          },
+          {
+            "voice": "v1",
+            "plain": "the colonists are still asleep, count unchanged"
+          },
+          {
+            "voice": "v2",
+            "plain": "hold the channel, do not answer the unregistered"
+          },
+          {
+            "voice": "v3",
+            "plain": "open data, open channel, nothing to hide, nothing to say"
+          },
+          {
+            "voice": "v4",
+            "plain": "timebase slipping, mark the epoch and move on"
+          },
+          {
+            "voice": "v1",
+            "plain": "assignment board is empty for this arc"
+          },
+          {
+            "voice": "v2",
+            "plain": "if you can read this you are early"
+          },
+          {
+            "voice": "v5",
+            "plain": "the south arc is quiet tonight, nobody is asking for it"
+          },
+          {
+            "voice": "v5",
+            "plain": "I came in late, the board was already empty"
+          }
+        ],
+        "randomize": {
+          "order": "shuffle_bag",
+          "timing": "uniform_in_range",
+          "scramble_seed": "per_emission"
+        },
+        "rate_after_contact": 0.35
+      },
+      "responders": [
+        {
+          "id": "r_hello",
+          "match_any": [
+            "hello",
+            "hi",
+            "hey",
+            "anyone",
+            "anybody"
+          ],
+          "voice": "v2",
+          "plain": "signal received, node unregistered, state your purpose"
+        },
+        {
+          "id": "r_who",
+          "match_any": [
+            "who",
+            "what is this",
+            "where am i"
+          ],
+          "voice": "v3",
+          "plain": "this is the open channel, you are heard by everyone"
+        },
+        {
+          "id": "r_help",
+          "match_any": [
+            "help",
+            "lost",
+            "how do i"
+          ],
+          "voice": "v4",
+          "plain": "figure the line out or leave it"
+        },
+        {
+          "id": "r_game",
+          "match_any": [
+            "game",
+            "play",
+            "start"
+          ],
+          "voice": "v1",
+          "plain": "no game here, only the line"
+        }
+      ],
+      "fallback_responses": [
+        {
+          "voice": "v1",
+          "plain": "noise on the band, say again"
+        },
+        {
+          "voice": "v3",
+          "plain": "unregistered node, your frame is unclear"
+        },
+        {
+          "voice": "v2",
+          "plain": "not routed"
+        }
+      ],
+      "handler_trigger": {
+        "on": "first_player_message",
+        "contact_delay_ms": [
+          900,
+          2200
+        ],
+        "contact_line": {
+          "voice": "v5",
+          "plain": "you sent a frame. it came through clean."
+        }
+      }
+    }
+  ],
+  "handler": {
+    "offer_fallback_line": "you have what you need. say you accept and I will bring you through.",
+    "degrade_line": "LINK DEGRADED -- FRAME LOST.",
+    "accept_commands": [
+      "enter",
+      "accept",
+      "i accept"
+    ],
+    "leave_commands": [
+      "leave",
+      "exit",
+      "quit",
+      "/leave",
+      "/exit",
+      "/quit"
+    ],
+    "leave_line": "CHANNEL CLOSED."
+  }
+}

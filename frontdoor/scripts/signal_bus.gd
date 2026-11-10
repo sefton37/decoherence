@@ -80,3 +80,23 @@ signal setting_changed(key: String, value: String)
 ## BootPanels reports its computed layout (viewport size, terminal rect, panel
 ## rects, overlap count) once per layout pass; the density probe records it.
 signal layout_reported(report: Dictionary)
+
+## --- Additive contract, Spec #542 (chatroom). Everything above stays
+## byte-identical; these are new surface only.
+
+## The player entered the room (first open or a resume).
+signal chatroom_opened
+
+## An ordinary voice in the room reached out after the player's first sent
+## message. Carries no label: the signal name is internal and never rendered.
+signal chatroom_handler_found
+
+## Code (never model text) judged the player ready and the offer was spoken.
+signal chatroom_entry_offered
+
+## The player typed an exact accept command while the offer stood. The shell
+## re-checks Chatroom.entry_allowed() before it launches the world.
+signal chatroom_entry_granted
+
+## The player typed a leave command; the shell takes the keyboard back.
+signal chatroom_left

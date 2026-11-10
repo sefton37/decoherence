@@ -2,7 +2,7 @@
   {
     "id": "chat",
     "label": "CHAT",
-    "description": "Live entanglement-recruitment interface."
+    "description": "Relay chat."
   },
   {
     "id": "world",

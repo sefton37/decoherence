@@ -70,6 +70,13 @@ var router_dry_run: bool = false
 ## Test hook (probes only): when > 0, overrides the router's request timeout.
 var router_timeout_override_ms: int = 0
 
+## Spec #542: the chatroom, which alone decides whether the player may enter the
+## world from a chat. Test hook (probes only): world_dry_run counts launches
+## without mounting anything.
+var _chatroom: Chatroom = null
+var world_dry_run: bool = false
+var world_request_count: int = 0
+
 ## Details of the most recent resolved line, for probes:
 ## {source, action, args, reason, say, dispatched, would_dispatch, ms}
 var last_route: Dictionary = {}
@@ -78,13 +85,18 @@ var last_route: Dictionary = {}
 ## Wires this controller to the shared TerminalGrid and loads the module
 ## registry. Called once by boot_controller.gd during _ready(), before the
 ## boot theater begins.
-func setup(terminal_grid: TerminalGrid, llm: LlmClient = null) -> void:
+func setup(terminal_grid: TerminalGrid, llm: LlmClient = null, chatroom: Chatroom = null) -> void:
 	_terminal = terminal_grid
 	_llm = llm
+	_chatroom = chatroom
 	_modules = _load_modules()
 	_load_router_data()
 	if not Signals.terminal_line_submitted.is_connected(_on_terminal_line_submitted):
 		Signals.terminal_line_submitted.connect(_on_terminal_line_submitted)
+	if not Signals.chatroom_left.is_connected(_on_chatroom_left):
+		Signals.chatroom_left.connect(_on_chatroom_left)
+	if not Signals.chatroom_entry_granted.is_connected(_on_entry_granted):
+		Signals.chatroom_entry_granted.connect(_on_entry_granted)
 
 
 ## Called once by boot_controller.gd when the boot theater finishes.
@@ -197,12 +209,34 @@ func _handle_launch(cmd: String) -> void:
 ## `world` (Spec #501): degrades to an in-register failure line, never a crash, when the
 ## Stalag engine library has not been built on this machine.
 func _launch_world() -> void:
+	world_request_count += 1
+	if world_dry_run:
+		return
 	if not WorldModule.available():
 		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
 		return
 	_state = State.WORLD
 	_epoch += 1
 	world_requested.emit()
+
+
+## The room let the player go: the shell takes the keyboard back.
+func _on_chatroom_left() -> void:
+	if _state == State.CHAT:
+		_state = State.SHELL
+		_epoch += 1
+
+
+## The player typed the exact accept word. The room's own state is re-checked
+## here, so a stray signal alone can never open the world.
+func _on_entry_granted() -> void:
+	if _state == State.CHAT and _chatroom != null and _chatroom.entry_allowed():
+		_launch_world()
+
+
+## Characters per second of the typewriter reveal, from the persisted setting.
+func text_cps() -> float:
+	return _text_cps
 
 
 ## Called by boot_controller.gd when the world has been closed: back to the shell prompt.

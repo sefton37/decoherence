@@ -55,6 +55,7 @@ const _GALLERY_SAMPLES := [
 @onready var _terminal: TerminalGrid = $TerminalLayer/TerminalGrid
 @onready var _llm: LlmClient = $LlmClient
 @onready var _handler: HandlerChat = $HandlerChat
+@onready var _chatroom: Chatroom = $Chatroom
 @onready var _shell: ShellController = $ShellController
 @onready var _crt_overlay: ColorRect = $CRTLayer/CRTOverlay
 @onready var _panels: BootPanels = $PanelsLayer/BootPanels
@@ -110,7 +111,8 @@ func _ready() -> void:
 	_hw_facts = HardwareReadout.read_facts()
 	_hw_facts.merge(EntanglementReadout.read_facts())
 	_handler.setup(_terminal, _llm)
-	_shell.setup(_terminal, _llm)
+	_chatroom.setup(_terminal, _llm, _shell)
+	_shell.setup(_terminal, _llm, _chatroom)
 	_shell.world_requested.connect(_on_world_requested)
 	Signals.setting_changed.connect(_apply_setting)
 	_apply_all_settings(_shell.get_settings())

@@ -58,7 +58,7 @@
     "anim_duration_ms": 750,
     "lines": [
       { "text": "Checking entanglement substrate .............. PRESENT", "color": "teal" },
-      { "text": "Verifying handler credential chain ........... VALID", "color": "teal" },
+      { "text": "Verifying credential chain ................... VALID", "color": "teal" },
       { "text": "Mounting Proxy telemetry bus .................. MOUNTED", "color": "teal" },
       { "text": "Indexing module registry ...................... MOUNTED", "color": "teal" }
     ],

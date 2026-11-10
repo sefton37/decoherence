@@ -1,4 +1,4 @@
-[gd_scene load_steps=9 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://frontdoor/scripts/boot_controller.gd" id="1"]
 [ext_resource type="Script" path="res://frontdoor/scripts/terminal_grid.gd" id="2"]
@@ -7,6 +7,7 @@
 [ext_resource type="Shader" path="res://frontdoor/shaders/crt.gdshader" id="5"]
 [ext_resource type="Script" path="res://frontdoor/scripts/shell_controller.gd" id="6"]
 [ext_resource type="Script" path="res://frontdoor/scripts/boot_panels.gd" id="7"]
+[ext_resource type="Script" path="res://frontdoor/scripts/chatroom.gd" id="8"]
 
 [sub_resource type="ShaderMaterial" id="1"]
 shader = ExtResource("5")
@@ -45,6 +46,9 @@ script = ExtResource("4")
 
 [node name="ShellController" type="Node" parent="."]
 script = ExtResource("6")
+
+[node name="Chatroom" type="Node" parent="."]
+script = ExtResource("8")
 
 [node name="CRTLayer" type="CanvasLayer" parent="."]
 layer = 10
