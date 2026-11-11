@@ -441,6 +441,7 @@ func _on_world_requested() -> void:
 	_terminal.set_input_line_active(false)
 	_terminal.get_parent().visible = false
 	_panels.get_parent().visible = false
+	mouse_filter = Control.MOUSE_FILTER_IGNORE  # the full-screen boot Control would eat the world's mouse look
 	add_child(_world)
 	_world.exited.connect(_on_world_exited)
 
@@ -452,6 +453,7 @@ func _on_world_exited() -> void:
 		_world = null
 	_terminal.get_parent().visible = true
 	_panels.get_parent().visible = true
+	mouse_filter = Control.MOUSE_FILTER_STOP
 	_terminal.set_input_line_active(true)
 	_terminal.write_line("WORLD CLOSED.", Palette.TEAL)
 	_shell.world_closed()
