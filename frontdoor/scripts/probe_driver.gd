@@ -29,6 +29,8 @@ const PROBE_MESSAGE := "Hello, this is an automated readiness probe."
 
 ## Spec #549: the forest, understory and crown-shadow measurement of the world entry (world mode only).
 const EntryTrees := preload("res://engine/stalag/tests/entry_trees.gd")
+## Spec #551: the meadow ground's measurement (tile variants, tint, decals), run only when GRASS_OUT is set.
+const GrassProbe := preload("res://engine/stalag/tests/grass_probe.gd")
 
 ## The second line of the default chat probe (Spec #542): once the contact has
 ## reached out, an ask keyword for the entanglement fact makes the first model turn.
@@ -432,6 +434,9 @@ func _world_shoot(w: Node) -> void:
 				changed += 1
 	print("PROBE_WORLD_SHOT lower_nonbg=%.4f file=%s" % [float(changed) / maxf(1.0, float(total)), path])
 	await EntryTrees.measure(w, path, shots_dir, trees_mutation)
+	var grass_out := OS.get_environment("GRASS_OUT")
+	if not grass_out.is_empty():
+		await GrassProbe.run(w, path, shots_dir, grass_out)
 	_world_step = "exit_dir"
 	w.request_exit()
 	await get_tree().process_frame

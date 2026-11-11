@@ -19,10 +19,13 @@ const SPAWN_YAW := -PI / 2.0  ## look along +x, toward the demo mesa in front of
 
 ## Asset and shader paths for the prototype's look (tiles baked by tools/bake_skin.mjs).
 const TERRAIN_SHADER := "res://engine/stalag/shaders/stalag_terrain.gdshader"
+## Spec #551: the meadow ground (tile variants, world tint, decals); the terrain shader above keeps the dirt.
+const GRASS_SHADER := "res://engine/stalag/shaders/stalag_grass.gdshader"
 const WATER_SHADER := "res://engine/stalag/shaders/stalag_water.gdshader"
 const FloraAssets := preload("res://game/world/flora_assets.gd")
 const TreeAssets := preload("res://game/world/tree_assets.gd")
 const UnderstoryAssets := preload("res://game/world/understory_assets.gd")
+const GrassLook := preload("res://game/world/grass_look.gd")
 const GRASS_TILE := "res://game/world/assets/grass_top.png"
 const DIRT_TILE := "res://game/world/assets/dirt_side.png"
 const FLIP_TEX := "res://game/world/assets/water_flip.png"
@@ -56,8 +59,9 @@ func _make_material(shader_path: String) -> ShaderMaterial:
 
 ## Builds the three materials and hands them to the streamer before it loads anything.
 func _build_look() -> void:
-	grass_mat = _make_material(TERRAIN_SHADER)
+	grass_mat = _make_material(GRASS_SHADER)
 	grass_mat.set_shader_parameter("tile", load(GRASS_TILE))
+	GrassLook.apply(grass_mat)
 	dirt_mat = _make_material(TERRAIN_SHADER)
 	dirt_mat.set_shader_parameter("tile", load(DIRT_TILE))
 	dirt_mat.set_shader_parameter("flat_color", Color(0.42, 0.28, 0.15))
