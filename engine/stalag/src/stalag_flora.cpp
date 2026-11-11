@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <mutex>
 
 namespace stalag {
 
@@ -36,6 +37,8 @@ constexpr int FERNSHRUB_FORMS[3] = { 3, 4, 5 };
 constexpr int ROCK_FORMS[4] = { 6, 7, 8, 9 };
 
 std::atomic<int> g_mut{ 0 };
+std::mutex g_mask_mutex;
+std::shared_ptr<const GroundMask> g_mask;
 
 inline int32_t xor_i32(int32_t a, uint32_t b) { return (int32_t)((uint32_t)a ^ b); }
 
@@ -59,6 +62,23 @@ FloraInstance make_instance(int32_t cx, int32_t cz, double wx, double wz, double
 } // namespace
 
 void set_flora_mutation(int m) { g_mut.store(m); }
+
+void set_ground_mask(std::shared_ptr<const GroundMask> mask) {
+	std::lock_guard<std::mutex> lock(g_mask_mutex);
+	g_mask = std::move(mask);
+}
+
+std::shared_ptr<const GroundMask> ground_mask() {
+	std::lock_guard<std::mutex> lock(g_mask_mutex);
+	return g_mask;
+}
+
+bool ground_blocked(const GroundMask *mask, double x, double z) {
+	if (!mask || mask->dim <= 0) return false;
+	const int64_t gx = (int64_t)std::floor(x / 0.5) + mask->g0, gz = (int64_t)std::floor(z / 0.5) + mask->g0;
+	if (gx < 0 || gz < 0 || gx >= mask->dim || gz >= mask->dim) return false;
+	return mask->bits[(size_t)(gz * mask->dim + gx)] != 0;
+}
 
 void place_flora_region(int32_t seed, int32_t extent, double x_min, double x_max, double z_min, double z_max, std::vector<FloraInstance> out[NUM_FORMS], int64_t *lid_count) {
 	for (int f = 0; f < NUM_FORMS; f++) out[f].clear();
@@ -146,6 +166,8 @@ void StalagFlora::_bind_methods() {
 	ClassDB::bind_static_method("StalagFlora", D_METHOD("build_chunk_flora", "cx", "cz"), &StalagFlora::build_chunk_flora);
 	ClassDB::bind_static_method("StalagFlora", D_METHOD("set_mutation", "name"), &StalagFlora::set_mutation);
 	ClassDB::bind_static_method("StalagFlora", D_METHOD("set_enabled", "on"), &StalagFlora::set_enabled);
+	ClassDB::bind_static_method("StalagFlora", D_METHOD("set_ground_mask", "mask", "dim", "g0"), &StalagFlora::set_ground_mask);
+	ClassDB::bind_static_method("StalagFlora", D_METHOD("ground_mask_info"), &StalagFlora::ground_mask_info);
 }
 
 PackedStringArray StalagFlora::form_ids() {
@@ -214,9 +236,14 @@ Dictionary StalagFlora::build_chunk_flora(int64_t p_cx, int64_t p_cz) {
 	stalag::place_flora_region(stalag::WORLD_SEED, stalag::WORLD_EXTENT, x0, x0 + stalag::CHUNK_M, z0, z0 + stalag::CHUNK_M, out, nullptr);
 	// Spec #549: the grass forms are dropped on every lid that holds a wildflower or a shrub
 	// (index.html GRASS_FOLIAGE_IDS thinning); place_global stays the raw, unthinned placement.
+	// Spec #551: then every instance standing on a blocked ground column (mud, sand) is dropped, by the
+	// instance's own position; the thinning above keys on the lid and is unaffected.
+	const std::shared_ptr<const stalag::GroundMask> mask = stalag::ground_mask();
 	for (int f = 0; f < stalag::NUM_FORMS; f++) {
 		std::vector<stalag::FloraInstance> &v = out[f];
-		v.erase(std::remove_if(v.begin(), v.end(), [f](const stalag::FloraInstance &it) { return stalag::meadow_thinned(f, it.lid_x, it.lid_z); }), v.end());
+		v.erase(std::remove_if(v.begin(), v.end(), [f, &mask](const stalag::FloraInstance &it) {
+			return stalag::meadow_thinned(f, it.lid_x, it.lid_z) || stalag::ground_blocked(mask.get(), it.x, it.z);
+		}), v.end());
 	}
 	Dictionary res;
 	for (int f = 0; f < stalag::NUM_FORMS; f++) {
@@ -238,6 +265,30 @@ Dictionary StalagFlora::build_chunk_flora(int64_t p_cx, int64_t p_cz) {
 		res[String(stalag::FORM_IDS[f])] = e;
 	}
 	return res;
+}
+
+void StalagFlora::set_ground_mask(const PackedByteArray &p_mask, int64_t p_dim, int64_t p_g0) {
+	if (p_mask.size() == 0 || p_dim <= 0 || p_mask.size() != p_dim * p_dim) {
+		stalag::set_ground_mask(nullptr);
+		return;
+	}
+	auto m = std::make_shared<stalag::GroundMask>();
+	m->dim = (int)p_dim;
+	m->g0 = (int)p_g0;
+	m->bits.assign(p_mask.ptr(), p_mask.ptr() + p_mask.size());
+	stalag::set_ground_mask(m);
+}
+
+Dictionary StalagFlora::ground_mask_info() {
+	Dictionary d;
+	const std::shared_ptr<const stalag::GroundMask> m = stalag::ground_mask();
+	int64_t blocked = 0;
+	if (m) for (uint8_t b : m->bits) blocked += b != 0;
+	d["installed"] = (bool)m;
+	d["dim"] = (int64_t)(m ? m->dim : 0);
+	d["g0"] = (int64_t)(m ? m->g0 : 0);
+	d["blocked"] = blocked;
+	return d;
 }
 
 void StalagFlora::set_mutation(const String &p_name) {

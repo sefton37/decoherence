@@ -15,9 +15,15 @@ extends RefCounted
 ## Negative controls act on the material before the first grab (env GRASS_MUTATE); the production
 ## path never reads the environment.
 ##
+## Phase 2 (Spec #551): after the grass measurement it runs engine/stalag/tests/ground_probe.gd, which adds
+## the record's .ground section (rock, mossy rock, gravel, sand, mud and dirt-wall F, the id oracle, the
+## flora and understory exclusion) and the Phase 2 negative controls. The perf arms swap BOTH mesh
+## buckets between the ground shader and the terrain shader.
+##
 ## Writes one JSON record to GRASS_OUT (the wrapper tests/verify_grass_look.sh adds the entry
 ## marker facts and the error count) and shots into STALAG_SHOTS_DIR.
 
+const GroundProbe := preload("res://engine/stalag/tests/ground_probe.gd")
 const TERRAIN_SHADER := "res://engine/stalag/shaders/stalag_terrain.gdshader"
 const VARIANTS_PATH := "res://game/world/assets/grass_variants.png"
 const DECALS_PATH := "res://game/world/assets/grass_decals.png"
@@ -41,7 +47,7 @@ const ORTHO_SIZE := 5.625  # 720 / 128: one metre is 128 px
 const PERF_BLOCKS := 10
 const PERF_WARM := 10
 const PERF_FRAMES := 60
-const BURN_ITERATIONS := 60000
+const BURN_ITERATIONS := 240000  # control strength only: on a busy GPU the A/A noise reached ~10 ms (audit 551-P2), 60000 gave an 18 ms burn
 const SETTLE_FRAMES := 3
 
 
@@ -387,20 +393,27 @@ static func _apply_mutation(mat: ShaderMaterial, mutation: String) -> void:
 		mat.shader = s
 
 
-# GPU render time, interleaved: new shader, old shader, old shader again, PERF_BLOCKS times
+# GPU render time, interleaved: new shader, old shader, old shader again, PERF_BLOCKS times. Phase 2: both
+# buckets change together (the dirt bucket wears the ground shader too), so the old arm is the prototype's
+# terrain shader on both and the delta is the whole cost of the ground look.
 static func _perf(w: Node, mat: ShaderMaterial, new_shader: Shader, old_shader: Shader, burn: bool) -> Dictionary:
 	var rid: RID = w.get_viewport().get_viewport_rid()
 	RenderingServer.viewport_set_measure_render_time(rid, true)
+	var dirt: ShaderMaterial = w.dirt_mat
+	var dirt_new: Shader = dirt.shader
 	var arms: Array = [new_shader, old_shader, old_shader]
+	var dirt_arms: Array = [dirt_new, old_shader, old_shader]
 	var samples: Array = [[], [], []]
 	for b in range(PERF_BLOCKS):
 		for a in range(3):
 			mat.shader = arms[a]
+			dirt.shader = dirt_arms[a]
 			for f in range(PERF_WARM + PERF_FRAMES):
 				await w.get_tree().process_frame
 				if f >= PERF_WARM:
 					samples[a].append(RenderingServer.viewport_get_measured_render_time_gpu(rid))
 	mat.shader = new_shader
+	dirt.shader = dirt_new
 	var nm := _median(samples[0])
 	var om := _median(samples[1])
 	var o2 := _median(samples[2])
@@ -467,7 +480,11 @@ static func run(w: Node, entry_path: String, shots_dir: String, out_path: String
 	mat.shader = shipped_shader
 	rec["entry"] = {"shot_w": entry_img.get_width(), "shot_h": entry_img.get_height(), "shot_file": entry_path,
 		"lower_diff_frac": _lower_diff(s_entry, o_entry), "aa_diff_frac": _lower_diff(o_entry, o_entry2)}
-	rec["perf"] = await _perf(w, mat, shipped_shader, terrain, mutation == "burn")
+	var ground_mutation: bool = mutation in GroundProbe.MUTATIONS
+	if ground_mutation:
+		rec["perf"] = {"skipped": true}  # the phase 2 controls read the .ground section only
+	else:
+		rec["perf"] = await _perf(w, mat, shipped_shader, terrain, mutation == "burn")
 
 	# ---- the nadir window
 	var crt: Node = w.get_tree().root.find_child("CRTLayer", true, false)
@@ -542,6 +559,10 @@ static func run(w: Node, entry_path: String, shots_dir: String, out_path: String
 	if crt != null:
 		crt.visible = true
 	w.walker.visible = true
+
+	# ---- phase 2: the ground materials and the flora exclusion (the negative controls act inside)
+	rec["assets"].merge(GroundProbe.assets())
+	rec["ground"] = await GroundProbe.run(w, mutation, shots_dir)
 	var out := FileAccess.open(out_path, FileAccess.WRITE)
 	out.store_string(JSON.stringify(rec))
 	out.close()

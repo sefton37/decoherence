@@ -18,14 +18,16 @@ const SPAWN_YAW := -PI / 2.0  ## look along +x, toward the demo mesa in front of
 @onready var sun: DirectionalLight3D = $Sun
 
 ## Asset and shader paths for the prototype's look (tiles baked by tools/bake_skin.mjs).
+## The prototype's own skin shader: no bucket draws with it any more, it is the probes' old-look baseline.
 const TERRAIN_SHADER := "res://engine/stalag/shaders/stalag_terrain.gdshader"
-## Spec #551: the meadow ground (tile variants, world tint, decals); the terrain shader above keeps the dirt.
+## Spec #551: the ground (tile variants, world tint, decals; phase 2: rock, moss, gravel, sand, mud, dirt F); both buckets.
 const GRASS_SHADER := "res://engine/stalag/shaders/stalag_grass.gdshader"
 const WATER_SHADER := "res://engine/stalag/shaders/stalag_water.gdshader"
 const FloraAssets := preload("res://game/world/flora_assets.gd")
 const TreeAssets := preload("res://game/world/tree_assets.gd")
 const UnderstoryAssets := preload("res://game/world/understory_assets.gd")
 const GrassLook := preload("res://game/world/grass_look.gd")
+const GroundLook := preload("res://game/world/ground_look.gd")
 const GRASS_TILE := "res://game/world/assets/grass_top.png"
 const DIRT_TILE := "res://game/world/assets/dirt_side.png"
 const FLIP_TEX := "res://game/world/assets/water_flip.png"
@@ -62,9 +64,14 @@ func _build_look() -> void:
 	grass_mat = _make_material(GRASS_SHADER)
 	grass_mat.set_shader_parameter("tile", load(GRASS_TILE))
 	GrassLook.apply(grass_mat)
-	dirt_mat = _make_material(TERRAIN_SHADER)
+	GroundLook.apply(grass_mat, 0, SUN_POSITION)
+	# Spec #551 phase 2: the dirt bucket (walls, low tops) wears the same shader: rock, moss, dirt F.
+	dirt_mat = _make_material(GRASS_SHADER)
 	dirt_mat.set_shader_parameter("tile", load(DIRT_TILE))
 	dirt_mat.set_shader_parameter("flat_color", Color(0.42, 0.28, 0.15))
+	GrassLook.apply(dirt_mat)
+	GroundLook.apply(dirt_mat, 1, SUN_POSITION)
+	GroundLook.install_flora_mask()  # before the streamer builds a chunk: mud and sand keep the meadow off
 	water_mat = _make_material(WATER_SHADER)
 	water_mat.set_shader_parameter("flip_tex", load(FLIP_TEX))
 	water_mat.set_shader_parameter("flow_map", load(FLOW_TEX))

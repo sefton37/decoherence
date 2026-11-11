@@ -9,6 +9,7 @@
 // instance transforms per chunk and form; materials and sprite policy live in game/world/.
 
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/dictionary.hpp>
 #include <godot_cpp/variant/packed_float32_array.hpp>
+#include <godot_cpp/variant/packed_byte_array.hpp>
 #include <godot_cpp/variant/packed_float64_array.hpp>
 #include <godot_cpp/variant/packed_string_array.hpp>
 
@@ -35,6 +37,21 @@ void place_flora_region(int32_t seed, int32_t extent, double x_min, double x_max
 
 // Negative controls: 0 none, 1 lid_shift, 2 flood_ignore, 3 salt_swap.
 void set_flora_mutation(int m);
+
+// Spec #551 phase 2: the ground mask. The game hands the engine one bit per 0.5 m column of the
+// world (dim by dim, the origin column at index g0): 1 where the ground material is one the meadow's
+// flora must not stand on (mud, sand). The mask is applied as a POST-filter on the rendered per-chunk
+// builds only (build_chunk_flora, build_chunk_understory); the global placement stays bit-equal to
+// the prototype's. Published whole and read through a snapshot, so a build never sees half a mask.
+struct GroundMask {
+	std::vector<uint8_t> bits;
+	int dim = 0;
+	int g0 = 0;
+};
+void set_ground_mask(std::shared_ptr<const GroundMask> mask); // null clears
+std::shared_ptr<const GroundMask> ground_mask();
+// True when the column holding world point (x, z) is blocked by `mask` (a null mask blocks nothing).
+bool ground_blocked(const GroundMask *mask, double x, double z);
 
 } // namespace stalag
 
@@ -62,6 +79,10 @@ public:
 	// Off: build_chunk_flora returns nothing (the A/B perf control builds no flora at all).
 	static void set_enabled(bool p_on);
 	static void set_mutation(const String &p_name); // none | lid_shift | flood_ignore | salt_swap
+	// Spec #551: hand over the blocked-column bits (dim * dim bytes, origin column at index g0 on both
+	// axes); an empty array clears the mask. {dim, g0, blocked} describes what is installed.
+	static void set_ground_mask(const PackedByteArray &p_mask, int64_t p_dim, int64_t p_g0);
+	static Dictionary ground_mask_info();
 };
 
 } // namespace godot

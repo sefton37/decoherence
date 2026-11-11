@@ -10,8 +10,12 @@
 ##
 ## Env: GRASS_OUT (required: the JSON record), GRASS_LOG (required: the five marker lines),
 ##      STALAG_SHOTS_DIR (default: a temp dir), GRASS_MUTATE = none | single_variant | old_shader |
-##      no_decals | no_tint | smooth_tint | unsnapped_tint | burn (a negative control, read by the
-##      probe only), DISPLAY (default :99), GODOT (default ~/.local/bin/godot)
+##      no_decals | no_tint | smooth_tint | unsnapped_tint | burn, and the phase 2 controls (Spec #551)
+##      mask_off | wall_rotate | fields_swapped | no_fields | mud_black | old_dirt_wall (a negative control,
+##      read by the probe only), DISPLAY (default :99), GODOT (default ~/.local/bin/godot)
+## Phase 2 adds the record's .ground section (the ground materials and the flora exclusion). On an
+## unmutated run this wrapper also runs the independent JS filter (tools/bake_ground_fields.mjs
+## oracle-flora) over the chunks the probe reports and merges its counts beside the probe's.
 
 set -uo pipefail
 
@@ -76,6 +80,20 @@ if [ -s "$GRASS_OUT" ]; then
         '.entry += {listed: $listed, entered: $entered, grounded: $grounded, chunks: $chunks, markers_in_order: $order} | .log = {shader_script_errors: $errs}' \
         "$GRASS_OUT" > "$MERGED" && cp "$MERGED" "$GRASS_OUT"
     rm -f "$MERGED"
+    # Phase 2: the independent JS filter of the flora and understory over the ring the probe reports
+    # (unmutated runs only; the oracle needs no GPU and is deterministic).
+    if [ "${GRASS_MUTATE:-none}" = none ] && jq -e '(.ground.flora.ring_chunks // []) | length > 0' "$GRASS_OUT" >/dev/null 2>&1; then
+        CHUNKS_JSON="$(mktemp)"; ORACLE_OUT="$(mktemp)"; MERGED="$(mktemp)"
+        jq '{chunks: .ground.flora.ring_chunks}' "$GRASS_OUT" > "$CHUNKS_JSON"
+        if "$REPO_ROOT/tools/bake_ground_fields.mjs" oracle-flora "$REPO_ROOT/game/world/assets/ground" "$CHUNKS_JSON" </dev/null 2>/dev/null | tail -n 1 > "$ORACLE_OUT" && jq -e '.filtered_total' "$ORACLE_OUT" >/dev/null 2>&1; then
+            jq --slurpfile o "$ORACLE_OUT" \
+                '.ground.flora += {oracle_filtered: $o[0].filtered_total, oracle_unfiltered: $o[0].unfiltered_total, oracle_meadow_filtered: $o[0].meadow, oracle_understory_filtered: ($o[0].flowers + $o[0].shrubs), oracle_removed_meadow: $o[0].removed_meadow, oracle_removed_understory: $o[0].removed_understory, oracle_flowers_filtered: $o[0].flowers, oracle_shrubs_filtered: $o[0].shrubs, oracle_per_form: $o[0].per_form, per_form_equals_oracle: (.ground.flora.per_form == $o[0].per_form)}' \
+                "$GRASS_OUT" > "$MERGED" && cp "$MERGED" "$GRASS_OUT"
+        else
+            echo "verify_grass_look: the flora oracle failed" >&2
+        fi
+        rm -f "$CHUNKS_JSON" "$ORACLE_OUT" "$MERGED"
+    fi
 else
     echo "verify_grass_look: the probe wrote no record (godot exit $ec)" >&2
     exit 1

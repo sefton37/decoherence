@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "note": "Spec #551 phase 2 ground policy data: the thresholds tools/bake_ground_fields.mjs evaluates once per 0.5 m column (the ids it writes into fields_top.png) and the wall thresholds the shader reads through game/world/ground_look.gd. Order of the top rules, first match wins: submerged column, mud, sand, scree, otherwise grass.",
+  "columns": 448,
+  "half": 224,
+  "ids": { "grass": 0, "dirt": 1, "rock": 2, "moss": 3, "gravel": 4, "sand": 5, "mud": 6, "path": 7, "podzol": 8 },
+  "top": {
+    "foot_rise_m": 1.0,
+    "scree_low_side_m": 0.3,
+    "mud": { "within_m": 1.3, "above_m": 0.6, "jitter": 0.6 },
+    "sand": { "within_m": 2.2, "above_m": 0.8, "jitter": 0.8 },
+    "gravel": { "within_m": 1.4, "jitter": 0.7 }
+  },
+  "jitter": { "salt_hash": 71, "salt_noise": 72, "hash_amp_m": 0.5, "noise_amp_m": 1.2, "noise_scale_m": 1.5 },
+  "wall": { "rock_drop_m": 1.0, "moss_water_m": 6.0, "moss_shade": 0.35 },
+  "flora_blocked": ["mud", "sand"]
+}

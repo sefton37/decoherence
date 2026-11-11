@@ -6,6 +6,7 @@
 
 #include "stalag_core.h"
 #include "stalag_det.h"
+#include "stalag_flora.h"
 #include "stalag_plan.h"
 #include "stalag_trees.h"
 
@@ -395,6 +396,8 @@ Dictionary StalagUnderstory::build_chunk_understory(int64_t p_cx, int64_t p_cz) 
 	if (!w) return res;
 	const double x0 = (double)p_cx * stalag::CHUNK_M, z0 = (double)p_cz * stalag::CHUNK_M;
 	const double x1 = x0 + stalag::CHUNK_M, z1 = z0 + stalag::CHUNK_M;
+	// Spec #551: instances standing on a blocked ground column (mud, sand) are dropped, by their own position.
+	const std::shared_ptr<const stalag::GroundMask> mask = stalag::ground_mask();
 	auto emit = [&](const String &key, const std::vector<std::array<double, 5>> &list) {
 		if (list.empty()) return;
 		PackedFloat32Array buf;
@@ -413,14 +416,14 @@ Dictionary StalagUnderstory::build_chunk_understory(int64_t p_cx, int64_t p_cz) 
 		for (int tier = 0; tier < 2; tier++) {
 			std::vector<std::array<double, 5>> list;
 			for (const stalag::FlowerInstance &in : w->flowers[f])
-				if (in.tier == tier && in_region(in.lid_x, in.lid_z, x0, x1, z0, z1)) list.push_back({ in.x, in.y, in.z, in.yaw, in.scale });
+				if (in.tier == tier && in_region(in.lid_x, in.lid_z, x0, x1, z0, z1) && !stalag::ground_blocked(mask.get(), in.x, in.z)) list.push_back({ in.x, in.y, in.z, in.yaw, in.scale });
 			emit(String(stalag::FLOWER_FORM_IDS[f]) + (tier ? "/vivid" : "/muted"), list);
 		}
 	}
 	for (int f = 0; f < stalag::NUM_SHRUB_FORMS; f++) {
 		std::vector<std::array<double, 5>> list;
 		for (const stalag::ShrubInstance &in : w->shrubs[f])
-			if (in_region(in.lid_x, in.lid_z, x0, x1, z0, z1)) list.push_back({ in.x, in.y, in.z, in.yaw, in.scale });
+			if (in_region(in.lid_x, in.lid_z, x0, x1, z0, z1) && !stalag::ground_blocked(mask.get(), in.x, in.z)) list.push_back({ in.x, in.y, in.z, in.yaw, in.scale });
 		emit(String(stalag::SHRUB_FORM_IDS[f]), list);
 	}
 	return res;
