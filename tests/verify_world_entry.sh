@@ -34,14 +34,24 @@ rm -f "$SHOTS/entry_world.png"
     || { echo "verify_world_entry: engine library missing; run tools/build_engine.sh" >&2; exit 1; }
 
 RAW="$(mktemp)"
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 DECOHERENCE_PROBE=1 DECOHERENCE_PROBE_MODE=world STALAG_SHOTS_DIR="$SHOTS" \
-    timeout 300 "$GODOT" --display-driver x11 --path "$REPO_ROOT" --resolution 1280x720 </dev/null >"$RAW" 2>&1
+    timeout 300 "$GODOT" --audio-driver Dummy --display-driver x11 --path "$REPO_ROOT" --resolution 1280x720 </dev/null >"$RAW" 2>&1
 ec=$?
 
 grep -E '^PROBE_WORLD_' "$RAW" > "$STALAG_LOG"
 rm -f "$RAW"
+
+# Spec #549: the entry's tree, flower and shrub counts, recomputed from the reported pose alone by the
+# frozen prototype's oracle (pure geometry), appended as PROBE_WORLD_TREES_ORACLE.
+POSE="$(grep -E '^PROBE_WORLD_TREES ' "$STALAG_LOG" | head -1 | sed 's/^PROBE_WORLD_TREES //' | jq -c '.pose' 2>/dev/null)"
+if [ -n "$POSE" ] && [ "$POSE" != "null" ]; then
+    ORACLE_DIR="$(mktemp -d)"
+    ORACLE_LINE="$(TREES_ORACLE_OUT="$ORACLE_DIR" "$REPO_ROOT/tools/baseline/js_trees_oracle.mjs" --view-count "$POSE" </dev/null 2>/dev/null | tail -1)"
+    [ -n "$ORACLE_LINE" ] && echo "PROBE_WORLD_TREES_ORACLE $ORACLE_LINE" >> "$STALAG_LOG"
+    rm -r "$ORACLE_DIR"
+fi
 
 order_ok=1
 prev=0

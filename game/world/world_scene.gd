@@ -21,6 +21,8 @@ const SPAWN_YAW := -PI / 2.0  ## look along +x, toward the demo mesa in front of
 const TERRAIN_SHADER := "res://engine/stalag/shaders/stalag_terrain.gdshader"
 const WATER_SHADER := "res://engine/stalag/shaders/stalag_water.gdshader"
 const FloraAssets := preload("res://game/world/flora_assets.gd")
+const TreeAssets := preload("res://game/world/tree_assets.gd")
+const UnderstoryAssets := preload("res://game/world/understory_assets.gd")
 const GRASS_TILE := "res://game/world/assets/grass_top.png"
 const DIRT_TILE := "res://game/world/assets/dirt_side.png"
 const FLIP_TEX := "res://game/world/assets/water_flip.png"
@@ -33,6 +35,10 @@ var dirt_mat: ShaderMaterial
 var water_mat: ShaderMaterial
 ## Spec #545: the meadow's sprites, rock meshes, materials and the wind feed (game policy).
 var flora: RefCounted
+## Spec #549: the forest (trunks, crowns, shadow proxies) and the understory (shrubs, wildflowers):
+## meshes, materials and the same wind feed as the meadow (game policy).
+var trees: RefCounted
+var understory: RefCounted
 ## The shared wind clock, in seconds. The probe freezes or sets it; otherwise it runs with the frame.
 var flora_clock: float = 0.0
 var flora_clock_frozen: bool = false
@@ -64,6 +70,12 @@ func _build_look() -> void:
 	flora = FloraAssets.new()
 	streamer.flora_assets = flora.forms
 	flora.set_time(flora_clock)
+	trees = TreeAssets.new()
+	streamer.tree_assets = trees.forms
+	trees.set_time(flora_clock)
+	understory = UnderstoryAssets.new()
+	streamer.understory_assets = understory.forms
+	understory.set_time(flora_clock)
 	sun.look_at_from_position(SUN_POSITION, Vector3.ZERO)
 	_warm_shaders()
 
@@ -136,6 +148,8 @@ func _process(delta: float) -> void:
 	if not flora_clock_frozen:
 		flora_clock += delta
 	flora.set_time(flora_clock)  # one clock and the weather front for the whole meadow
+	trees.set_time(flora_clock)  # ... and the crowns and the understory read the same clock and front
+	understory.set_time(flora_clock)
 	if scripted_input:
 		return
 	var f: Vector3 = cam.forward_xz()

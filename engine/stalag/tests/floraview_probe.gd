@@ -75,6 +75,9 @@ func _spawn_world(flora_on: bool) -> void:
 	_walker = _world.get_node("Walker")
 	_world.scripted_input = true
 	_streamer.flora_enabled = flora_on
+	# Spec #549: this probe measures the meadow alone (the grass thinning stays on: it is placement).
+	_streamer.trees_enabled = false
+	_streamer.understory_enabled = false
 	_streamer.chunk_built.connect(func(c: Vector2i, v: PackedVector3Array) -> void: _ray.add_chunk(c, v))
 	_streamer.flora_attached.connect(func(_c: Vector2i) -> void:
 		if not StalagWorld.plan_ready():
@@ -209,7 +212,7 @@ func _ring_stats() -> Dictionary:
 	var inst := 0
 	var forms := {}
 	var expected := 0
-	var oracle_counts: Dictionary = _oracle["placement"]["chunks"]["counts"]
+	var oracle_counts: Dictionary = _oracle["placement"]["thinned_counts"]  # the meadow after the grass thinning (Spec #549)
 	for item in _flora_roots():
 		for mmi in (item[2] as Node).get_children():
 			var n: int = (mmi as MultiMeshInstance3D).multimesh.instance_count

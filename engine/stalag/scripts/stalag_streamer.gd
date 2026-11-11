@@ -16,6 +16,9 @@ signal chunk_unloaded(coord: Vector2i)
 signal plan_failed(message: String)
 ## Spec #545: a chunk's flora root was attached (the probe checks this never happens before the plan).
 signal flora_attached(coord: Vector2i)
+## Spec #549: a chunk's trees (and understory) root was attached.
+signal trees_attached(coord: Vector2i)
+signal understory_attached(coord: Vector2i)
 
 ## Load every chunk within LOAD_RADIUS (Chebyshev, in chunks) of the focus chunk; free
 ## those beyond UNLOAD_RADIUS. The gap is hysteresis so the boundary does not thrash.
@@ -43,6 +46,26 @@ var flora_y_offset: float = 0.0
 var flora_adopt_ms: Array = []  # main-thread cost of attaching one chunk's flora
 var flora_instances: int = 0  # instances live now
 
+## Spec #549: trees and the understory are game policy too. The world scene hands in
+## {form id: {part: {mesh, material, cast, range_end, colors}}} (parts trunk, crown, shadow) and
+## {key: {mesh, material, cast, range_end, colors}}. Placement arrives from the worker inside
+## build_chunk and is adopted one chunk per frame, after the flora. `shadows_enabled` false builds
+## no shadow proxies and stops the trunks casting (the perf A/B); the numbers (cast settings, the
+## distance limit) come from the handed-in assets, none are decided here.
+var tree_assets: Dictionary = {}
+var trees_enabled: bool = true
+var understory_assets: Dictionary = {}
+var understory_enabled: bool = true
+var shadows_enabled: bool = true
+## Probe hooks (negative controls only): place on the main thread / shift vertically.
+var sync_trees: bool = false
+var trees_y_offset: float = 0.0
+var understory_y_offset: float = 0.0
+var trees_adopt_ms: Array = []  # main-thread cost of attaching one chunk's trees
+var understory_adopt_ms: Array = []
+var tree_instances: int = 0  # tree instances live now
+var understory_instances: int = 0
+
 ## Debug/negative-control hook: build on the main thread (what the streamer must NOT do).
 var sync_build: bool = false
 
@@ -57,6 +80,10 @@ var _stopped := false  # set by shutdown(): no further builds are ever requested
 var _pending_water: Array = []  # [coord, mesh]: attached one per frame, the frame after its chunk
 var _pending_flora: Array = []  # [coord, flora dict or null]: attached one per frame after the water
 var _flora_counts := {}  # Vector2i -> instances attached to that chunk
+var _pending_trees: Array = []  # [coord, trees dict or null]: attached one per frame after the flora
+var _pending_understory: Array = []  # [coord, understory dict or null]: attached one per frame after the trees
+var _tree_counts := {}  # Vector2i -> tree instances attached to that chunk
+var _understory_counts := {}  # Vector2i -> understory instances attached to that chunk
 var _focus_chunk := Vector2i(1 << 30, 1 << 30)
 var _chunks := {}  # Vector2i -> MeshInstance3D
 var _in_flight := {}  # Vector2i -> task id
@@ -77,6 +104,8 @@ func _ready() -> void:
 	# no chunk until it is ready: every chunk's terrain and water are functions of it.
 	StalagWorld.start_plan()
 	StalagFlora.set_enabled(flora_enabled)
+	StalagTrees.set_enabled(trees_enabled)
+	StalagUnderstory.set_enabled(understory_enabled)
 
 
 ## The chunk's water child (a MeshInstance3D owned by the chunk node), or null.
@@ -102,7 +131,7 @@ func cap() -> int:
 
 ## True when the focus ring is adopted, nothing is being built, and every water mesh is attached.
 func settled() -> bool:
-	return ring_ready() and _in_flight.is_empty() and _done.is_empty() and _pending_water.is_empty() and _pending_flora.is_empty()
+	return ring_ready() and _in_flight.is_empty() and _done.is_empty() and _pending_water.is_empty() and _pending_flora.is_empty() and _pending_trees.is_empty() and _pending_understory.is_empty()
 
 
 func focus_chunk() -> Vector2i:
@@ -168,8 +197,12 @@ func _process(_delta: float) -> void:
 		return
 	if _focus_chunk.x == (1 << 30):
 		return
-	# One heavy main-thread step per frame: a chunk's water, else its flora, else the next terrain.
-	if not _attach_water() and not _attach_flora():
+	# the flags may be flipped by a probe after _ready; the workers read them through these switches
+	StalagTrees.set_enabled(trees_enabled)
+	StalagUnderstory.set_enabled(understory_enabled)
+	# One heavy main-thread step per frame: a chunk's water, else its flora, else its trees, else its
+	# understory, else the next terrain.
+	if not _attach_water() and not _attach_flora() and not _attach_trees() and not _attach_understory():
 		_adopt_finished()
 	_request_missing()
 	_unload_far()
@@ -270,6 +303,135 @@ func _attach_flora() -> bool:
 	return true
 
 
+## One MultiMeshInstance3D per part under `root`. `buffer` is the transform buffer; the part with
+## `colors` takes the 16-float crown buffer instead (transform plus instance colour).
+func _add_part(root: Node3D, name: String, part: Dictionary, count: int, buffer: PackedFloat32Array) -> void:
+	if int(part["cast"]) == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY and not shadows_enabled:
+		return  # a shadow-only proxy draws nothing but shadows: with shadows off it is not built
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = bool(part["colors"])
+	mm.mesh = part["mesh"]
+	mm.instance_count = count
+	mm.buffer = buffer
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = name
+	mmi.multimesh = mm
+	if part["material"] != null:
+		mmi.material_override = part["material"]
+	var cast: int = part["cast"]
+	if not shadows_enabled and cast != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+		cast = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.cast_shadow = cast
+	mmi.set_meta("cast", int(part["cast"]))
+	var rng: float = part["range_end"]
+	if rng > 0.0:
+		mmi.visibility_range_end = rng
+	root.add_child(mmi)
+
+
+func _lift(buf: PackedFloat32Array, stride: int, dy: float) -> void:
+	for k in range(7, buf.size(), stride):  # origin.y of each instance's transform
+		buf[k] += dy
+
+
+## One chunk's trees: a "Trees" node under the chunk node holding, per form, a trunk MultiMesh, and
+## for the living forms a crown MultiMesh and a shadow-only proxy MultiMesh (not built when shadows
+## are off). Attached the frame after the flora, one chunk per frame.
+func _attach_trees() -> bool:
+	if _pending_trees.is_empty():
+		return false
+	var item = _pending_trees.pop_front()
+	var coord: Vector2i = item[0]
+	var mi: MeshInstance3D = _chunks.get(coord)
+	if mi == null:
+		return true  # the chunk was unloaded before its trees arrived
+	var t0 := Time.get_ticks_usec()
+	var data: Dictionary = item[1] if item[1] != null else StalagTrees.build_chunk_trees(coord.x, coord.y)
+	if data.is_empty():  # a chunk without trees gets no node at all
+		_tree_counts[coord] = 0
+		trees_adopt_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+		trees_attached.emit(coord)
+		return true
+	var root := Node3D.new()
+	root.name = "Trees"
+	var total := 0
+	for id in data.keys():
+		var a: Dictionary = tree_assets.get(id, {})
+		if a.is_empty():
+			continue
+		var e: Dictionary = data[id]
+		var n := int(e["count"])
+		var buf: PackedFloat32Array = e["buffer"]
+		if trees_y_offset != 0.0:
+			_lift(buf, 12, trees_y_offset)
+		_add_part(root, id + "_trunk", a["trunk"], n, buf)
+		if a.has("crown"):
+			var cbuf: PackedFloat32Array = e["crown_buffer"]
+			if trees_y_offset != 0.0:
+				_lift(cbuf, 16, trees_y_offset)
+			_add_part(root, id + "_crown", a["crown"], n, cbuf)
+			_add_part(root, id + "_shadow", a["shadow"], n, buf)
+		total += n
+	mi.add_child(root)
+	_tree_counts[coord] = total
+	tree_instances += total
+	trees_adopt_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	trees_attached.emit(coord)
+	return true
+
+
+## One chunk's understory: an "Understory" node with one MultiMesh per shrub species and per flower
+## species and tier. Attached the frame after the trees.
+func _attach_understory() -> bool:
+	if _pending_understory.is_empty():
+		return false
+	var item = _pending_understory.pop_front()
+	var coord: Vector2i = item[0]
+	var mi: MeshInstance3D = _chunks.get(coord)
+	if mi == null:
+		return true
+	var t0 := Time.get_ticks_usec()
+	var data: Dictionary = item[1] if item[1] != null else StalagUnderstory.build_chunk_understory(coord.x, coord.y)
+	var root := Node3D.new()
+	root.name = "Understory"
+	var total := 0
+	for key in data.keys():
+		var a: Dictionary = understory_assets.get(key, {})
+		if a.is_empty():
+			continue
+		var e: Dictionary = data[key]
+		var buf: PackedFloat32Array = e["buffer"]
+		if understory_y_offset != 0.0:
+			_lift(buf, 12, understory_y_offset)
+		_add_part(root, str(key).replace("/", "_"), a, int(e["count"]), buf)
+		total += int(e["count"])
+	mi.add_child(root)
+	_understory_counts[coord] = total
+	understory_instances += total
+	understory_adopt_ms.append((Time.get_ticks_usec() - t0) / 1000.0)
+	understory_attached.emit(coord)
+	return true
+
+
+## Turns the crown shadows on or off for every live chunk (trunks stop or resume casting, the
+## shadow proxies are shown or hidden). New chunks follow `shadows_enabled`.
+func set_shadows(on: bool) -> void:
+	shadows_enabled = on
+	for c in _chunks.keys():
+		var root: Node = (_chunks[c] as MeshInstance3D).get_node_or_null("Trees")
+		if root == null:
+			continue
+		for n in root.get_children():
+			var m := n as MultiMeshInstance3D
+			if m == null or not m.has_meta("cast"):
+				continue
+			var cast: int = m.get_meta("cast")
+			if cast == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF:
+				continue
+			m.cast_shadow = cast if on else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
 func _adopt_finished() -> void:
 	for _i in range(ADOPT_PER_FRAME):
 		_mutex.lock()
@@ -309,6 +471,16 @@ func _adopt(c: Vector2i, res: Dictionary) -> void:
 			_pending_flora.append([c, null])
 		elif res.has("flora"):
 			_pending_flora.append([c, res["flora"]])
+	if trees_enabled and not tree_assets.is_empty():
+		if sync_trees:
+			_pending_trees.append([c, null])
+		elif res.has("trees"):
+			_pending_trees.append([c, res["trees"]])
+	if understory_enabled and not understory_assets.is_empty():
+		if sync_trees:
+			_pending_understory.append([c, null])
+		elif res.has("understory"):
+			_pending_understory.append([c, res["understory"]])
 	add_child(mi)
 	_chunks[c] = mi
 	stats["loads"] += 1
@@ -322,6 +494,10 @@ func _unload_far() -> void:
 			_chunks.erase(c)
 			flora_instances -= int(_flora_counts.get(c, 0))
 			_flora_counts.erase(c)
+			tree_instances -= int(_tree_counts.get(c, 0))
+			_tree_counts.erase(c)
+			understory_instances -= int(_understory_counts.get(c, 0))
+			_understory_counts.erase(c)
 			remove_child(mi)
 			mi.queue_free()
 			stats["unloads"] += 1
@@ -340,8 +516,14 @@ func shutdown() -> void:
 	_in_flight.clear()
 	_pending_water.clear()
 	_pending_flora.clear()
+	_pending_trees.clear()
+	_pending_understory.clear()
 	_flora_counts.clear()
+	_tree_counts.clear()
+	_understory_counts.clear()
 	flora_instances = 0
+	tree_instances = 0
+	understory_instances = 0
 	_mutex.lock()
 	_done.clear()
 	_mutex.unlock()

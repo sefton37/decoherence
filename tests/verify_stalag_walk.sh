@@ -13,7 +13,7 @@
 ## Env: STALAG_OUT (required)         output JSON path
 ##      STALAG_SHOTS_DIR              screenshot directory (default: a temp dir)
 ##      STALAG_MUTATE                 none | sync_build | float | sink (negative controls)
-##      DISPLAY (default :99), GODOT (default ~/.local/bin/godot)
+##      DISPLAY (must be :99), GODOT (default ~/.local/bin/godot)
 
 set -uo pipefail
 
@@ -21,6 +21,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-$HOME/.local/bin/godot}"
 : "${STALAG_OUT:?verify_stalag_walk: STALAG_OUT is required}"
 export DISPLAY="${DISPLAY:-:99}"
+[ "$DISPLAY" = ":99" ] || { echo "verify_stalag_walk: DISPLAY must be :99 (got $DISPLAY)" >&2; exit 2; }
+# An inherited WAYLAND_DISPLAY would override DISPLAY and open the window on the real desktop.
+unset WAYLAND_DISPLAY
 SHOTS="${STALAG_SHOTS_DIR:-$(mktemp -d)}"
 MUTATE="${STALAG_MUTATE:-none}"
 case "$MUTATE" in none|sync_build|float|sink) ;; *) echo "verify_stalag_walk: bad STALAG_MUTATE '$MUTATE'" >&2; exit 2 ;; esac
@@ -34,10 +37,10 @@ mkdir -p "$SHOTS"
 find "$SHOTS" -maxdepth 1 -name 'screen_*.png' -delete
 
 # Scan once so class names / the extension are registered before the real run.
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 STALAG_PROBE_RAW="$RAW" STALAG_SHOTS_DIR="$SHOTS" STALAG_MUTATE="$MUTATE" \
-    timeout 900 "$GODOT" --path "$REPO_ROOT" --resolution 1280x720 res://engine/stalag/tests/walk_probe.tscn </dev/null >&2
+    timeout 900 "$GODOT" --audio-driver Dummy --display-driver x11 --path "$REPO_ROOT" --resolution 1280x720 res://engine/stalag/tests/walk_probe.tscn </dev/null >&2
 ec=$?
 
 if [ ! -s "$RAW" ]; then

@@ -37,11 +37,11 @@ FLORA_ORACLE_OUT="$WORK/oracle" "$REPO_ROOT/tools/baseline/js_flora_oracle.mjs" 
     || { echo "verify_stalag_flora: oracle failed" >&2; exit 1; }
 
 # 2. scan the project once so class names and the extension are registered
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 # 3. the engine probe
 FLORA_PROBE_RAW="$WORK/gd.json" FLORA_ORACLE_DIR="$WORK/oracle" FLORA_MUTATE="$MUTATE" \
-    timeout 900 "$GODOT" --headless --path "$REPO_ROOT" -s res://engine/stalag/tests/flora_probe.gd </dev/null >&2
+    timeout 900 "$GODOT" --audio-driver Dummy --headless --path "$REPO_ROOT" -s res://engine/stalag/tests/flora_probe.gd </dev/null >&2
 [ -s "$WORK/gd.json" ] || { echo "verify_stalag_flora: engine probe wrote nothing" >&2; exit 1; }
 
 # 4. merge. The JS numbers come straight from the oracle's own JSON, never through Godot.

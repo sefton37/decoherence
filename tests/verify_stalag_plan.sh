@@ -42,11 +42,11 @@ WORLD_ORACLE_SUBST="$SUBST" WORLD_ORACLE_OUT="$WORK/oracle" "$REPO_ROOT/tools/ba
     || { echo "verify_stalag_plan: oracle failed" >&2; exit 1; }
 
 # 2. make sure the project is scanned (class names, extension) before the script run
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 # 3. the engine probe
 STALAG_PLAN_RAW="$WORK/gd.json" STALAG_PLAN_ORACLE="$WORK/oracle" STALAG_PLAN_MUTATE="$MUTATE" \
-    timeout 900 "$GODOT" --headless --path "$REPO_ROOT" -s res://engine/stalag/tests/plan_probe.gd </dev/null >&2
+    timeout 900 "$GODOT" --audio-driver Dummy --headless --path "$REPO_ROOT" -s res://engine/stalag/tests/plan_probe.gd </dev/null >&2
 [ -s "$WORK/gd.json" ] || { echo "verify_stalag_plan: engine probe wrote nothing" >&2; exit 1; }
 
 # 4. merge. The JS numbers come straight from the oracle's own JSON, never through Godot.

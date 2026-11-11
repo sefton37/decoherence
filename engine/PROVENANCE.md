@@ -27,6 +27,8 @@ taken from the named source.
 | `0x000fffff` | mask of the high-word mantissa bits of an IEEE double, test-vector builder | the IEEE 754 binary64 layout (20 mantissa bits in the high word) | format constant |
 | `0x811c9dc5` | FNV-1a offset basis in the plan hash (`stalag_plan.cpp`) | Fowler/Noll/Vo hash, 32-bit offset basis; the prototype's `planHash` in `waterplan.js` uses the same | public domain (the FNV authors' dedication) |
 | `0x01000193` | FNV-1a prime in the plan hash (`stalag_plan.cpp`) | Fowler/Noll/Vo hash, 32-bit prime | public domain |
+| `14695981039346656037` | FNV-1a 64-bit offset basis in `StalagTrees::index_arrays` (`stalag_trees.cpp`), hashing one vertex's bytes to merge identical vertices (not a determinism-bearing hash) | Fowler/Noll/Vo hash, 64-bit offset basis | public domain (the FNV authors' dedication) |
+| `1099511628211` | FNV-1a 64-bit prime, same site | Fowler/Noll/Vo hash, 64-bit prime | public domain |
 | `0xedb88320` | CRC-32 polynomial (reflected) of the PNG writer in `bake_skin.mjs` | the PNG specification's CRC definition (ISO/IEC 15948, W3C) | format constant of the published PNG standard |
 | `0x27d4eb2d` | `cell_hash` in `stalag_core.cpp`, the spike mesher copies | the prototype's `worldmesh.js` cellHash; the number also appears in integer-hash literature (Thomas Wang's 32-bit mixes; lineage from the implementer's recollection) | a number; no code taken |
 | `0x165667b1` | `cell_hash`, same sites | the prototype's `worldmesh.js` cellHash; equals xxHash32 PRIME32_5 (lineage from the implementer's recollection) | a number; no code taken |
@@ -51,3 +53,6 @@ taken from the named source.
 | `6.390629507645039` | `LN2_C` in `det_exp` (e-19 scaled piece) | derived (Spec #545 Phase A): the remainder of ln 2 after A and B, as a double | mathematical constant |
 | `709.782712893384` | overflow threshold of `det_exp` | derived (Spec #545 Phase A): ln of the largest double, rounded down to 12 digits; above it the result is infinity | mathematical constant |
 | `0x5f3759df` | seed salt of the meadow patch mask in `place_flora_region` (`stalag_flora.cpp`) | the prototype's `foliage-placement.js` (tag prototype-final) valueNoise salt; the number also appears in fast-inverse-square-root literature (lineage from the implementer's recollection); used here only as a seed salt, no code taken | a number; no code taken |
+| `0x7a5c19` | grove noise seed salt in `place_trees_region` (`stalag_trees.cpp`) | the prototype's `tree-placement.js` (tag prototype-final), `valueNoise(..., seed ^ 0x7a5c19)`; a hand-picked salt | a number; no code taken |
+| `0xA1001` to `0xA1006` | the five patch-ownership and the fireweed seed salts in `stalag_understory.cpp` | the prototype's `flower-placement.js` (tag prototype-final), `seed ^ 0xA1001` and so on; hand-picked salts | a number; no code taken |
+| `0xB2001` | flower tier-field seed salt in `stalag_understory.cpp` | the prototype's `flower-placement.js` (tag prototype-final), `tierAt` | a number; no code taken |

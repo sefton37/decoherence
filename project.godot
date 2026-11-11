@@ -25,3 +25,10 @@ ProbeDriver="*res://frontdoor/scripts/probe_driver.gd"
 
 window/size/viewport_width=1920
 window/size/viewport_height=1080
+
+[rendering]
+
+; Spec #549: the forest's crowns run a heavy per-vertex wind shader. The depth pre-pass runs every
+; vertex shader twice (once for depth, once for colour) and buys nothing here, where fragments are
+; cheap: measured on the perf walk it halves the crown cost without changing a pixel.
+driver/depth_prepass/enable=false

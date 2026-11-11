@@ -22,6 +22,8 @@ GODOT="${GODOT:-$HOME/.local/bin/godot}"
 : "${FLORAVIEW_OUT:?verify_stalag_floraview: FLORAVIEW_OUT is required}"
 export DISPLAY="${DISPLAY:-:99}"
 [ "$DISPLAY" = ":99" ] || { echo "verify_stalag_floraview: DISPLAY must be :99 (got $DISPLAY)" >&2; exit 2; }
+# An inherited WAYLAND_DISPLAY would override DISPLAY and open the window on the real desktop.
+unset WAYLAND_DISPLAY
 SHOTS="${FLORAVIEW_SHOTS_DIR:-$(mktemp -d)}"
 MUTATE="${FLORAVIEW_MUTATE:-none}"
 case "$MUTATE" in none|flora_hidden|float|sunk|wind_off|sprite_flip|rock_srgb|sync_flora) ;; *) echo "verify_stalag_floraview: bad FLORAVIEW_MUTATE '$MUTATE'" >&2; exit 2 ;; esac
@@ -39,11 +41,11 @@ FLORA_ORACLE_OUT="$WORK/oracle" "$REPO_ROOT/tools/baseline/js_flora_oracle.mjs" 
     || { echo "verify_stalag_floraview: oracle failed" >&2; exit 1; }
 
 # Scan once so class names and the extension are registered before the real run.
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 RAW="$WORK/raw.json"
 FLORAVIEW_PROBE_RAW="$RAW" FLORAVIEW_SHOTS_DIR="$SHOTS" FLORAVIEW_ORACLE_DIR="$WORK/oracle" FLORAVIEW_MUTATE="$MUTATE" \
-    timeout 1500 "$GODOT" --path "$REPO_ROOT" --resolution 1280x720 res://engine/stalag/tests/floraview_probe.tscn </dev/null >&2
+    timeout 1500 "$GODOT" --audio-driver Dummy --display-driver x11 --path "$REPO_ROOT" --resolution 1280x720 res://engine/stalag/tests/floraview_probe.tscn </dev/null >&2
 ec=$?
 if [ ! -s "$RAW" ]; then
     echo "verify_stalag_floraview: probe wrote no record (godot exit $ec)" >&2

@@ -27,6 +27,9 @@ extends Node
 ## never satisfy its own fabrication guard (DOD-30-equivalent) by accident.
 const PROBE_MESSAGE := "Hello, this is an automated readiness probe."
 
+## Spec #549: the forest, understory and crown-shadow measurement of the world entry (world mode only).
+const EntryTrees := preload("res://engine/stalag/tests/entry_trees.gd")
+
 ## The second line of the default chat probe (Spec #542): once the contact has
 ## reached out, an ask keyword for the entanglement fact makes the first model turn.
 const PROBE_QUESTION := "What is the entanglement?"
@@ -379,7 +382,7 @@ func _process(_delta: float) -> void:
 		if w == null:
 			return
 		var streamer: Node = w.get_node("Streamer")
-		if not (streamer.ring_ready() and streamer.pending_count() == 0 and w.is_grounded() and w.chunks_loaded() >= WORLD_MIN_CHUNKS):
+		if not (streamer.ring_ready() and streamer.pending_count() == 0 and streamer.settled() and w.is_grounded() and w.chunks_loaded() >= WORLD_MIN_CHUNKS):
 			return
 		_world_settle_frames += 1
 		if _world_settle_frames < 30:
@@ -394,6 +397,12 @@ func _process(_delta: float) -> void:
 func _world_shoot(w: Node) -> void:
 	var streamer: Node3D = w.get_node("Streamer")
 	print("PROBE_WORLD_ENTERED chunks=%d grounded=%d" % [w.chunks_loaded(), 1 if w.is_grounded() else 0])
+	# Spec #549: the forest's own measurement runs inside this same real entry; its negative controls
+	# act before the shot is saved, so the saved frame is the one the data and the pixels disagree on.
+	var trees_mutation := OS.get_environment("ENTRY_TREES_MUTATE")
+	if trees_mutation.is_empty():
+		trees_mutation = "none"
+	EntryTrees.prepare(w, trees_mutation)
 	await get_tree().process_frame
 	var with_terrain := get_viewport().get_texture().get_image()
 	with_terrain.convert(Image.FORMAT_RGB8)
@@ -422,6 +431,7 @@ func _world_shoot(w: Node) -> void:
 			if absi(a[o] - b[o]) > 8 or absi(a[o + 1] - b[o + 1]) > 8 or absi(a[o + 2] - b[o + 2]) > 8:
 				changed += 1
 	print("PROBE_WORLD_SHOT lower_nonbg=%.4f file=%s" % [float(changed) / maxf(1.0, float(total)), path])
+	await EntryTrees.measure(w, path, shots_dir, trees_mutation)
 	_world_step = "exit_dir"
 	w.request_exit()
 	await get_tree().process_frame

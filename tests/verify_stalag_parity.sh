@@ -54,10 +54,10 @@ for entry in "${REGIONS[@]}"; do
 done
 
 # Make sure the project is scanned (class names, extension) before the script run.
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 STALAG_PARITY_RAW="$WORK/gd.json" STALAG_PARITY_REGIONS="$ids" STALAG_PARITY_NEG="${REGIONS[0]%%:*}" \
-    timeout 600 "$GODOT" --headless --path "$REPO_ROOT" -s res://engine/stalag/tests/parity_probe.gd </dev/null >&2
+    timeout 600 "$GODOT" --audio-driver Dummy --headless --path "$REPO_ROOT" -s res://engine/stalag/tests/parity_probe.gd </dev/null >&2
 [ -s "$WORK/gd.json" ] || { echo "verify_stalag_parity: engine probe wrote nothing" >&2; exit 1; }
 
 jq -n --slurpfile gd "$WORK/gd.json" --slurpfile js <(for ((k = 0; k < ${#REGIONS[@]}; k++)); do cat "$WORK/js_$k.json"; done) '

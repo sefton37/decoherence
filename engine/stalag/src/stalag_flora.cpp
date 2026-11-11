@@ -7,11 +7,13 @@
 #include "stalag_core.h"
 #include "stalag_det.h"
 #include "stalag_plan.h"
+#include "stalag_understory.h"
 
 #include <godot_cpp/variant/string.hpp>
 
 #include <godot_cpp/classes/os.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 
@@ -210,6 +212,12 @@ Dictionary StalagFlora::build_chunk_flora(int64_t p_cx, int64_t p_cz) {
 	std::vector<stalag::FloraInstance> out[stalag::NUM_FORMS];
 	const double x0 = (double)p_cx * stalag::CHUNK_M, z0 = (double)p_cz * stalag::CHUNK_M;
 	stalag::place_flora_region(stalag::WORLD_SEED, stalag::WORLD_EXTENT, x0, x0 + stalag::CHUNK_M, z0, z0 + stalag::CHUNK_M, out, nullptr);
+	// Spec #549: the grass forms are dropped on every lid that holds a wildflower or a shrub
+	// (index.html GRASS_FOLIAGE_IDS thinning); place_global stays the raw, unthinned placement.
+	for (int f = 0; f < stalag::NUM_FORMS; f++) {
+		std::vector<stalag::FloraInstance> &v = out[f];
+		v.erase(std::remove_if(v.begin(), v.end(), [f](const stalag::FloraInstance &it) { return stalag::meadow_thinned(f, it.lid_x, it.lid_z); }), v.end());
+	}
 	Dictionary res;
 	for (int f = 0; f < stalag::NUM_FORMS; f++) {
 		if (out[f].empty()) continue;

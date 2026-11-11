@@ -3,6 +3,8 @@
 #include "stalag_chunk_mesher.h"
 #include "stalag_flora.h"
 #include "stalag_plan.h"
+#include "stalag_trees.h"
+#include "stalag_understory.h"
 #include "stalag_wind.h"
 #include "stalag_world.h"
 
@@ -20,6 +22,8 @@ void initialize_stalag_module(ModuleInitializationLevel p_level) {
 	GDREGISTER_CLASS(StalagWorld);
 	GDREGISTER_CLASS(StalagChunkMesher);
 	GDREGISTER_CLASS(StalagFlora);
+	GDREGISTER_CLASS(StalagTrees);
+	GDREGISTER_CLASS(StalagUnderstory);
 	GDREGISTER_CLASS(StalagWind);
 }
 

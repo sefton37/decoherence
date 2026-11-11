@@ -50,11 +50,11 @@ WORLD_ORACLE_LITE=1 WORLD_ORACLE_OUT="$WORK/oracle" "$REPO_ROOT/tools/baseline/j
     || { echo "verify_stalag_world: oracle failed" >&2; exit 1; }
 
 # 2. scan once so class names / the extension / imports are registered before the real run
-timeout 180 "$GODOT" --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
+timeout 180 "$GODOT" --audio-driver Dummy --headless --editor --quit --path "$REPO_ROOT" </dev/null >/dev/null 2>&1 || true
 
 # 3. the probe, on the real renderer
 STALAG_WORLD_RAW="$WORK/raw.json" STALAG_WORLD_ORACLE="$WORK/oracle" STALAG_SHOTS_DIR="$STALAG_SHOTS_DIR" STALAG_MUTATE="$MUTATE" \
-    timeout 900 "$GODOT" --display-driver x11 --path "$REPO_ROOT" --resolution 1280x720 res://engine/stalag/tests/world_probe.tscn \
+    timeout 900 "$GODOT" --audio-driver Dummy --display-driver x11 --path "$REPO_ROOT" --resolution 1280x720 res://engine/stalag/tests/world_probe.tscn \
     </dev/null >"$STALAG_SHOTS_DIR/godot.log" 2>&1
 ec=$?
 if [ ! -s "$WORK/raw.json" ]; then

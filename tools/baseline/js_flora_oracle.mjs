@@ -81,6 +81,31 @@ const chunkList = [...chunks.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx
 const chunkHash = createHash('sha256');
 for (const c of chunkList) for (const l of c.forms) chunkHash.update(dumpInst(l));
 
+// Spec #549: the rendered meadow drops the grass forms on every lid that holds a wildflower or a shrub
+// (index.html line 1414); the per-chunk counts after that thinning are what the view probe compares with.
+const TP = await imp('src/tree-placement.js');
+const FL = await imp('src/flower-placement.js');
+const SHP = await imp('src/shrub-placement.js');
+const SHK = await imp('skins/shrubs.js');
+const treePl = TP.placeTrees({ seed: SEED, extent: EXTENT });
+const treeFlat = [];
+for (const k of Object.keys(treePl)) for (const t of treePl[k]) treeFlat.push(t);
+const flowerPl = FL.placeWildflowers({ seed: SEED, extent: EXTENT });
+const thinKeys = new Set();
+for (const id of FL.PLACED_FLOWERS) for (const it of flowerPl[id]) thinKeys.add(it.lidX + ',' + it.lidZ);
+const flowerKeys = new Set(thinKeys);
+const shrubPl = SHP.placeShrubs({ seed: SEED, extent: EXTENT, treeInstances: treeFlat, flowerLidKeys: flowerKeys });
+for (const o of SHK.PLACED_SHRUBS) for (const it of shrubPl[o.id]) thinKeys.add(it.lidX + ',' + it.lidZ);
+const GRASS_IDS = new Set(['tuft-billboard-baseline', 'tuft-billboard-bladed', 'cover-billboard-creep']);
+const thinnedCounts = {};
+FP.SELECTED_FORMS.forEach((id) => {
+  for (const it of placement[id]) {
+    if (GRASS_IDS.has(id) && thinKeys.has(it.lidX + ',' + it.lidZ)) continue;
+    const k = Math.floor(it.lidX / CHUNK_M) + ',' + Math.floor(it.lidZ / CHUNK_M);
+    thinnedCounts[k] = (thinnedCounts[k] || 0) + 1;
+  }
+});
+
 // the four prototype checks (test/foliage-placement.test.mjs), run at seed 7
 const a2 = FP.placeFoliage({ seed: SEED, extent: EXTENT });
 const pcheck = {};
@@ -232,7 +257,7 @@ writeFileSync(join(outDir, 'oracle.json'), JSON.stringify({
   oracle_subst: SUBST_MODE,
   plan_hash: planHash,
   placement: {
-    forms, total, lids: lids.length, ported_checks: pcheck,
+    forms, total, lids: lids.length, ported_checks: pcheck, thinned_counts: thinnedCounts,
     chunks: {
       count: chunkList.length, hash: chunkHash.digest('hex'), total,
       counts: Object.fromEntries(chunkList.map((c) => [c.cx + ',' + c.cz, c.forms.reduce((n, l) => n + l.length, 0)])),

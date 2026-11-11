@@ -30,77 +30,13 @@ uniform float strength_override = -1.0; // >= 0 forces the field strength (probe
 
 varying float v_depth;
 
-// SPDX-License-Identifier: LicenseRef-PublicDomain
-// lowbias32: Chris Wellons, "Prospecting for Hash Functions", https://nullprogram.com/blog/2018/07/31/ (public domain)
-uint lowbias32(uint x) {
-	x ^= x >> 16u;
-	x *= 0x7feb352du;
-	x ^= x >> 15u;
-	x *= 0x846ca68bu;
-	x ^= x >> 16u;
-	return x;
-}
-// Lattice value in [0, 1) at an integer address, three coordinates mixed in turn.
-float lattice_hash(ivec3 i) {
-	uint h = lowbias32(uint(i.x));
-	h = lowbias32(h ^ uint(i.y));
-	h = lowbias32(h ^ uint(i.z));
-	return float(h >> 8u) / 16777216.0;
-}
-float wf_vnoise3(vec3 x) {
-	vec3 fl = floor(x);
-	ivec3 i = ivec3(fl);
-	vec3 f = x - fl;
-	f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0); // quintic fade
-	float n000 = lattice_hash(i + ivec3(0, 0, 0)), n100 = lattice_hash(i + ivec3(1, 0, 0));
-	float n010 = lattice_hash(i + ivec3(0, 1, 0)), n110 = lattice_hash(i + ivec3(1, 1, 0));
-	float n001 = lattice_hash(i + ivec3(0, 0, 1)), n101 = lattice_hash(i + ivec3(1, 0, 1));
-	float n011 = lattice_hash(i + ivec3(0, 1, 1)), n111 = lattice_hash(i + ivec3(1, 1, 1));
-	return mix(mix(mix(n000, n100, f.x), mix(n010, n110, f.x), f.y),
-			mix(mix(n001, n101, f.x), mix(n011, n111, f.x), f.y), f.z);
-}
-float wf_fbm3(vec3 x) {
-	float a = 0.0, amp = 0.5;
-	for (int o = 0; o < 3; o++) {
-		a += amp * (wf_vnoise3(x) * 2.0 - 1.0);
-		x *= 2.0;
-		amp *= 0.5;
-	}
-	return a;
-}
-float wf_psi(vec2 p, float tt, float th) {
-	return 2.0 * (cos(th) * p.y - sin(th) * p.x) + 6.0 * wf_fbm3(vec3(p.x / 28.0, p.y / 28.0, tt));
-}
-// horizontal flow = curl of a streamfunction (divergence-free), the shape of horizontalCurl()
-vec2 wf_curl(vec2 p, float t, float th) {
-	float tt = t * 0.05, e = 0.5;
-	float dpz = (wf_psi(vec2(p.x, p.y + e), tt, th) - wf_psi(vec2(p.x, p.y - e), tt, th)) / (2.0 * e);
-	float dpx = (wf_psi(vec2(p.x + e, p.y), tt, th) - wf_psi(vec2(p.x - e, p.y), tt, th)) / (2.0 * e);
-	return vec2(dpz, -dpx);
-}
+#include "res://engine/stalag/shaders/stalag_wind.gdshaderinc" // the wind functions, shared with the crowns and the understory (Spec #549)
 
 void vertex() {
 	vec3 transformed = VERTEX;
 	float hw = max(0.0, transformed.y); // metres above the pinned base: the root never slides
 	vec2 ip = MODEL_MATRIX[3].xz; // per-plant world XZ
-	vec2 cell = floor(ip * 1.7);
-	float ph = float(lowbias32(lowbias32(uint(int(cell.x))) ^ uint(int(cell.y))) >> 8u) / 16777216.0 * 6.2831; // per-plant phase
-	// windSample(ip, uTime): global field direction and strength
-	float th = 0.6; // prevailing heading: the shader keeps the prototype's constant
-	vec2 wdir0 = vec2(cos(th), sin(th));
-	vec2 ax = ip - wdir0 * 2.0 * u_time;
-	float gustg = 1.0 + 1.8 * smoothstep(0.55, 0.82, wf_vnoise3(vec3(ax / 45.0, u_time * 0.03)));
-	vec2 h = wf_curl(ip, u_time, th) * gustg;
-	float sp = length(h);
-	vec2 wdir = sp > 1e-4 ? h / sp : wdir0;
-	float wstr = strength_override >= 0.0 ? strength_override : clamp(sp / 6.0, 0.0, 1.0);
-	float carrier = 0.62 * sin(u_time * 0.95 + ph) + 0.38 * sin(u_time * 0.60 + ph * 1.7); // breath
-	float gust = 0.5 + 0.5 * sin(u_time * gust_w + dot(ip, gust_axis) * gust_k - ph); // gust wave
-	float disp = hw * wind_amp * carrier * (0.30 + 0.70 * wstr * gust);
-	float fdist = dot(ip, front_n) - front_off; // distance to the moving wall
-	float fgain = 1.0 + 1.4 * front_pk * max(0.0, 1.0 - abs(fdist) / 28.0); // the front heaves the lean
-	disp = clamp(disp * fgain, -hw * wind_amp * 2.4, hw * wind_amp * 2.4);
-	transformed.xz += wdir * disp;
+	transformed.xz += wf_lean(ip, hw, wind_amp, u_time, gust_axis, gust_k, gust_w, front_n, front_off, front_pk, strength_override);
 	VERTEX = transformed;
 	v_depth = -(MODELVIEW_MATRIX * vec4(transformed, 1.0)).z;
 }
