@@ -470,7 +470,7 @@ func _write_voice(voice_id: String, plain: String, scramble_seed: int, beat: int
 
 func _say_voice(buffer_id: String, handle: String, voice_id: String, plain: String, scramble_seed: int, beat: int) -> void:
 	var clear := beat == Beat.CONTACT
-	var body := plain if clear else ChatroomScript.scramble(plain, scramble_seed, _rules)
+	var body := plain if clear else ChatroomScript.scramble_line(plain, scramble_seed, _rules, handle)
 	# Somebody who is not in the room has to arrive before they can speak in it.
 	if model.is_room(buffer_id) and model.set_present(buffer_id, handle) and bool(model.rooms[buffer_id]["joined"]):
 		_push(buffer_id, _row(ChatModel.ROW_PRESENCE, "", ui_string("joined_line").replace("{name}", handle)))

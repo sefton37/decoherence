@@ -149,6 +149,24 @@ func _u9_to_u11() -> void:
 	_neg("identity_scramble_flagged_as_leaking", _has_letter_run(ChatroomScript.scramble(plain, 7, identity), []))
 	_ok("scramble_ratio_one_equals_plain", ChatroomScript.scramble(plain, 3, identity) == plain, "")
 
+	# Spec #562 A1: the shaped scramble (variable length, wider alphabet, per-speaker lean).
+	var sa := ChatroomScript.scramble_line(plain, 7, _rules, "XEN-4")
+	_ok("shaped_scramble_deterministic", sa == ChatroomScript.scramble_line(plain, 7, _rules, "XEN-4") and not sa.is_empty(), sa)
+	var shaped_lens := {}
+	var shaped_leaks := 0
+	for seed_value in range(1, 121):
+		var t := ChatroomScript.scramble_line(plain, seed_value, _rules, "OBL-17")
+		shaped_lens[t.length()] = true
+		if _has_letter_run(t, []):
+			shaped_leaks += 1
+	_ok("shaped_scramble_varies_length_without_letters", shaped_lens.size() >= 20 and shaped_leaks == 0, "%d lengths, %d leaks" % [shaped_lens.size(), shaped_leaks])
+	var shaped_reveal := ChatroomScript.scramble_line(plain, 7, with_reveal, "XEN-4")
+	_ok("shaped_scramble_reveal_word_stays_legible", shaped_reveal.contains("south") and not shaped_reveal.contains("relay"), shaped_reveal)
+	var no_shape: Dictionary = _copy(_rules)
+	no_shape.erase("shape")
+	_ok("shaped_scramble_without_shape_is_legacy", ChatroomScript.scramble_line(plain, 7, no_shape, "XEN-4") == ChatroomScript.scramble(plain, 7, no_shape), "")
+	_neg("shaped_scramble_identity_flagged_as_leaking", _has_letter_run(ChatroomScript.scramble_line(plain, 7, identity, "XEN-4"), []))
+
 
 ## --- U12-U14: responders ----------------------------------------------------------------------
 

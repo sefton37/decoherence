@@ -42,10 +42,31 @@ nothing marks them out before they speak to the player.
 
 ## scramble: how the traffic is made unreadable
 
-`scramble.pools` picks glyph sets (`box`, `block`, `braille`). Every non-space
-character of a line becomes a glyph, consistently within one emission, so the
-text reads as code. Spaces and length are kept. `legible_ratio` (0 to 1) lets
-that share of characters through; 1 is plain text. `seed` is `per_session`.
+`scramble.pools` picks glyph classes. The shipped set is `box`, `box_heavy`,
+`block`, `block_fine`, `punct`, `symbol`, `digit` and `letterlike`, about 180
+glyphs, every one present in the chat font (`braille` is a valid pool name but is
+not in that font, so it is not shipped). No class holds an ASCII letter.
+
+Ambient lines, scripted answers and direct-message replies are scrambled by
+`scramble.shape`, which does not keep the plain line's length: the plain line
+only seeds the characters, and each emission draws its own shape from the knobs.
+A length class (`length_classes`: a very short burst of 1 to 4 tokens, a mid
+line, or a long multi-clause line that wraps), a token-length range
+(`token_len_ranges`), one to three glyph classes (`class_count_weights`,
+`class_weights`), and a class per token (`lead_class_share`). Long lines get a
+clause mark (`clause_marks`) every `clause_tokens` tokens. `max_chars` caps a
+line. `speaker` gives each handle its own tendencies, hashed from the handle
+(`salt`), the same rule for everyone: `length_bias_spread` leans a handle toward
+bursts or long lines, `affinity_boost` favours one glyph class, `habit_share` is
+how often it keeps its usual token length. Nobody has a hand-set profile, and the
+contact is not given one.
+
+`tests/verify_scramble_stats.sh` measures a seeded sample against the pre-change
+scrambler and checks every glyph against the font. Topics keep the older
+`scramble()`: every non-space character becomes a glyph from the pools,
+consistently within one emission, length and spaces kept. `legible_ratio` (0 to
+1) lets that share of characters through; 1 is plain text, and a ratio above 0
+turns the shaped scramble off. `seed` is `per_session`.
 
 ## reveal_words: words that stay legible
 
@@ -133,7 +154,7 @@ A room starts with its whole cast present. Per room, a seeded clock fires every
 back, never letting the roster (the player included) fall below 4. In a joined
 room this shows as `-- NAME HAS JOINED` or `-- NAME HAS LEFT`; in a room the
 player has not joined it only changes the count. A voice that is absent but has
-an ambient line due arrives first, then speaks. The people pane is the roster
+an ambient line due arrives first, then speaks. The agents pane is the roster
 sorted alphabetically; only the player's own row carries a marker (`<`) and
 every other row, the contact's included, has the same colour, shape and rules.
 The contact voice sits in every room under one handle, speaks at least twice in
@@ -169,11 +190,11 @@ client or name a key.
 ## keys: the keybindings as shipped
 
 Enter sends; Up and Down walk the input history (or move the selection in an
-open list); Tab completes a name from the room's people; Ctrl+N and Ctrl+P move
+open list); Tab completes a name from the room's agents; Ctrl+N and Ctrl+P move
 to the next and previous buffer; Alt+1 to Alt+9 jump to the n-th; PageUp and
 PageDown scroll back and forward and Ctrl+End returns to live; F1 focuses the
 room list, F2 opens the directory, F3 opens the newest unread direct message
-(else focuses the list), F4 focuses the people list (Enter opens a direct
+(else focuses the list), F4 focuses the agents list (Enter opens a direct
 message); Esc closes the open list; Ctrl+W closes the current direct message or
 leaves the current room; Ctrl+Q leaves the client. The bare words `leave`,
 `exit` and `quit` (and the same with a slash) still leave. Slash commands:

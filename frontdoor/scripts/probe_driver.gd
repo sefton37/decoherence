@@ -1676,7 +1676,7 @@ func _run_chatroom_flow() -> void:
 	for i in range(idle_rows.size()):
 		var e: Dictionary = idle_rows[i]
 		var body := _cr_body(String(e["row"]))
-		if body != String(e["plain"]) and body.length() == String(e["plain"]).length() and rendered_idle.has(String(e["row"])):
+		if body != String(e["plain"]) and not body.is_empty() and rendered_idle.has(String(e["row"])):
 			scrambled += 1
 		if _cr_letter_run(body):
 			leaks += 1
@@ -2577,6 +2577,8 @@ func _cc_features_people_and_switch(out: Dictionary) -> void:
 	var self_ok := true
 	var once_ok := true
 	var sorted_ok := true
+	var header_agents_ok := true
+	var old_words_absent := true
 	for rid in m.room_order:
 		await _cc_switch_to_room(String(rid))
 		var snap := _cc().roster_snapshot()
@@ -2584,10 +2586,19 @@ func _cc_features_people_and_switch(out: Dictionary) -> void:
 		var ui := _cc().ui_text_snapshot()
 		var header := String(ui[1])
 		var re := RegEx.new()
-		re.compile("PEOPLE \\(([0-9]+)\\)")
+		re.compile("AGENTS \\(([0-9]+)\\)")
 		var mm := re.search(header)
 		if mm == null or int(mm.get_string(1)) != snap.size() or snap.size() != m.roster(String(rid)).size():
 			count_ok = false
+		# Spec #562 A1: the header says how many agents ("N AGENTS"); the old words are gone
+		var re_n := RegEx.new()
+		re_n.compile("([0-9]+) AGENTS")
+		var mn := re_n.search(header)
+		if mn == null or int(mn.get_string(1)) != snap.size():
+			header_agents_ok = false
+		for ui_line in ui:
+			if String(ui_line).contains("PEOPLE") or String(ui_line).contains("PRESENT"):
+				old_words_absent = false
 		if handles != m.roster(String(rid)):
 			rows_ok = false
 		self_ok = self_ok and handles.has(_cc_self())
@@ -2607,6 +2618,8 @@ func _cc_features_people_and_switch(out: Dictionary) -> void:
 	out["people"] = {
 		"rooms_checked": m.room_order.size(),
 		"count_matches_header": count_ok,
+		"header_says_n_agents": header_agents_ok,
+		"old_words_absent": old_words_absent,
 		"rows_match_model": rows_ok,
 		"includes_self": self_ok,
 		"self_listed_once": once_ok,
@@ -2834,7 +2847,7 @@ func _cc_features_dm(out: Dictionary) -> void:
 	var replied := not e.is_empty()
 	var delay := int(e.get("t_ms", 0)) - t_send
 	var body := _cc_body(String(e.get("row", "")))
-	var scrambled := replied and body != String(e["plain"]) and body.length() == String(e["plain"]).length() and not _cc_has_run(body)
+	var scrambled := replied and body != String(e["plain"]) and not body.is_empty() and not _cc_has_run(body)
 	var from_pool := replied and _cc_dm_pool("XEN-4").has(String(e["plain"]))
 	var reply_llm := llm.request_count - req0
 	# people list: Enter opens a direct message with the selected person
@@ -3432,7 +3445,7 @@ func _cc_canon_idle(out: Dictionary, vis: Dictionary) -> void:
 	for e in ambient:
 		rooms_seen[String(e["buffer"])] = true
 		var body := _cc_body(String(e["row"]))
-		if body != String(e["plain"]) and body.length() == String(e["plain"]).length() and rendered.has(String(e["row"])):
+		if body != String(e["plain"]) and not body.is_empty() and rendered.has(String(e["row"])):
 			scrambled += 1
 		if _cc_has_run(body):
 			leaks += 1

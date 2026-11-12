@@ -5,10 +5,45 @@
   "entry_room": "channel7",
   "scramble": {
     "pools": [
-      "braille",
       "box",
-      "block"
+      "box_heavy",
+      "block",
+      "block_fine",
+      "punct",
+      "symbol",
+      "digit",
+      "letterlike"
     ],
+    "shape": {
+      "_note": "Spec 562 A1 knobs for ChatroomScript.scramble_line. length_classes: tokens [lo,hi], weight, lean (+1 favoured by speakers biased short, -1 by speakers biased long). token_len_ranges: glyphs per token, one range per message. class_count_weights: weights for 1, 2 and 3 glyph classes per message. class_weights: how often each pool is drawn. lead_class_share: share of tokens in the message's lead class. clause_tokens/clause_marks: multi-clause long lines. speaker: per-handle tendencies hashed from the handle (salt), identical rules for every handle.",
+      "length_classes": [
+        { "name": "burst", "tokens": [1, 4], "weight": 0.22, "lean": 1 },
+        { "name": "mid", "tokens": [5, 11], "weight": 0.48, "lean": 0 },
+        { "name": "long", "tokens": [14, 30], "weight": 0.30, "lean": -1 }
+      ],
+      "token_len_ranges": [[1, 3], [2, 6], [3, 8], [2, 11]],
+      "class_count_weights": [0.25, 0.5, 0.25],
+      "class_weights": {
+        "box": 1.0,
+        "box_heavy": 0.8,
+        "block": 0.9,
+        "block_fine": 0.7,
+        "punct": 0.8,
+        "symbol": 0.6,
+        "digit": 0.35,
+        "letterlike": 0.35
+      },
+      "lead_class_share": 0.7,
+      "clause_tokens": [3, 7],
+      "clause_marks": [",", ";", ":", "."],
+      "max_chars": 200,
+      "speaker": {
+        "salt": "a1",
+        "length_bias_spread": 0.5,
+        "affinity_boost": 2.5,
+        "habit_share": 0.6
+      }
+    },
     "keep_spaces": true,
     "legible_ratio": 0.0,
     "reveal_words": [],

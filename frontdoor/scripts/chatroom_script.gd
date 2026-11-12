@@ -40,6 +40,16 @@ const POOLS := {
 	"box": ["─", "│", "┌", "┐", "└", "┘", "├", "┤", "┬", "┴", "┼", "═", "║", "╔", "╗", "╚", "╝", "╬"],
 	"block": ["▀", "▄", "█", "▌", "▐", "░", "▒", "▓", "■"],
 	"braille": ["⠁", "⠃", "⠉", "⠙", "⠑", "⠋", "⠛", "⠓", "⠊", "⠟", "⠽", "⠺", "⠮", "⠵", "⠫", "⠿"],
+	# Spec #562 A1: wider alphabet, every glyph present in the chat font
+	# (DejaVuSansMono, advance equal to a letter's; tests/scramble_stats.gd checks
+	# it). The braille pool above is NOT in that font and is left out of the shipped
+	# rules. No ASCII letters in any class, so the leak detectors stay meaningful.
+	"box_heavy": ["╭", "╮", "╯", "╰", "┏", "┓", "┗", "┛", "━", "┃", "╠", "╣", "╦", "╩", "╟", "╢", "╤", "╧", "╪", "╫", "╒", "╓", "╕", "╖", "╘", "╙", "╛", "╜", "┠", "┨", "┯", "┷", "┿", "╂", "╋"],
+	"block_fine": ["▁", "▂", "▃", "▅", "▆", "▇", "▉", "▊", "▋", "▍", "▎", "▏", "▖", "▗", "▘", "▙", "▚", "▛", "▜", "▝", "▞", "▟", "◼", "▪", "▫", "▬", "▮"],
+	"punct": [",", ".", "!", "#", "$", "%", "&", "*", "+", "/", ":", ";", "<", "=", ">", "?", "@", "\\", "^", "~", "|"],
+	"symbol": ["¤", "§", "¶", "†", "‡", "•", "◊", "○", "●", "◦", "¬", "±", "×", "÷", "∞", "∂", "∑", "∆", "∇", "√", "∫", "≈", "≠", "≡", "≤", "≥", "◆", "◇", "□", "▲", "▼", "◄", "►", "⌐", "⌂", "∩", "∪", "∈", "∅", "∴", "⊕", "⊗"],
+	"digit": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+	"letterlike": ["λ", "ξ", "ψ", "ω", "Σ", "Δ", "Ω", "Π", "Φ", "Ψ", "θ", "μ", "π", "φ", "γ", "δ", "ζ"],
 }
 
 
@@ -304,6 +314,160 @@ static func scramble(plain: String, seed_value: int, rules: Dictionary) -> Strin
 				map[ch] = String(glyphs[rng.randi_range(0, glyphs.size() - 1)])
 			out += ch if keep else String(map[ch])
 	return out
+
+
+## Spec #562 A1: the shaped scramble used for every scrambled voice row (ambient,
+## scripted replies, direct-message replies). Unlike scramble() it does NOT keep
+## the plain line's length: the plain only seeds the alphabet of the code. Per
+## emission it draws a length class (a very short burst, a mid line or a long
+## multi-clause line), a token-length range, one to three glyph classes, and a
+## class for each token. `speaker` bends the draw (see speaker_profile) the same
+## way for every handle. All knobs live in rules["shape"] (room_script.json); a
+## rules dictionary without "shape", or with legible_ratio > 0, falls back to
+## scramble(). reveal_words stay legible, one token each, and are never cut.
+static func scramble_line(plain: String, seed_value: int, rules: Dictionary, speaker: String = "") -> String:
+	var shape = rules.get("shape", null)
+	if typeof(shape) != TYPE_DICTIONARY or float(rules.get("legible_ratio", 0.0)) > 0.0:
+		return scramble(plain, seed_value, rules)
+	var classes: Array = []
+	for pool_name in rules.get("pools", []):
+		if POOLS.has(String(pool_name)):
+			classes.append(String(pool_name))
+	if classes.is_empty():
+		return scramble(plain, seed_value, rules)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value
+	var prof := speaker_profile(speaker, rules)
+	# length class, leaned by the speaker
+	var lens: Array = shape.get("length_classes", [])
+	var weights: Array = []
+	for c in lens:
+		weights.append(maxf(float(c.get("weight", 1.0)) * maxf(1.0 + float(prof["bias"]) * float(c.get("lean", 0.0)), 0.05), 0.0))
+	var pick: Dictionary = lens[_weighted(rng, weights)] if not lens.is_empty() else {"tokens": [5, 10]}
+	var tok_n := rng.randi_range(int(pick["tokens"][0]), int(pick["tokens"][1]))
+	# token-length range: the speaker's habit most of the time
+	var ranges: Array = shape.get("token_len_ranges", [[2, 7]])
+	var rng_i := int(prof["range"]) % ranges.size() if rng.randf() < float(shape.get("speaker", {}).get("habit_share", 0.6)) else rng.randi_range(0, ranges.size() - 1)
+	var tl_lo := int(ranges[rng_i][0])
+	var tl_hi := int(ranges[rng_i][1])
+	# glyph classes of this message
+	var cw: Array = []
+	for name in classes:
+		var w := float(shape.get("class_weights", {}).get(name, 1.0))
+		if name == String(prof["primary"]):
+			w *= float(shape.get("speaker", {}).get("affinity_boost", 1.0))
+		cw.append(w)
+	var count_w: Array = shape.get("class_count_weights", [1.0])
+	var k := mini(_weighted(rng, count_w) + 1, classes.size())
+	var chosen: Array = []
+	for i in range(k):
+		var at := _weighted(rng, cw)
+		chosen.append(classes[at])
+		cw[at] = 0.0
+		if _sum(cw) <= 0.0:
+			break
+	# the plain line supplies the source characters and the reveal words
+	var reveal: Array = []
+	for w in rules.get("reveal_words", []):
+		reveal.append(normalize(String(w)))
+	var words: PackedStringArray = plain.split(" ", false)
+	var alphabet: Array = []
+	var reveals: Array = []
+	for wi in range(words.size()):
+		var word: String = words[wi]
+		if reveal.has(normalize(word)) and not normalize(word).is_empty():
+			reveals.append([wi, word])
+			continue
+		for i in range(word.length()):
+			if not alphabet.has(word[i]):
+				alphabet.append(word[i])
+	if alphabet.is_empty():
+		alphabet.append("x")
+	tok_n = maxi(tok_n, reveals.size())
+	var slots: Array = []
+	slots.resize(tok_n)
+	for rv in reveals:
+		var p := mini(int(float(rv[0]) / float(maxi(words.size(), 1)) * tok_n), tok_n - 1)
+		while slots[p] != null:
+			p = (p + 1) % tok_n
+		slots[p] = String(rv[1])
+	var stick := float(shape.get("lead_class_share", 0.7))
+	var map := {}
+	var clause_toks: Array = shape.get("clause_tokens", [3, 7])
+	var marks: Array = shape.get("clause_marks", [","])
+	var mark := String(marks[rng.randi_range(0, marks.size() - 1)])
+	var multi_clause := tok_n > int(clause_toks[1])
+	var next_mark := rng.randi_range(int(clause_toks[0]), int(clause_toks[1]))
+	var out_tokens: Array = []
+	for t in range(tok_n):
+		if slots[t] != null:
+			out_tokens.append(String(slots[t]))
+			continue
+		var cls := String(chosen[0]) if rng.randf() < stick else String(chosen[rng.randi_range(0, chosen.size() - 1)])
+		var pool: Array = POOLS[cls]
+		var tok := ""
+		for i in range(rng.randi_range(tl_lo, tl_hi)):
+			var ch := String(alphabet[rng.randi_range(0, alphabet.size() - 1)])
+			var key := ch + "|" + cls
+			if not map.has(key):
+				map[key] = String(pool[rng.randi_range(0, pool.size() - 1)])
+			tok += String(map[key])
+		if multi_clause and t + 1 == next_mark and t + 1 < tok_n:
+			tok += mark
+			next_mark += rng.randi_range(int(clause_toks[0]), int(clause_toks[1]))
+		out_tokens.append(tok)
+	var max_chars := int(shape.get("max_chars", 200))
+	var out := " ".join(PackedStringArray(out_tokens))
+	while out.length() > max_chars and out_tokens.size() > 1 and not reveal.has(normalize(String(out_tokens[-1]))):
+		out_tokens.pop_back()
+		out = " ".join(PackedStringArray(out_tokens))
+	return out
+
+
+## A speaker's tendencies, a pure function of the handle and the rules: `bias`
+## (-spread..spread, leans bursts against long lines), `range` (index of the
+## token-length range they favour) and `primary` (the glyph class they favour).
+## Every handle goes through the same function; nobody has a hand-set profile.
+static func speaker_profile(speaker: String, rules: Dictionary) -> Dictionary:
+	var shape: Dictionary = rules.get("shape", {})
+	var sp: Dictionary = shape.get("speaker", {})
+	if speaker.is_empty():
+		return {"bias": 0.0, "range": 0, "primary": ""}
+	var h := (String(sp.get("salt", "")) + speaker).hash()
+	var u := float(h & 0xffff) / 65535.0
+	var classes: Array = rules.get("pools", [])
+	return {
+		"bias": (u * 2.0 - 1.0) * float(sp.get("length_bias_spread", 0.0)),
+		"range": (h >> 16) & 0xff,
+		"primary": String(classes[((h >> 24) & 0xff) % classes.size()]) if not classes.is_empty() else "",
+	}
+
+
+static func _weighted(rng: RandomNumberGenerator, weights: Array) -> int:
+	var total := _sum(weights)
+	if total <= 0.0:
+		return 0
+	var r := rng.randf() * total
+	for i in range(weights.size()):
+		r -= float(weights[i])
+		if r < 0.0:
+			return i
+	return weights.size() - 1
+
+
+static func _sum(a: Array) -> float:
+	var t := 0.0
+	for x in a:
+		t += float(x)
+	return t
+
+
+## The pool name a glyph belongs to (first match), "" when it is in none.
+static func glyph_class(ch: String) -> String:
+	for name in POOLS:
+		if (POOLS[name] as Array).has(ch):
+			return String(name)
+	return ""
 
 
 ## --- Ambient planner ---------------------------------------------------------------------

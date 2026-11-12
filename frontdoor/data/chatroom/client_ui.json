@@ -8,7 +8,7 @@
       { "label": "ROOMS", "key": "F1", "action": "nav_rooms" },
       { "label": "DIRECTORY", "key": "F2", "action": "nav_directory" },
       { "label": "MESSAGES", "key": "F3", "action": "nav_messages" },
-      { "label": "PEOPLE", "key": "F4", "action": "nav_people" }
+      { "label": "AGENTS", "key": "F4", "action": "nav_people" }
     ]
   },
   "keys": {
@@ -43,9 +43,9 @@
   "strings": {
     "rooms_title": "ROOMS",
     "direct_title": "DIRECT",
-    "people_title": "PEOPLE",
+    "people_title": "AGENTS",
     "directory_title": "DIRECTORY",
-    "present_suffix": "PRESENT",
+    "present_suffix": "AGENTS",
     "dm_header": "DIRECT",
     "unknown_command": "UNKNOWN COMMAND.",
     "no_such_channel": "NO SUCH CHANNEL.",
