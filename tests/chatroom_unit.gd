@@ -266,6 +266,11 @@ func _accept_cases(fn: Callable) -> bool:
 	return exact and not cyrillic and not wide
 
 
+func _dotted_cases(fn: Callable) -> bool:
+	var cmds: Array = _script["handler"]["accept_commands"]
+	return fn.call(cmds, "I ACCEPT") and not fn.call(cmds, "\u0130 accept") and not fn.call(["leave"], "l\u0435ave")
+
+
 func _u24_to_u29() -> void:
 	var good := ChatroomScript.validate_handler_reply(_reply("The link holds.", "none"), false, 240)
 	_ok("valid_reply_accepted", bool(good["ok"]) and String(good["say"]) == "The link holds." and String(good["act"]) == "none", str(good))
@@ -306,6 +311,21 @@ func _u24_to_u29() -> void:
 				return true
 		return false
 	_neg("accept_stub_folding_unicode", not _accept_cases(folding))
+
+	# Spec #562 D14 (#902): any non-ASCII input is rejected before case folding, and
+	# punctuation never counts as part of a command.
+	var acc: Array = _script["handler"]["accept_commands"]
+	_ok("matches_command_nonascii_rejected", _dotted_cases(Callable(ChatroomScript, "matches_command")), "")
+	_ok("matches_command_punctuation_pinned", not ChatroomScript.matches_command(acc, "accept.") and not ChatroomScript.matches_command(acc, "enter!") and not ChatroomScript.matches_command(acc, "i, accept") and ChatroomScript.matches_command(acc, "accept"), "")
+	# Negative control: the matcher as it was (engine lower-casing only) is caught.
+	var plain_fold := func(commands: Array, text: String) -> bool:
+		var parts := text.strip_edges().to_lower().replace("\t", " ").split(" ", false)
+		var flat := " ".join(parts)
+		for c in commands:
+			if flat == String(c):
+				return true
+		return false
+	_neg("matches_command_folding_stub_caught", not _dotted_cases(plain_fold))
 
 	var all_ids: Array = []
 	for f in _briefing["facts"]:

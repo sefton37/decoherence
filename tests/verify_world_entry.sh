@@ -22,9 +22,10 @@ set -uo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-$HOME/.local/bin/godot}"
 : "${STALAG_LOG:?verify_world_entry: STALAG_LOG is required}"
-export DISPLAY="${DISPLAY:-:99}"
+export DISPLAY=":99"
 # An inherited WAYLAND_DISPLAY would override DISPLAY and open the window on the real desktop.
 unset WAYLAND_DISPLAY
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus
 SHOTS="${STALAG_SHOTS_DIR:-$(mktemp -d)}"
 mkdir -p "$SHOTS"
 rm -f "$SHOTS/entry_world.png"

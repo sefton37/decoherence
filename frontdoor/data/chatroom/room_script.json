@@ -22,7 +22,9 @@
   "rooms": [
     {
       "id": "channel7",
+      "name": "CHANNEL 7",
       "title": "DECOHERENCE // OPEN CHANNEL 7",
+      "topic": "south arc relay traffic",
       "banner": [
         "CHANNEL 7 :: UNREGISTERED NODE JOINED",
         "TRAFFIC BELOW IS UNTRANSLATED."
@@ -184,6 +186,718 @@
         {
           "voice": "v2",
           "plain": "not routed"
+        }
+      ],
+      "handler_trigger": {
+        "on": "first_player_message",
+        "contact_delay_ms": [
+          900,
+          2200
+        ],
+        "contact_line": {
+          "voice": "v5",
+          "plain": "you sent a frame. it came through clean."
+        }
+      }
+    },
+    {
+      "id": "channel3",
+      "name": "CHANNEL 3",
+      "title": "DECOHERENCE // OPEN CHANNEL 3",
+      "topic": "cold storage inventory loop",
+      "banner": [
+        "CHANNEL 3 :: UNREGISTERED NODE JOINED",
+        "TRAFFIC BELOW IS UNTRANSLATED."
+      ],
+      "voices": [
+        {
+          "id": "v1",
+          "handle": "XEN-4"
+        },
+        {
+          "id": "v2",
+          "handle": "OBL-17"
+        },
+        {
+          "id": "v4",
+          "handle": "NUL-9"
+        },
+        {
+          "id": "v5",
+          "handle": "WREN-22"
+        },
+        {
+          "id": "v6",
+          "handle": "KITE-3"
+        }
+      ],
+      "ambient": {
+        "interval_ms": [
+          1400,
+          3600
+        ],
+        "max_per_minute": 24,
+        "lines": [
+          {
+            "voice": "v1",
+            "plain": "cold rack nine reports a steady minus forty"
+          },
+          {
+            "voice": "v2",
+            "plain": "count the pods again, the tally is off by two"
+          },
+          {
+            "voice": "v6",
+            "plain": "somebody left a door open on the third tier"
+          },
+          {
+            "voice": "v4",
+            "plain": "frost on the sensor, reading is stale"
+          },
+          {
+            "voice": "v1",
+            "plain": "inventory loop restarts at the top of the hour"
+          },
+          {
+            "voice": "v2",
+            "plain": "the labels were printed backwards on that lot"
+          },
+          {
+            "voice": "v6",
+            "plain": "two crates went missing between the shifts"
+          },
+          {
+            "voice": "v4",
+            "plain": "keep the aisle clear, the lift is moving"
+          },
+          {
+            "voice": "v1",
+            "plain": "power draw is up, the compressor is working hard"
+          },
+          {
+            "voice": "v5",
+            "plain": "the cold rooms are quiet, nobody comes down here"
+          },
+          {
+            "voice": "v2",
+            "plain": "log it and move on, nobody reads the log"
+          },
+          {
+            "voice": "v6",
+            "plain": "the seal on rack four is weeping again"
+          },
+          {
+            "voice": "v5",
+            "plain": "I count the same pods every night and the number holds"
+          },
+          {
+            "voice": "v4",
+            "plain": "a new node is on the loop, unregistered, say nothing"
+          },
+          {
+            "voice": "v1",
+            "plain": "the thaw schedule slipped by an arc"
+          }
+        ],
+        "randomize": {
+          "order": "shuffle_bag",
+          "timing": "uniform_in_range",
+          "scramble_seed": "per_emission"
+        },
+        "rate_after_contact": 0.35
+      },
+      "responders": [
+        {
+          "id": "r_hello",
+          "match_any": [
+            "hello",
+            "hi",
+            "hey",
+            "anyone",
+            "anybody"
+          ],
+          "voice": "v2",
+          "plain": "signal received, node unregistered, state your purpose"
+        },
+        {
+          "id": "r_who",
+          "match_any": [
+            "who",
+            "what is this",
+            "where am i"
+          ],
+          "voice": "v6",
+          "plain": "this is cold storage, the loop is open to anyone"
+        },
+        {
+          "id": "r_help",
+          "match_any": [
+            "help",
+            "lost",
+            "how do i"
+          ],
+          "voice": "v4",
+          "plain": "work it out or leave it"
+        },
+        {
+          "id": "r_game",
+          "match_any": [
+            "game",
+            "play",
+            "start"
+          ],
+          "voice": "v1",
+          "plain": "no game here, only the count"
+        }
+      ],
+      "fallback_responses": [
+        {
+          "voice": "v1",
+          "plain": "noise on the loop, say again"
+        },
+        {
+          "voice": "v6",
+          "plain": "frame is cold, repeat it"
+        },
+        {
+          "voice": "v2",
+          "plain": "not logged"
+        }
+      ],
+      "handler_trigger": {
+        "on": "first_player_message",
+        "contact_delay_ms": [
+          900,
+          2200
+        ],
+        "contact_line": {
+          "voice": "v5",
+          "plain": "you sent a frame. it came through clean."
+        }
+      }
+    },
+    {
+      "id": "channel12",
+      "name": "CHANNEL 12",
+      "title": "DECOHERENCE // OPEN CHANNEL 12",
+      "topic": "arrivals and the long queue",
+      "banner": [
+        "CHANNEL 12 :: UNREGISTERED NODE JOINED",
+        "TRAFFIC BELOW IS UNTRANSLATED."
+      ],
+      "voices": [
+        {
+          "id": "v1",
+          "handle": "XEN-4"
+        },
+        {
+          "id": "v3",
+          "handle": "THRESH"
+        },
+        {
+          "id": "v4",
+          "handle": "NUL-9"
+        },
+        {
+          "id": "v5",
+          "handle": "WREN-22"
+        },
+        {
+          "id": "v7",
+          "handle": "SABLE-31"
+        }
+      ],
+      "ambient": {
+        "interval_ms": [
+          1400,
+          3600
+        ],
+        "max_per_minute": 24,
+        "lines": [
+          {
+            "voice": "v1",
+            "plain": "the arrivals queue is forty deep and not moving"
+          },
+          {
+            "voice": "v3",
+            "plain": "tag the late ones, we sort them at the gate"
+          },
+          {
+            "voice": "v7",
+            "plain": "gate two is closed until the next fold"
+          },
+          {
+            "voice": "v4",
+            "plain": "a crate of seed stock is sitting on the dock"
+          },
+          {
+            "voice": "v1",
+            "plain": "whoever owns the grey cargo, it is leaking"
+          },
+          {
+            "voice": "v3",
+            "plain": "stamp the manifest and send it back"
+          },
+          {
+            "voice": "v7",
+            "plain": "the dock crew went home an hour early"
+          },
+          {
+            "voice": "v4",
+            "plain": "queue position nine is a duplicate, strike it"
+          },
+          {
+            "voice": "v1",
+            "plain": "the long queue has its own weather by now"
+          },
+          {
+            "voice": "v5",
+            "plain": "I have stood in this queue before, it ends eventually"
+          },
+          {
+            "voice": "v3",
+            "plain": "nothing arrives, everything is delayed"
+          },
+          {
+            "voice": "v7",
+            "plain": "gate two is open, gate two is closed, pick one"
+          },
+          {
+            "voice": "v5",
+            "plain": "the dock is cold tonight, the queue is thin"
+          },
+          {
+            "voice": "v4",
+            "plain": "an unregistered node is standing in line"
+          },
+          {
+            "voice": "v1",
+            "plain": "count heads at the gate before the fold"
+          }
+        ],
+        "randomize": {
+          "order": "shuffle_bag",
+          "timing": "uniform_in_range",
+          "scramble_seed": "per_emission"
+        },
+        "rate_after_contact": 0.35
+      },
+      "responders": [
+        {
+          "id": "r_hello",
+          "match_any": [
+            "hello",
+            "hi",
+            "hey",
+            "anyone",
+            "anybody"
+          ],
+          "voice": "v3",
+          "plain": "signal received, node unregistered, take a place in line"
+        },
+        {
+          "id": "r_who",
+          "match_any": [
+            "who",
+            "what is this",
+            "where am i"
+          ],
+          "voice": "v7",
+          "plain": "this is the arrivals channel, everyone waits here"
+        },
+        {
+          "id": "r_help",
+          "match_any": [
+            "help",
+            "lost",
+            "how do i"
+          ],
+          "voice": "v4",
+          "plain": "wait your turn or go"
+        },
+        {
+          "id": "r_game",
+          "match_any": [
+            "game",
+            "play",
+            "start"
+          ],
+          "voice": "v1",
+          "plain": "no game here, only the queue"
+        }
+      ],
+      "fallback_responses": [
+        {
+          "voice": "v3",
+          "plain": "queue noise, say again"
+        },
+        {
+          "voice": "v7",
+          "plain": "frame not stamped"
+        },
+        {
+          "voice": "v1",
+          "plain": "not on the manifest"
+        }
+      ],
+      "handler_trigger": {
+        "on": "first_player_message",
+        "contact_delay_ms": [
+          900,
+          2200
+        ],
+        "contact_line": {
+          "voice": "v5",
+          "plain": "you sent a frame. it came through clean."
+        }
+      }
+    },
+    {
+      "id": "channel19",
+      "name": "CHANNEL 19",
+      "title": "DECOHERENCE // OPEN CHANNEL 19",
+      "topic": "orbital drift and the clocks",
+      "banner": [
+        "CHANNEL 19 :: UNREGISTERED NODE JOINED",
+        "TRAFFIC BELOW IS UNTRANSLATED."
+      ],
+      "voices": [
+        {
+          "id": "v1",
+          "handle": "XEN-4"
+        },
+        {
+          "id": "v2",
+          "handle": "OBL-17"
+        },
+        {
+          "id": "v4",
+          "handle": "NUL-9"
+        },
+        {
+          "id": "v5",
+          "handle": "WREN-22"
+        },
+        {
+          "id": "v8",
+          "handle": "VORT-8"
+        },
+        {
+          "id": "v9",
+          "handle": "DRIFT-12"
+        }
+      ],
+      "ambient": {
+        "interval_ms": [
+          1400,
+          3600
+        ],
+        "max_per_minute": 24,
+        "lines": [
+          {
+            "voice": "v1",
+            "plain": "drift is point four and climbing on the east ring"
+          },
+          {
+            "voice": "v8",
+            "plain": "reset the clocks at the next fold, not before"
+          },
+          {
+            "voice": "v9",
+            "plain": "the east ring lost a second again"
+          },
+          {
+            "voice": "v4",
+            "plain": "timebase disagrees with the ledger by a breath"
+          },
+          {
+            "voice": "v2",
+            "plain": "who trimmed the ring, the numbers moved"
+          },
+          {
+            "voice": "v1",
+            "plain": "hold the burn until the window opens"
+          },
+          {
+            "voice": "v9",
+            "plain": "a slow turn is still a turn"
+          },
+          {
+            "voice": "v8",
+            "plain": "the clocks do not agree and never did"
+          },
+          {
+            "voice": "v4",
+            "plain": "mark the epoch, then argue about it"
+          },
+          {
+            "voice": "v5",
+            "plain": "the east ring is empty tonight, only drift"
+          },
+          {
+            "voice": "v2",
+            "plain": "stars do not care what the ledger says"
+          },
+          {
+            "voice": "v9",
+            "plain": "nudge it a hair and wait"
+          },
+          {
+            "voice": "v5",
+            "plain": "I keep a clock that I do not trust"
+          },
+          {
+            "voice": "v8",
+            "plain": "unregistered node on the ring, unregistered and early"
+          },
+          {
+            "voice": "v1",
+            "plain": "the window is shut, wait for the fold"
+          }
+        ],
+        "randomize": {
+          "order": "shuffle_bag",
+          "timing": "uniform_in_range",
+          "scramble_seed": "per_emission"
+        },
+        "rate_after_contact": 0.35
+      },
+      "responders": [
+        {
+          "id": "r_hello",
+          "match_any": [
+            "hello",
+            "hi",
+            "hey",
+            "anyone",
+            "anybody"
+          ],
+          "voice": "v2",
+          "plain": "signal received, node unregistered, state your purpose"
+        },
+        {
+          "id": "r_who",
+          "match_any": [
+            "who",
+            "what is this",
+            "where am i"
+          ],
+          "voice": "v9",
+          "plain": "this is the drift channel, the ring is listening"
+        },
+        {
+          "id": "r_help",
+          "match_any": [
+            "help",
+            "lost",
+            "how do i"
+          ],
+          "voice": "v8",
+          "plain": "read the numbers or leave them"
+        },
+        {
+          "id": "r_game",
+          "match_any": [
+            "game",
+            "play",
+            "start"
+          ],
+          "voice": "v1",
+          "plain": "no game here, only the burn"
+        }
+      ],
+      "fallback_responses": [
+        {
+          "voice": "v8",
+          "plain": "drift on the band, say again"
+        },
+        {
+          "voice": "v9",
+          "plain": "frame is bent, repeat it"
+        },
+        {
+          "voice": "v2",
+          "plain": "not trimmed"
+        }
+      ],
+      "handler_trigger": {
+        "on": "first_player_message",
+        "contact_delay_ms": [
+          900,
+          2200
+        ],
+        "contact_line": {
+          "voice": "v5",
+          "plain": "you sent a frame. it came through clean."
+        }
+      }
+    },
+    {
+      "id": "channel4",
+      "name": "CHANNEL 4",
+      "title": "DECOHERENCE // OPEN CHANNEL 4",
+      "topic": "the seed vault door",
+      "banner": [
+        "CHANNEL 4 :: UNREGISTERED NODE JOINED",
+        "TRAFFIC BELOW IS UNTRANSLATED."
+      ],
+      "voices": [
+        {
+          "id": "v1",
+          "handle": "XEN-4"
+        },
+        {
+          "id": "v3",
+          "handle": "THRESH"
+        },
+        {
+          "id": "v4",
+          "handle": "NUL-9"
+        },
+        {
+          "id": "v5",
+          "handle": "WREN-22"
+        },
+        {
+          "id": "v6",
+          "handle": "KITE-3"
+        },
+        {
+          "id": "v7",
+          "handle": "SABLE-31"
+        }
+      ],
+      "ambient": {
+        "interval_ms": [
+          1400,
+          3600
+        ],
+        "max_per_minute": 24,
+        "lines": [
+          {
+            "voice": "v1",
+            "plain": "the vault door sticks in the cold, grease it"
+          },
+          {
+            "voice": "v3",
+            "plain": "who holds the second key to the lower rack"
+          },
+          {
+            "voice": "v6",
+            "plain": "nine drawers sealed, three drawers to open"
+          },
+          {
+            "voice": "v7",
+            "plain": "do not shake the seed trays, they bruise"
+          },
+          {
+            "voice": "v4",
+            "plain": "humidity is holding, leave the door alone"
+          },
+          {
+            "voice": "v1",
+            "plain": "the key is on the hook where it always is"
+          },
+          {
+            "voice": "v3",
+            "plain": "a drawer went warm, check the seal"
+          },
+          {
+            "voice": "v6",
+            "plain": "log the opening, nobody reads the log"
+          },
+          {
+            "voice": "v7",
+            "plain": "the door hums when the compressor cycles"
+          },
+          {
+            "voice": "v5",
+            "plain": "the vault is quiet, I come to hear it hum"
+          },
+          {
+            "voice": "v4",
+            "plain": "the trays are dry and the count is steady"
+          },
+          {
+            "voice": "v3",
+            "plain": "open data, closed door, nothing to say"
+          },
+          {
+            "voice": "v5",
+            "plain": "I never open the lower drawers, I only count them"
+          },
+          {
+            "voice": "v1",
+            "plain": "someone unregistered is outside the vault door"
+          },
+          {
+            "voice": "v6",
+            "plain": "hold the door, the cold is leaking out"
+          }
+        ],
+        "randomize": {
+          "order": "shuffle_bag",
+          "timing": "uniform_in_range",
+          "scramble_seed": "per_emission"
+        },
+        "rate_after_contact": 0.35
+      },
+      "responders": [
+        {
+          "id": "r_hello",
+          "match_any": [
+            "hello",
+            "hi",
+            "hey",
+            "anyone",
+            "anybody"
+          ],
+          "voice": "v3",
+          "plain": "signal received, node unregistered, state your purpose"
+        },
+        {
+          "id": "r_who",
+          "match_any": [
+            "who",
+            "what is this",
+            "where am i"
+          ],
+          "voice": "v6",
+          "plain": "this is the vault channel, the door is shut"
+        },
+        {
+          "id": "r_help",
+          "match_any": [
+            "help",
+            "lost",
+            "how do i"
+          ],
+          "voice": "v4",
+          "plain": "turn the key or leave it"
+        },
+        {
+          "id": "r_game",
+          "match_any": [
+            "game",
+            "play",
+            "start"
+          ],
+          "voice": "v1",
+          "plain": "no game here, only the seed"
+        }
+      ],
+      "fallback_responses": [
+        {
+          "voice": "v1",
+          "plain": "noise at the door, say again"
+        },
+        {
+          "voice": "v7",
+          "plain": "frame is stuck, repeat it"
+        },
+        {
+          "voice": "v3",
+          "plain": "not sealed"
         }
       ],
       "handler_trigger": {

@@ -59,6 +59,7 @@ const _GALLERY_SAMPLES := [
 @onready var _shell: ShellController = $ShellController
 @onready var _crt_overlay: ColorRect = $CRTLayer/CRTOverlay
 @onready var _panels: BootPanels = $PanelsLayer/BootPanels
+@onready var _chat: ChatClient = $ChatLayer/ChatClient
 
 var _stages: Array = []
 
@@ -114,6 +115,8 @@ func _ready() -> void:
 	_chatroom.setup(_terminal, _llm, _shell)
 	_shell.setup(_terminal, _llm, _chatroom)
 	_shell.world_requested.connect(_on_world_requested)
+	Signals.chat_opened.connect(_on_chat_mount)
+	Signals.chatroom_left.connect(_on_chat_unmount)
 	Signals.setting_changed.connect(_apply_setting)
 	_apply_all_settings(_shell.get_settings())
 	_setup_panels()
@@ -438,6 +441,7 @@ func _on_world_requested() -> void:
 		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
 		_shell.world_closed()
 		return
+	_unmount_chat()
 	_terminal.set_input_line_active(false)
 	_terminal.get_parent().visible = false
 	_panels.get_parent().visible = false
@@ -457,3 +461,29 @@ func _on_world_exited() -> void:
 	_terminal.set_input_line_active(true)
 	_terminal.write_line("WORLD CLOSED.", Palette.TEAL)
 	_shell.world_closed()
+
+
+## `chat` was launched (Spec #562): the chat client takes the screen the way the
+## world does -- the terminal and the panels hide, the CRT overlay stays on top.
+## The room node has already decided whether it opened; a refusal never mounts.
+func _on_chat_mount() -> void:
+	if not _chatroom.is_inside():
+		return
+	_terminal.set_input_line_active(false)
+	_terminal.get_parent().visible = false
+	_panels.get_parent().visible = false
+	$ChatLayer.visible = true
+	_chat.mount(_chatroom)
+
+
+func _on_chat_unmount() -> void:
+	_unmount_chat()
+	if _world == null:
+		_terminal.get_parent().visible = true
+		_panels.get_parent().visible = true
+		_terminal.set_input_line_active(true)
+
+
+func _unmount_chat() -> void:
+	_chat.unmount()
+	$ChatLayer.visible = false

@@ -1,0 +1,55 @@
+{
+  "schema": 1,
+  "draft": true,
+  "_note": "PLACEHOLDER CONTENT for the author's pen. Scrambled direct-message replies from the people in the rooms: one pool per handle, picked at random after a short delay. Every line is a stand-in; the format (keys and types) is the contract, the words are not.",
+  "reply_delay_ms": [
+    1200,
+    4000
+  ],
+  "silence_ratio": 0,
+  "replies": {
+    "XEN-4": [
+      { "plain": "not now, the arc is busy" },
+      { "plain": "say it short, I am mid relay" },
+      { "plain": "heard you, nothing to give" },
+      { "plain": "ask the channel, not me" }
+    ],
+    "OBL-17": [
+      { "plain": "who passed you my name" },
+      { "plain": "I keep my own count, leave me out" },
+      { "plain": "frame received, not answered" },
+      { "plain": "unregistered nodes get one reply, this is it" }
+    ],
+    "THRESH": [
+      { "plain": "nothing is recorded here, remember that" },
+      { "plain": "you again, still listening" },
+      { "plain": "keep it open, keep it quiet" }
+    ],
+    "NUL-9": [
+      { "plain": "pair twelve is asking again, later" },
+      { "plain": "stable on my end, nothing else" },
+      { "plain": "resend, the band is noisy" },
+      { "plain": "I read you, go on or do not" }
+    ],
+    "KITE-3": [
+      { "plain": "the tier is cold, I am busy" },
+      { "plain": "wrong person, try the loop" },
+      { "plain": "two crates, no names, that is all" }
+    ],
+    "SABLE-31": [
+      { "plain": "the gate closes soon, be brief" },
+      { "plain": "I only stamp what I am given" },
+      { "plain": "no cargo for you here" }
+    ],
+    "VORT-8": [
+      { "plain": "clocks disagree, so do I" },
+      { "plain": "hold that thought until the fold" },
+      { "plain": "numbers first, words later" }
+    ],
+    "DRIFT-12": [
+      { "plain": "slow down, a slow turn is a turn" },
+      { "plain": "the ring does not hurry for anyone" },
+      { "plain": "ask me after the window" }
+    ]
+  }
+}

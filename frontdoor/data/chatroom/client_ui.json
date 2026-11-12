@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "draft": true,
+  "_note": "PLACEHOLDER CONTENT for the author's pen. Every word the chat client draws itself (navigation labels, key table, command words, fixed strings). The keys and types are the contract; the labels and strings are stand-ins.",
+  "nav": {
+    "brand": "Q-ENT RELAY",
+    "items": [
+      { "label": "ROOMS", "key": "F1", "action": "nav_rooms" },
+      { "label": "DIRECTORY", "key": "F2", "action": "nav_directory" },
+      { "label": "MESSAGES", "key": "F3", "action": "nav_messages" },
+      { "label": "PEOPLE", "key": "F4", "action": "nav_people" }
+    ]
+  },
+  "keys": {
+    "send": "Enter",
+    "history_prev": "Up",
+    "history_next": "Down",
+    "nick_complete": "Tab",
+    "buffer_next": "Ctrl+N",
+    "buffer_prev": "Ctrl+P",
+    "buffer_jump": "Alt+1..9",
+    "scroll_up": "PageUp",
+    "scroll_down": "PageDown",
+    "scroll_live": "Ctrl+End",
+    "nav_rooms": "F1",
+    "nav_directory": "F2",
+    "nav_messages": "F3",
+    "nav_people": "F4",
+    "close_view": "Esc",
+    "close_buffer": "Ctrl+W",
+    "quit": "Ctrl+Q"
+  },
+  "commands": {
+    "join": { "args": 1 },
+    "part": { "args": 0 },
+    "list": { "args": 0 },
+    "who": { "args": 0 },
+    "msg": { "args": 2 },
+    "me": { "args": 1 },
+    "clear": { "args": 0 },
+    "quit": { "args": 0 }
+  },
+  "strings": {
+    "rooms_title": "ROOMS",
+    "direct_title": "DIRECT",
+    "people_title": "PEOPLE",
+    "directory_title": "DIRECTORY",
+    "present_suffix": "PRESENT",
+    "dm_header": "DIRECT",
+    "unknown_command": "UNKNOWN COMMAND.",
+    "no_such_channel": "NO SUCH CHANNEL.",
+    "no_such_user": "NO SUCH USER.",
+    "self_message": "NOT ROUTED TO SELF.",
+    "last_buffer": "LAST OPEN WINDOW STAYS OPEN.",
+    "joined_line": "-- {name} HAS JOINED",
+    "left_line": "-- {name} HAS LEFT",
+    "list_line": "{name}  {count}",
+    "who_line": "{name}"
+  }
+}

@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://frontdoor/scripts/boot_controller.gd" id="1"]
 [ext_resource type="Script" path="res://frontdoor/scripts/terminal_grid.gd" id="2"]
@@ -8,6 +8,7 @@
 [ext_resource type="Script" path="res://frontdoor/scripts/shell_controller.gd" id="6"]
 [ext_resource type="Script" path="res://frontdoor/scripts/boot_panels.gd" id="7"]
 [ext_resource type="Script" path="res://frontdoor/scripts/chatroom.gd" id="8"]
+[ext_resource type="Script" path="res://frontdoor/scripts/chat_client.gd" id="9"]
 
 [sub_resource type="ShaderMaterial" id="1"]
 shader = ExtResource("5")
@@ -37,6 +38,16 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 mouse_filter = 2
 script = ExtResource("7")
+
+[node name="ChatLayer" type="CanvasLayer" parent="."]
+layer = 7
+visible = false
+
+[node name="ChatClient" type="Control" parent="ChatLayer"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+script = ExtResource("9")
 
 [node name="LlmClient" type="Node" parent="."]
 script = ExtResource("3")

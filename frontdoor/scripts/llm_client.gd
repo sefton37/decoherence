@@ -185,6 +185,102 @@ func check_model_ready() -> void:
 	model_ready.emit(false)
 
 
+## --- Stream-side think filter (Spec #562 D12, issue #615) ----------------------------
+## A model can put its reasoning in the content stream between think tags. Text
+## inside such a span, and the tags themselves, never reach on_delta or on_done: the
+## filter is stateful across chunks (a tag split between two deltas is still caught)
+## and holds back a trailing fragment that could still turn into a tag. An unterminated
+## span at the end of the stream is dropped, never shown.
+const THINK_OPEN := "<think>"
+const THINK_CLOSE := "</think>"
+
+## Test hook (probes only): false forwards the raw stream, the negative control of the
+## #615 check (it must see the leak the filter removes).
+var stream_filter_enabled: bool = true
+
+
+static func new_stream_filter() -> Dictionary:
+	return {"buf": "", "hidden": false}
+
+
+static func _ascii_lc(text: String) -> String:
+	var out := ""
+	for i in range(text.length()):
+		var c := text.unicode_at(i)
+		if c >= 65 and c <= 90:
+			c += 32
+		out += char(c)
+	return out
+
+
+## Length of the longest tail of `low` that is a proper prefix of a think tag.
+static func _tag_prefix_tail(low: String) -> int:
+	var most := mini(low.length(), THINK_CLOSE.length() - 1)
+	for n in range(most, 0, -1):
+		var tail := low.substr(low.length() - n)
+		if THINK_OPEN.begins_with(tail) or THINK_CLOSE.begins_with(tail):
+			return n
+	return 0
+
+
+## Feeds one content chunk; returns the text that may be shown.
+static func filter_stream_piece(state: Dictionary, piece: String) -> String:
+	var buf: String = String(state["buf"]) + piece
+	var out := ""
+	while true:
+		var low := _ascii_lc(buf)
+		if bool(state["hidden"]):
+			var end_at := low.find(THINK_CLOSE)
+			if end_at == -1:
+				buf = buf.substr(maxi(buf.length() - (THINK_CLOSE.length() - 1), 0))
+				break
+			buf = buf.substr(end_at + THINK_CLOSE.length())
+			state["hidden"] = false
+			continue
+		var open_at := low.find(THINK_OPEN)
+		var close_at := low.find(THINK_CLOSE)
+		if open_at == -1 and close_at == -1:
+			var keep := _tag_prefix_tail(low)
+			out += buf.substr(0, buf.length() - keep)
+			buf = buf.substr(buf.length() - keep)
+			break
+		if close_at != -1 and (open_at == -1 or close_at < open_at):
+			# a closing tag with no opening one: only the tag itself is dropped
+			out += buf.substr(0, close_at)
+			buf = buf.substr(close_at + THINK_CLOSE.length())
+			continue
+		out += buf.substr(0, open_at)
+		buf = buf.substr(open_at + THINK_OPEN.length())
+		state["hidden"] = true
+	state["buf"] = buf
+	return out
+
+
+## End of the stream: a held-back fragment that never became a tag is ordinary text; an
+## unterminated think span is dropped.
+static func filter_stream_flush(state: Dictionary) -> String:
+	var tail := "" if bool(state["hidden"]) else String(state["buf"])
+	state["buf"] = ""
+	state["hidden"] = false
+	return tail
+
+
+## Applies the filter to one chunk (or passes it through when the test hook is off).
+func _filtered(state: Dictionary, piece: String) -> String:
+	return filter_stream_piece(state, piece) if stream_filter_enabled else piece
+
+
+## Flushes the filter at the end of a stream and returns the final accumulated text.
+func _finish_stream(state: Dictionary, accumulated: String, on_delta: Callable) -> String:
+	if not stream_filter_enabled:
+		return accumulated
+	var tail := filter_stream_flush(state)
+	if tail.is_empty():
+		return accumulated
+	on_delta.call(tail)
+	return accumulated + tail
+
+
 ## Streams a chat completion via /v1/chat/completions ("stream": true).
 ## SSE framing (`data: {...}` lines, terminal `data: [DONE]`) -- the
 ## server's own --reasoning-format deepseek + --jinja flags (set once at
@@ -224,6 +320,7 @@ func send_chat(messages: Array, on_delta: Callable, on_done: Callable) -> void:
 
 	var accumulated := ""
 	var pending := ""
+	var fstate := new_stream_filter()
 	while client.get_status() == HTTPClient.STATUS_BODY:
 		client.poll()
 		var chunk := client.read_response_body_chunk()
@@ -243,7 +340,7 @@ func send_chat(messages: Array, on_delta: Callable, on_done: Callable) -> void:
 			if payload.is_empty():
 				continue
 			if payload == "[DONE]":
-				on_done.call(accumulated)
+				on_done.call(_finish_stream(fstate, accumulated, on_delta))
 				return
 			var parsed = JSON.parse_string(payload)
 			if typeof(parsed) != TYPE_DICTIONARY:
@@ -262,12 +359,14 @@ func send_chat(messages: Array, on_delta: Callable, on_done: Callable) -> void:
 				if delta.has("content"):
 					var piece = delta["content"]
 					if typeof(piece) == TYPE_STRING and piece != "":
-						accumulated += piece
-						on_delta.call(piece)
+						var shown := _filtered(fstate, piece)
+						if shown != "":
+							accumulated += shown
+							on_delta.call(shown)
 				if choice.get("finish_reason", null) != null:
-					on_done.call(accumulated)
+					on_done.call(_finish_stream(fstate, accumulated, on_delta))
 					return
-	on_done.call(accumulated)
+	on_done.call(_finish_stream(fstate, accumulated, on_delta))
 
 
 ## Kills the llama-server process this node itself spawned this run --
@@ -714,6 +813,7 @@ func _send_chat_ollama(messages: Array, on_delta: Callable, on_done: Callable) -
 
 	var accumulated := ""
 	var pending := ""
+	var fstate := new_stream_filter()
 	while client.get_status() == HTTPClient.STATUS_BODY:
 		client.poll()
 		var chunk := client.read_response_body_chunk()
@@ -734,12 +834,14 @@ func _send_chat_ollama(messages: Array, on_delta: Callable, on_done: Callable) -
 			if typeof(message) == TYPE_DICTIONARY:
 				var piece = message.get("content", "")
 				if typeof(piece) == TYPE_STRING and piece != "":
-					accumulated += piece
-					on_delta.call(piece)
+					var shown := _filtered(fstate, piece)
+					if shown != "":
+						accumulated += shown
+						on_delta.call(shown)
 			if bool(parsed.get("done", false)) or parsed.has("error"):
-				on_done.call(accumulated)
+				on_done.call(_finish_stream(fstate, accumulated, on_delta))
 				return
-	on_done.call(accumulated)
+	on_done.call(_finish_stream(fstate, accumulated, on_delta))
 
 
 ## One stateless, non-streaming structured completion through the active

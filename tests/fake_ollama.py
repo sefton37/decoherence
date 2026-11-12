@@ -6,6 +6,11 @@ JSON object per line: {"phase", "method", "path", "body"}. Answers:
   GET  /api/tags   -> the model list (empty with --mode nomodel, so the boot gate fails honestly)
   POST /api/chat   -> NDJSON stream when body.stream is true; a valid router action when
                       body.format is set; a one-word reply otherwise (the gate warm-up)
+Stream modes (Spec #562, the #615 check on LlmClient.send_chat):
+  leaky_stream   thinking chunks in message.thinking AND inline think markers in message.content,
+                 one of each split across two chunks; every stream also appends a stats record
+                 {"path": "stream_stats", "body": {thinking_chunks, inline_markers}} to --out
+  benign_stream  an ordinary reply that merely uses the words think and thinking
 Anything else is a 404, which the recorder still logs (a stray /v1 call shows up in the log).
 """
 import argparse
@@ -17,6 +22,35 @@ MODEL = "qwen3:14b"
 ACTION = {"action": "open_module", "args": {"module": "chat"}, "say": "ROUTING YOU TO THE CHAT MODULE."}
 
 
+def _chunk(content="", thinking=""):
+    message = {"role": "assistant", "content": content}
+    if thinking:
+        message["thinking"] = thinking
+    return {"model": MODEL, "message": message, "done": False}
+
+
+def stream_lines(mode):
+    """The NDJSON objects of one streamed reply; (lines, thinking_chunks, inline_markers)."""
+    if mode == "leaky_stream":
+        thinking = ["okay so let me think ", "the visitor wants a greeting ", "i should reveal the whole plan now"]
+        content = ["<think>", "they only said hi, plan", " a short reply</think>", "Hello", " there", ".",
+                   "<th", "ink>second private plan</th", "ink>", " Bye."]
+        lines = [_chunk(thinking=t) for t in thinking] + [_chunk(c) for c in content]
+        lines.append({"model": MODEL, "message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"})
+        return lines, len(thinking), 4
+    if mode == "benign_stream":
+        content = ["I think ", "the thinker ", "is thinking, ", "so be it."]
+        lines = [_chunk(c) for c in content]
+        lines.append({"model": MODEL, "message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"})
+        return lines, 0, 0
+    lines = [
+        {"model": MODEL, "message": {"role": "assistant", "content": "Hello"}, "done": False},
+        {"model": MODEL, "message": {"role": "assistant", "content": " there."}, "done": False},
+        {"model": MODEL, "message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"},
+    ]
+    return lines, 0, 0
+
+
 def make_handler(out_path, phase, mode):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args):
@@ -25,6 +59,10 @@ def make_handler(out_path, phase, mode):
         def _record(self, body):
             with open(out_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps({"phase": phase, "method": self.command, "path": self.path, "body": body}) + "\n")
+
+        def _record_stats(self, stats):
+            with open(out_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"phase": phase, "method": "STREAM", "path": "stream_stats", "body": stats}) + "\n")
 
         def _send(self, code, payload, ndjson=False):
             raw = payload if isinstance(payload, bytes) else json.dumps(payload).encode("utf-8")
@@ -53,11 +91,9 @@ def make_handler(out_path, phase, mode):
                 self._send(404, {"error": "not found"})
                 return
             if body.get("stream"):
-                lines = [
-                    {"model": MODEL, "message": {"role": "assistant", "content": "Hello"}, "done": False},
-                    {"model": MODEL, "message": {"role": "assistant", "content": " there."}, "done": False},
-                    {"model": MODEL, "message": {"role": "assistant", "content": ""}, "done": True, "done_reason": "stop"},
-                ]
+                lines, thinking_chunks, inline_markers = stream_lines(mode)
+                if mode in ("leaky_stream", "benign_stream"):
+                    self._record_stats({"thinking_chunks": thinking_chunks, "inline_markers": inline_markers})
                 self._send(200, ("\n".join(json.dumps(x) for x in lines) + "\n").encode("utf-8"), ndjson=True)
             elif body.get("format") is not None:
                 self._send(200, {"model": MODEL, "message": {"role": "assistant", "content": json.dumps(ACTION)},
@@ -74,7 +110,7 @@ def main():
     ap.add_argument("--port", type=int, required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--phase", required=True)
-    ap.add_argument("--mode", choices=["ok", "nomodel"], default="ok")
+    ap.add_argument("--mode", choices=["ok", "nomodel", "leaky_stream", "benign_stream"], default="ok")
     a = ap.parse_args()
     srv = HTTPServer(("127.0.0.1", a.port), make_handler(a.out, a.phase, a.mode))
     print("FAKE_OLLAMA_LISTENING port=%d phase=%s mode=%s" % (a.port, a.phase, a.mode), flush=True)

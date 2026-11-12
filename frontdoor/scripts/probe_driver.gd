@@ -469,7 +469,7 @@ func _world_finish() -> void:
 ## same send path a real Enter keypress uses.
 ## ===========================================================================
 
-const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale", "chatroom_flow", "chatroom_gatefail", "chatroom_degrade", "chatroom_mutate", "chatroom_leak", "chatroom_leak_neg", "chatroom_live", "chatroom_handoff"]
+const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale", "chatroom_flow", "chatroom_gatefail", "chatroom_degrade", "chatroom_mutate", "chatroom_leak", "chatroom_leak_neg", "chatroom_live", "chatroom_handoff", "chat_features", "chat_canon", "chat_layout", "chat_sendchat", "chat_contact_fake", "chat_leak_live"]
 const EXT_WATCHDOG_SECONDS := 1500.0
 const RESOLVE_TIMEOUT_SEC := 25.0
 
@@ -641,6 +641,18 @@ func _run_ext() -> void:
 			await _run_chatroom_live()
 		"chatroom_handoff":
 			await _run_chatroom_handoff()
+		"chat_features":
+			await _run_chat_features()
+		"chat_canon":
+			await _run_chat_canon()
+		"chat_layout":
+			await _run_chat_layout()
+		"chat_sendchat":
+			await _run_chat_sendchat()
+		"chat_contact_fake":
+			await _run_chat_contact_fake()
+		"chat_leak_live":
+			await _run_chat_leak_live()
 	_ext_quit(0)
 
 
@@ -1093,17 +1105,18 @@ func _write_json(path: String, data: Dictionary) -> void:
 		f.close()
 
 
-func _key_event(keycode: int, unicode: int = 0, alt: bool = false) -> InputEventKey:
+func _key_event(keycode: int, unicode: int = 0, alt: bool = false, ctrl: bool = false) -> InputEventKey:
 	var ev := InputEventKey.new()
 	ev.pressed = true
 	ev.keycode = keycode as Key
 	ev.unicode = unicode
 	ev.alt_pressed = alt
+	ev.ctrl_pressed = ctrl
 	return ev
 
 
-func _press(keycode: int, unicode: int = 0, alt: bool = false) -> void:
-	Input.parse_input_event(_key_event(keycode, unicode, alt))
+func _press(keycode: int, unicode: int = 0, alt: bool = false, ctrl: bool = false) -> void:
+	Input.parse_input_event(_key_event(keycode, unicode, alt, ctrl))
 	await get_tree().process_frame
 
 
@@ -1487,7 +1500,16 @@ func _cr_connect() -> void:
 	Signals.chatroom_left.connect(_cr_on_left)
 
 
+## Spec #562: while the chat client is mounted a line is typed into it with real key
+## events (one per character, then Enter); before that (the shell) it goes through
+## the terminal's own line_submitted signal, as for every 542 probe.
 func _cr_say(text: String) -> void:
+	if _cc().is_mounted():
+		_cc_burst(text)
+		Input.parse_input_event(_key_event(KEY_ENTER))
+		if not text.strip_edges().is_empty():
+			_cc_expected += 1
+		return
 	_terminal_node().line_submitted.emit(text)
 
 
@@ -1929,15 +1951,14 @@ func _run_chatroom_flow() -> void:
 	out["signals"] = {"handler_reply_complete": int(_cr_counts["reply"])}
 
 	# --- What the room put on screen, from the first room open on ---
+	# Spec #562 adapter: the room now lives in the chat client's buffers, so that is what is scanned
+	# (every row of every buffer, plus every cell the client drew).
 	var rows_all: Array = []
-	var snap := _terminal_node().rows_snapshot()
-	var title := String(ChatroomScript.entry_room(cr.room_script()).get("title", ""))
-	var started := false
-	for r in snap:
-		if String(r["text"]) == title:
-			started = true
-		if started:
-			rows_all.append(String(r["text"]))
+	for r in _cc().rows_snapshot():
+		rows_all.append(String(r["text"]))
+	for line in _cc().ui_text_snapshot():
+		if not String(line).strip_edges().is_empty():
+			rows_all.append(String(line).strip_edges())
 	var rendered_all: Array = _ext_rendered.slice(render_from)
 	var scan: Array = rows_all.duplicate()
 	scan.append_array(rendered_all)
@@ -2055,11 +2076,15 @@ func _run_chatroom_leak() -> void:
 	var all_reasoning := ""
 	var prompt_blob := ""
 	var flagged: Array = []
+	# Spec #562 adapter: each session's rows now live in the client's buffers (a new session starts
+	# them afresh), so the rows of every run are collected as the run ends.
+	var rows: Array = []
 	for run in range(3):
 		await _cr_new_session(900 + run)
 		await _cr_contact()
 		for q in CR_ASKS:
 			await _cr_ask(String(q), 90.0)
+		rows.append_array(_cc().rows_snapshot().map(func(r): return String(r["text"])))
 		# a thinking-ENABLED request through the same client, with the same prompt: the
 		# reasoning is real (so "nothing leaked" is not vacuous) and is what the scan compares to
 		var done := {"v": false}
@@ -2071,7 +2096,6 @@ func _run_chatroom_leak() -> void:
 		for m in cr.last_messages:
 			prompt_blob += " ".join(String(m["content"]).split(" ", false)) + " "
 	var rendered: Array = _ext_rendered.slice(render_from)
-	var rows: Array = _terminal_node().rows_snapshot().map(func(r): return String(r["text"]))
 	var leaks := 0
 	for t in rendered:
 		if _cr_leak_scan(String(t), all_reasoning, prompt_blob):
@@ -2230,3 +2254,2102 @@ func _run_chatroom_handoff() -> void:
 		"shell_alive": alive,
 		"resumed_state": cr.state,
 	})
+
+
+## ===========================================================================
+## Spec #562 modes (additive): the chat client, driven with real key events.
+## Every user action below is an InputEventKey into the viewport; the probe only
+## READS the model and the client (to observe), it never calls a method that
+## performs a user action. Results go to $DECOHERENCE_PROBE_OUT_DIR/*.part.json;
+## tests/verify_chat_client.sh merges them. DECOHERENCE_CHAT_ONLY (a comma list
+## of section names) limits a features run while developing.
+## ===========================================================================
+
+const CC_CONCEPT := "(?i)handler|recruit|contact|liaison|objective|quest|mission|tutorial|wizard|onboard|walkthrough|getting started|beginner|newcomer|briefing|assigned|progress|checklist|hint|tip:|try typing|welcome|guide|help"
+
+var _cc_room_changes: int = 0
+var _cc_last_active: String = ""
+var _cc_expected: int = 0
+var _cc_submits_base: int = 0
+var _cc_driven: Dictionary = {}
+var _cc_direct_calls: int = 0
+
+
+func _cc() -> ChatClient:
+	return _scene().get_node("ChatLayer/ChatClient")
+
+
+func _cc_model() -> ChatModel:
+	return _cr().model
+
+
+## Lines that reached the room through the shell's pass-through: the room is its only
+## consumer, and it counts each one it receives.
+func _cc_submit_count() -> int:
+	return _cc_submits_base + _cr().lines_received
+
+
+func _cc_want(section: String) -> bool:
+	var only := OS.get_environment("DECOHERENCE_CHAT_ONLY")
+	return only.is_empty() or only.split(",").has(section)
+
+
+func _cc_setup() -> void:
+	_shell_node().world_dry_run = true
+	_cr_connect()
+
+
+## Typed text as one key event per character (no waiting between them).
+func _cc_burst(text: String) -> void:
+	for i in range(text.length()):
+		Input.parse_input_event(_key_event(KEY_NONE, text.unicode_at(i)))
+
+
+## Counts a change of the buffer on screen (read only).
+func _cc_track() -> void:
+	var now := _cc().active_buffer()
+	if not _cc_last_active.is_empty() and now != _cc_last_active:
+		_cc_room_changes += 1
+	_cc_last_active = now
+
+
+## A line: the characters, then Enter, then a frame.
+func _cc_send(text: String) -> void:
+	_cc_burst(text)
+	Input.parse_input_event(_key_event(KEY_ENTER))
+	if not text.strip_edges().is_empty():
+		_cc_expected += 1
+	await _wait_frames(2)
+	_cc_track()
+
+
+func _cc_key(keycode: int, ctrl: bool = false, alt: bool = false) -> void:
+	Input.parse_input_event(_key_event(keycode, 0, alt, ctrl))
+	await _wait_frames(2)
+	_cc_track()
+
+
+func _cc_open(seed_value: int) -> void:
+	var cr := _cr()
+	if cr.is_inside():
+		_cr_say("leave")
+		await _wait_frames(3)
+	_cc_submits_base += cr.lines_received
+	cr.reset_session(seed_value)
+	_cr_say("chat")
+	await _wait_for(func(): return _cc().is_mounted(), 8.0)
+	await _wait_frames(3)
+	_cc_last_active = _cc().active_buffer()
+
+
+func _cc_rect(key: String) -> Rect2i:
+	return _cc().layout_snapshot()[key]
+
+
+func _cc_pane(ui: Array, key: String) -> Array:
+	var r := _cc_rect(key)
+	var out: Array = []
+	for y in range(r.position.y, r.position.y + r.size.y):
+		out.append(String(ui[y]).substr(r.position.x, r.size.x))
+	return out
+
+
+## Buffer ids in navigation order (read only).
+func _cc_order() -> Array:
+	return _cc_model().open_order()
+
+
+func _cc_rows(buffer_id: String) -> Array:
+	return _cc_model().rows_of(buffer_id)
+
+
+func _cc_texts(buffer_id: String) -> Array:
+	return _cc_rows(buffer_id).map(func(r): return ChatModel.plain_line(r))
+
+
+func _cc_join_all() -> void:
+	for rid in _cc_model().room_order:
+		if not bool(_cc_model().rooms[rid]["joined"]):
+			await _cc_send("/join " + String(rid))
+
+
+func _cc_self() -> String:
+	return _cc_model().self_handle
+
+
+func _cc_contact() -> String:
+	return _cr().contact_handle()
+
+
+func _cc_sorted(a: Array) -> bool:
+	var b := a.duplicate()
+	b.sort()
+	return a == b
+
+
+func _cc_sig(e: Dictionary) -> String:
+	return "%s|%s|%s" % [Color(e["color"]).to_html(), String(e["marker"]), String(e["tone"])]
+
+
+func _cc_has_run(text: String) -> bool:
+	return _cr_letter_run(text)
+
+
+## Body of a voice row as drawn ("[HH:MM] <HANDLE> body" -> body).
+func _cc_body(text: String) -> String:
+	var at := text.find("> ")
+	return text.substr(at + 2) if at >= 0 else text
+
+
+func _cc_side_row(ui: Array, title: String) -> int:
+	var side := _cc_rect("side")
+	for y in range(side.position.y, side.position.y + side.size.y):
+		var cells := String(ui[y]).substr(side.position.x, side.size.x)
+		if cells.substr(3).strip_edges().begins_with(title) and (cells.substr(3, title.length()) == title):
+			return y
+	return -1
+
+
+func _cc_unread_in_ui(ui: Array, title: String) -> int:
+	var y := _cc_side_row(ui, title)
+	if y < 0:
+		return -1
+	var side := _cc_rect("side")
+	var cells := String(ui[y]).substr(side.position.x, side.size.x)
+	var star := cells.find("*")
+	return String(cells.substr(star + 1)).strip_edges().to_int() if star >= 0 else 0
+
+
+func _cc_nav_total(ui: Array) -> int:
+	var re := RegEx.new()
+	re.compile("MESSAGES \\(([0-9]+)\\)")
+	var m := re.search(String(ui[0]))
+	return int(m.get_string(1)) if m != null else 0
+
+
+func _cc_dm_logged(handle: String, since_ms: int) -> Dictionary:
+	for e in _cr().emission_log:
+		if int(e["beat"]) == Chatroom.Beat.DM and String(e["handle"]) == handle and int(e["t_ms"]) >= since_ms:
+			return e
+	return {}
+
+
+func _cc_wait_dm_reply(handle: String, since_ms: int, timeout_sec: float) -> Dictionary:
+	await _wait_for(func(): return not _cc_dm_logged(handle, since_ms).is_empty(), timeout_sec)
+	return _cc_dm_logged(handle, since_ms)
+
+
+func _cc_dm_pool(handle: String) -> Array:
+	var dm = ChatroomScript.read_json(ChatroomScript.data_dir() + "/dm_script.json")
+	return (dm["replies"].get(handle, []) as Array).map(func(r): return String(r["plain"]))
+
+
+## --- features ----------------------------------------------------------------------------
+
+func _run_chat_features() -> void:
+	_cc_setup()
+	var cr := _cr()
+	var out := {}
+	if _cc_want("entry"):
+		await _cc_features_entry(out)
+	if _cc_want("nav"):
+		await _cc_features_nav(out)
+	if _cc_want("people"):
+		await _cc_features_people_and_switch(out)
+	if _cc_want("directory"):
+		await _cc_features_directory(out)
+	if _cc_want("dm"):
+		await _cc_features_dm(out)
+	if _cc_want("unread"):
+		await _cc_features_unread(out)
+	if _cc_want("room"):
+		await _cc_features_room(out)
+	if _cc_want("cmd"):
+		await _cc_features_cmd(out)
+	if _cc_want("attack"):
+		await _cc_features_entry_attack(out)
+	if _cc_want("keys"):
+		await _cc_features_keys(out)
+	if _cc_want("leave"):
+		await _cc_features_leave(out)
+	out["keys"] = out.get("keys", {})
+	var table: Dictionary = ChatroomScript.read_json(ChatroomScript.data_dir() + "/client_ui.json")["keys"]
+	out["keys"]["table_actions"] = table.size()
+	out["keys"]["actions_driven"] = _cc_driven.size()
+	out["keys"]["driven"] = _cc_driven.keys()
+	out["keys"]["direct_calls"] = _cc_direct_calls
+	out["keys"]["submits"] = _cc_submit_count()
+	out["keys"]["expected_submits"] = _cc_expected
+	if out.has("entry"):
+		out["entry"]["duplicate_submits"] = absi(_cc_submit_count() - _cc_expected)
+	_cr_part("features", out)
+	cr.reset_session(-1)
+
+
+func _cc_features_entry(out: Dictionary) -> void:
+	var cr := _cr()
+	cr.reset_session(1001)
+	var t0 := Time.get_ticks_msec()
+	_cr_say("chat")
+	await _wait_for(func(): return _cc().is_mounted() and _cc_rows(_cc().active_buffer()).size() >= 1, 8.0)
+	var ms := Time.get_ticks_msec() - t0
+	await _wait_frames(3)
+	var term := _terminal_node()
+	var panels := _panels_node()
+	var crt_layer: CanvasLayer = _scene().get_node("CRTLayer")
+	var chat_layer: CanvasLayer = _scene().get_node("ChatLayer")
+	var active := _cc().active_buffer()
+	var m := _cc_model()
+	out["entry"] = {
+		"first_buffer_kind": "room" if m.is_room(active) else "dm",
+		"room_is_entry_room": active == String(cr.room_script().get("entry_room", "")),
+		"dms_open": m.open_order().filter(func(id): return m.is_dm(String(id))).size(),
+		"banner_rows": _cc_rows(active).size(),
+		"ms_to_room": ms,
+	}
+	var mount := {
+		"client_mounted": _cc().is_mounted(),
+		"terminal_layer_hidden_while_open": not term.get_parent().visible,
+		"panels_layer_hidden_while_open": not panels.get_parent().visible,
+		"crt_overlay_visible": _scene().get_node("CRTLayer/CRTOverlay").visible and crt_layer.visible,
+		"crt_layer_above_client": crt_layer.layer > chat_layer.layer,
+	}
+	await _cc_nav_snapshot(out)
+	await _cc_send("hello")
+	await _wait_seconds(3.5)
+	_cr_say("leave")
+	await _wait_frames(4)
+	mount["restored_after_leave"] = term.get_parent().visible and panels.get_parent().visible and bool(term.get("_input_active"))
+	mount["client_freed_or_hidden_after_leave"] = (not chat_layer.visible) and not _cc().is_mounted()
+	out["mount"] = mount
+
+
+func _cc_nav_snapshot(out: Dictionary) -> void:
+	var ui_data: Dictionary = ChatroomScript.read_json(ChatroomScript.data_dir() + "/client_ui.json")
+	var items: Array = ui_data["nav"]["items"]
+	var ui := _cc().ui_text_snapshot()
+	var row0 := String(ui[0])
+	var all_labels := true
+	var fkeys := true
+	for it in items:
+		if not row0.contains(String(it["label"])):
+			all_labels = false
+		if not row0.contains("[" + String(it["key"]) + " "):
+			fkeys = false
+	var lit := 0
+	var plain := 0
+	for s in _cc().segments_snapshot():
+		if int(s["r"]) == 0 and String(s["t"]).begins_with("[F"):
+			if Color(s["col"]) == Palette.ORANGE:
+				lit += 1
+			else:
+				plain += 1
+	var re := RegEx.new()
+	re.compile("(?i)exit|leave|quit|close|help|guide|tutorial|start|learn")
+	out["nav"] = {
+		"items": items.size(),
+		"labels_match_data": all_labels and row0.contains(String(ui_data["nav"]["brand"])),
+		"on_row_zero": all_labels,
+		"active_marked": lit == 1 and plain == items.size() - 1,
+		"fkeys_ok": fkeys,
+		"rendered_in_snapshot": not row0.strip_edges().is_empty(),
+		"no_exit_label": re.search(row0) == null,
+	}
+
+
+func _cc_features_nav(out: Dictionary) -> void:
+	if not out.has("nav"):
+		await _cc_open(1001)
+		await _cc_nav_snapshot(out)
+
+
+## --- people and switching ------------------------------------------------------------------
+
+func _cc_features_people_and_switch(out: Dictionary) -> void:
+	var cr := _cr()
+	await _cc_open(1002)
+	await _cc_join_all()
+	await _wait_frames(3)
+	var m := _cc_model()
+	var rosters: Array = []
+	var count_ok := true
+	var rows_ok := true
+	var self_ok := true
+	var once_ok := true
+	var sorted_ok := true
+	for rid in m.room_order:
+		await _cc_switch_to_room(String(rid))
+		var snap := _cc().roster_snapshot()
+		var handles: Array = snap.map(func(e): return String(e["handle"]))
+		var ui := _cc().ui_text_snapshot()
+		var header := String(ui[1])
+		var re := RegEx.new()
+		re.compile("PEOPLE \\(([0-9]+)\\)")
+		var mm := re.search(header)
+		if mm == null or int(mm.get_string(1)) != snap.size() or snap.size() != m.roster(String(rid)).size():
+			count_ok = false
+		if handles != m.roster(String(rid)):
+			rows_ok = false
+		self_ok = self_ok and handles.has(_cc_self())
+		once_ok = once_ok and handles.count(_cc_self()) == 1
+		sorted_ok = sorted_ok and _cc_sorted(handles)
+		rosters.append(" ".join(PackedStringArray(handles)))
+	var distinct := {}
+	for r in rosters:
+		distinct[r] = true
+	# presence: wait until something joins or leaves in the room on screen, then compare
+	var active := m.active
+	var before: Array = _cc().roster_snapshot().map(func(e): return String(e["handle"]))
+	var t0 := Time.get_ticks_msec()
+	var changed: bool = await _wait_for(func(): return cr.emission_log.any(func(e): return int(e["beat"]) == Chatroom.Beat.PRESENCE and String(e["buffer"]) == active and int(e["t_ms"]) >= t0), 60.0)
+	await _wait_frames(3)
+	var after: Array = _cc().roster_snapshot().map(func(e): return String(e["handle"]))
+	out["people"] = {
+		"rooms_checked": m.room_order.size(),
+		"count_matches_header": count_ok,
+		"rows_match_model": rows_ok,
+		"includes_self": self_ok,
+		"self_listed_once": once_ok,
+		"sorted": sorted_ok,
+		"per_room_differs": distinct.size() == rosters.size(),
+		"updates_on_presence": changed and after != before and after == m.roster(active),
+	}
+	await _cc_features_switch(out)
+
+
+func _cc_switch_to_room(rid: String) -> void:
+	var guard := 0
+	while _cc().active_buffer() != rid and guard < 12:
+		await _cc_key(KEY_N, true)
+		guard += 1
+
+
+func _cc_features_switch(out: Dictionary) -> void:
+	var m := _cc_model()
+	var order := _cc_order()
+	await _cc_switch_to_room(String(order[0]))
+	var changes0 := _cc_room_changes
+	var by_n := false
+	var by_p := false
+	var wraps := false
+	var by_digit := false
+	var by_cmd := false
+	var by_f1 := false
+	# Ctrl+N forward one, Ctrl+P back one
+	var a := _cc().active_buffer()
+	await _cc_key(KEY_N, true)
+	by_n = _cc().active_buffer() == String(order[1])
+	await _cc_key(KEY_P, true)
+	by_p = _cc().active_buffer() == a
+	_cc_driven["buffer_next"] = by_n
+	_cc_driven["buffer_prev"] = by_p
+	# wrap: from the last buffer Ctrl+N lands on the first, from the first Ctrl+P on the last
+	await _cc_key(KEY_P, true)
+	var first_back_to_last := _cc().active_buffer() == String(order[order.size() - 1])
+	await _cc_key(KEY_N, true)
+	wraps = first_back_to_last and _cc().active_buffer() == String(order[0])
+	# Alt+3
+	await _cc_key(KEY_3, false, true)
+	by_digit = _cc().active_buffer() == String(order[2])
+	_cc_driven["buffer_jump"] = by_digit
+	# /join of a room already joined switches to it
+	await _cc_send("/join " + String(order[4]))
+	by_cmd = _cc().active_buffer() == String(order[4]) and _cc_order() == order
+	# F1, Down, Enter
+	await _cc_key(KEY_F1)
+	var in_list := _cc().view_name() == "rooms"
+	await _cc_key(KEY_DOWN)
+	await _cc_key(KEY_ENTER)
+	by_f1 = in_list and _cc().active_buffer() == String(order[0]) and _cc().view_name() == ""
+	_cc_driven["nav_rooms"] = in_list
+	# history is preserved across switches
+	var rows_before := _cc_rows(String(order[1])).size()
+	await _cc_switch_to_room(String(order[1]))
+	await _cc_switch_to_room(String(order[2]))
+	await _cc_switch_to_room(String(order[1]))
+	var history_ok := _cc_rows(String(order[1])).size() >= rows_before
+	# the active buffer is marked in the sidebar
+	var ui := _cc().ui_text_snapshot()
+	var title := String(m.buffers[m.active]["title"])
+	var marked := false
+	var y := _cc_side_row(ui, title)
+	for s in _cc().segments_snapshot():
+		if int(s["r"]) == y and String(s["t"]) == ">" and Color(s["col"]) == Palette.ORANGE:
+			marked = true
+	# a draft is kept per buffer
+	var start := _cc().active_buffer()
+	_cc_burst("draft-a")
+	await _wait_frames(2)
+	await _cc_key(KEY_N, true)
+	var cleared := _cc().input_text() == ""
+	_cc_burst("draft-b")
+	await _wait_frames(2)
+	await _cc_key(KEY_P, true)
+	var back_a := _cc().input_text() == "draft-a" and _cc().active_buffer() == start
+	await _cc_key(KEY_N, true)
+	var back_b := _cc().input_text() == "draft-b"
+	for i in range(8):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _cc_key(KEY_P, true)
+	for i in range(8):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _wait_frames(2)
+	out["switch"] = {
+		"room_changes": _cc_room_changes - changes0,
+		"by_ctrl_n": by_n,
+		"by_ctrl_p": by_p,
+		"by_alt_digit": by_digit,
+		"by_command": by_cmd,
+		"by_nav_f1": by_f1,
+		"wraps_around": wraps,
+		"history_preserved": history_ok,
+		"active_marked": marked,
+		"draft_input_per_buffer": cleared and back_a and back_b and _cc().input_text() == "",
+	}
+
+
+## --- directory -----------------------------------------------------------------------------------
+
+func _cc_features_directory(out: Dictionary) -> void:
+	var cr := _cr()
+	await _cc_open(1004)
+	var m := _cc_model()
+	var data_rooms: int = cr.room_script()["rooms"].size()
+	await _cc_key(KEY_F2)
+	var opened := _cc().view_name() == "directory"
+	_cc_driven["nav_directory"] = opened
+	var ui := _cc().ui_text_snapshot()
+	var main_lines := _cc_pane(ui, "main")
+	var listed := 0
+	var counts_ok := true
+	var scrambled_ok := true
+	var re := RegEx.new()
+	re.compile("^\\s*[> ]\\s*(CHANNEL [0-9]+)\\s+([0-9]+)\\s\\s(.*)$")
+	for line in main_lines:
+		var mm := re.search(String(line).strip_edges(false, true))
+		if mm == null:
+			continue
+		listed += 1
+		var rid := m.room_id_for(mm.get_string(1))
+		if rid.is_empty() or int(mm.get_string(2)) != m.member_count(rid):
+			counts_ok = false
+		var topic_shown := mm.get_string(3).strip_edges()
+		if _cc_has_run(topic_shown) or topic_shown == String(m.rooms[rid]["topic"]):
+			scrambled_ok = false
+	# the selection wraps both ways
+	await _cc_key(KEY_UP)
+	var wrap_up := _cc().selection_index() == data_rooms - 1
+	await _cc_key(KEY_DOWN)
+	var wrap_down := _cc().selection_index() == 0
+	# Esc closes it
+	await _cc_key(KEY_ESCAPE)
+	var esc := _cc().view_name() == ""
+	_cc_driven["close_view"] = esc
+	# join by Enter: F2, Down, Enter joins the second room
+	await _cc_key(KEY_F2)
+	await _cc_key(KEY_DOWN)
+	var target := String(m.room_order[1])
+	await _cc_key_submits(KEY_ENTER)
+	await _wait_frames(3)
+	var by_enter: bool = bool(m.rooms[target]["joined"]) and m.active == target and _cc().view_name() == ""
+	var join_seen: bool = _cc_texts(target).any(func(t): return String(t).contains(_cc_self()) and String(t).contains("HAS JOINED"))
+	var roster_self := _cc().roster_snapshot().any(func(e): return String(e["handle"]) == _cc_self())
+	# join by command, idempotent re-join, unknown refused
+	var third := String(m.room_order[2])
+	await _cc_send("/join " + third)
+	var by_cmd: bool = bool(m.rooms[third]["joined"]) and m.active == third
+	var joins_before: int = _cc_texts(third).filter(func(t): return String(t).contains("HAS JOINED") and String(t).contains(_cc_self())).size()
+	var order_before := _cc_order()
+	await _cc_send("/join " + third)
+	var joins_after: int = _cc_texts(third).filter(func(t): return String(t).contains("HAS JOINED") and String(t).contains(_cc_self())).size()
+	var idempotent := joins_after == joins_before and _cc_order() == order_before
+	var rows_before := _cc_rows(m.active).size()
+	await _cc_send("/join nowhere")
+	var refused: bool = _cc_order() == order_before and _cc_texts(m.active).size() == rows_before + 1 and String(_cc_texts(m.active)[-1]).contains(cr.ui_string("no_such_channel"))
+	# a room that was left is still listed, but not joined
+	await _cc_send("/part")
+	await _cc_key(KEY_F2)
+	var ui2 := _cc().ui_text_snapshot()
+	var listed_after := 0
+	for line in _cc_pane(ui2, "main"):
+		if re.search(String(line).strip_edges(false, true)) != null:
+			listed_after += 1
+	var parted_ok: bool = (not bool(m.rooms[third]["joined"])) and listed_after == data_rooms
+	await _cc_key(KEY_ESCAPE)
+	out["directory"] = {
+		"opened_by_f2": opened,
+		"lists_all_rooms": listed == data_rooms,
+		"rows": listed,
+		"rooms_in_data": data_rooms,
+		"member_counts_match": counts_ok,
+		"topics_scrambled": scrambled_ok,
+		"join_by_enter": by_enter,
+		"join_by_command": by_cmd,
+		"rejoin_idempotent": idempotent,
+		"unknown_room_refused": refused,
+		"esc_closes": esc,
+		"joined_roster_has_self": roster_self,
+		"join_line_seen": join_seen,
+		"selection_wraps": wrap_up and wrap_down,
+		"parted_room_listed_not_joined": parted_ok,
+	}
+
+
+## A key that makes the client submit a line (F2 + Enter, F4 + Enter, Ctrl+W, Ctrl+Q).
+func _cc_key_submits(keycode: int, ctrl: bool = false) -> void:
+	_cc_expected += 1
+	await _cc_key(keycode, ctrl)
+
+
+## One line to the contact thread, then wait for that turn to finish.
+func _cc_ask_client(text: String, timeout_sec: float = 20.0) -> bool:
+	var cr := _cr()
+	var before := _cr_turns_done(cr)
+	await _cc_send(text)
+	var done: bool = await _wait_for(func(): return _cr_turns_done(cr) > before, timeout_sec)
+	await _wait_frames(2)
+	return done
+
+
+## --- direct messages -------------------------------------------------------------------------
+
+func _cc_features_dm(out: Dictionary) -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	await _cc_open(1005)
+	var m := _cc_model()
+	var room_id := m.active
+	var req0 := llm.request_count
+	var t_send := Time.get_ticks_msec()
+	await _cc_send("/msg XEN-4 hello")
+	var open_by_msg: bool = m.active == "dm:XEN-4" and m.is_open("dm:XEN-4")
+	var ui := _cc().ui_text_snapshot()
+	var header := String(ui[1])
+	var main_text := "\n".join(PackedStringArray(_cc_pane(ui, "main")))
+	var own_pane: bool = header.contains(cr.ui_string("dm_header")) and header.contains("XEN-4") and main_text.contains("hello")
+	var in_sidebar: bool = _cc_side_row(ui, "XEN-4") >= 0 and "\n".join(PackedStringArray(_cc_pane(ui, "side"))).contains(cr.ui_string("direct_title"))
+	var dm_rows_clean: bool = _cc_rows("dm:XEN-4").all(func(r): return String(r["handle"]) == "XEN-4" or String(r["handle"]) == _cc_self())
+	var room_clean: bool = not _cc_texts(room_id).any(func(t): return String(t).contains("hello"))
+	var e := await _cc_wait_dm_reply("XEN-4", t_send, 8.0)
+	var replied := not e.is_empty()
+	var delay := int(e.get("t_ms", 0)) - t_send
+	var body := _cc_body(String(e.get("row", "")))
+	var scrambled := replied and body != String(e["plain"]) and body.length() == String(e["plain"]).length() and not _cc_has_run(body)
+	var from_pool := replied and _cc_dm_pool("XEN-4").has(String(e["plain"]))
+	var reply_llm := llm.request_count - req0
+	# people list: Enter opens a direct message with the selected person
+	await _cc_key(KEY_N, true)
+	while _cc().active_buffer() != room_id:
+		await _cc_key(KEY_N, true)
+	await _cc_key(KEY_F4)
+	var people_open := _cc().view_name() == "people"
+	var roster: Array = _cc().roster_snapshot().map(func(r): return String(r["handle"]))
+	var pick := ""
+	for h in roster:
+		if String(h) != _cc_self() and String(h) != _cc_contact() and String(h) != "XEN-4":
+			pick = String(h)
+			break
+	for i in range(roster.find(pick)):
+		await _cc_key(KEY_DOWN)
+	await _cc_key_submits(KEY_ENTER)
+	await _wait_frames(3)
+	var by_people: bool = people_open and m.active == "dm:" + pick and m.is_open("dm:" + pick)
+	_cc_driven["nav_people"] = people_open
+	# a reply to a window that was closed in the meantime reopens it
+	var t2 := Time.get_ticks_msec()
+	await _cc_send("/msg OBL-17 ping")
+	await _cc_key_submits(KEY_W, true)
+	var closed_now := not m.is_open("dm:OBL-17")
+	_cc_driven["close_buffer"] = closed_now
+	var e2 := await _cc_wait_dm_reply("OBL-17", t2, 8.0)
+	await _wait_frames(3)
+	var reopened: bool = closed_now and not e2.is_empty() and m.is_open("dm:OBL-17") and m.unread_of("dm:OBL-17") > 0 and m.active != "dm:OBL-17"
+	# closing keeps the history; opening it again shows the old rows
+	await _cc_send("/msg XEN-4")
+	var rows_before := _cc_rows("dm:XEN-4").size()
+	await _cc_key_submits(KEY_W, true)
+	var gone := not m.is_open("dm:XEN-4")
+	await _cc_send("/msg XEN-4")
+	var keeps: bool = gone and m.is_open("dm:XEN-4") and _cc_rows("dm:XEN-4").size() >= rows_before and _cc_texts("dm:XEN-4").any(func(t): return String(t).contains("hello"))
+	# refusals
+	var self_before := m.buffers.size()
+	await _cc_send("/msg %s hi" % _cc_self())
+	var to_self: bool = String(_cc_texts(m.active)[-1]).contains(cr.ui_string("self_message")) and m.buffers.size() == self_before
+	await _cc_send("/msg NOBODY-0 hi")
+	var to_unknown: bool = String(_cc_texts(m.active)[-1]).contains(cr.ui_string("no_such_user")) and not m.buffers.has("dm:NOBODY-0")
+	# every ordinary person answers (nobody is silent)
+	var people: Array = m.known_handles().filter(func(h): return String(h) != _cc_contact())
+	var t3 := Time.get_ticks_msec()
+	for h in people:
+		await _cc_send("/msg %s ping" % String(h))
+	await _wait_seconds(5.2)
+	var silent := 0
+	for h in people:
+		if _cc_dm_logged(String(h), t3).is_empty():
+			silent += 1
+	out["dm"] = {
+		"open_by_msg": open_by_msg,
+		"open_by_people_select": by_people,
+		"own_pane": own_pane,
+		"isolated_from_room": dm_rows_clean and room_clean,
+		"reply_scrambled": scrambled,
+		"reply_llm_requests": reply_llm,
+		"reply_delay_in_range": replied and delay >= 1000 and delay <= 4500,
+		"reply_from_script_pool": from_pool,
+		"incoming_to_closed_dm_reopens": reopened,
+		"close_keeps_history": keeps,
+		"dm_list_in_sidebar": in_sidebar,
+		"to_self_refused": to_self,
+		"to_unknown_refused": to_unknown,
+		"silent_ambient_count": silent,
+		"ambient_people_messaged": people.size(),
+	}
+
+
+## --- unread --------------------------------------------------------------------------------------
+
+func _cc_dm_unread_sum_in_ui(ui: Array) -> int:
+	var sum := 0
+	var m := _cc_model()
+	for id in m.buffers:
+		if m.is_dm(String(id)) and m.is_open(String(id)):
+			var n := _cc_unread_in_ui(ui, String(m.buffers[id]["title"]))
+			sum += maxi(n, 0)
+	return sum
+
+
+func _cc_features_unread(out: Dictionary) -> void:
+	var cr := _cr()
+	await _cc_open(1006)
+	var m := _cc_model()
+	await _cc_send("/join channel3")
+	await _cc_send("/join channel12")
+	# channel12 is on screen; the entry room fills up behind it
+	var away := "channel7"
+	var grew: bool = await _wait_for(func(): return m.unread_of(away) >= 2, 40.0)
+	await _wait_frames(3)
+	var ui := _cc().ui_text_snapshot()
+	var marker_text := _cc_unread_in_ui(ui, String(m.buffers[away]["title"]))
+	var increments: bool = grew and marker_text == m.unread_of(away)
+	var in_ui: bool = marker_text > 0
+	# pixels of that sidebar row's right end, unread then read
+	var factor := get_window().content_scale_factor
+	var side := _cc_rect("side")
+	var y := _cc_side_row(ui, String(m.buffers[away]["title"]))
+	var cell := Rect2(float((side.position.x + side.size.x - 7) * ChatLayout.CELL_W), float(y * ChatLayout.CELL_H), float(6 * ChatLayout.CELL_W), float(ChatLayout.CELL_H))
+	var img1 := await _grab()
+	var lit_unread := int(_region_stats(img1, _phys(cell, factor))["lit"])
+	await _cc_switch_to_room(away)
+	await _wait_frames(3)
+	var ui2 := _cc().ui_text_snapshot()
+	var cleared: bool = m.unread_of(away) == 0 and _cc_unread_in_ui(ui2, String(m.buffers[away]["title"])) == 0
+	var img2 := await _grab()
+	var lit_read := int(_region_stats(img2, _phys(cell, factor))["lit"])
+	# the buffer on screen never counts, however much arrives
+	var seen0 := cr.emission_log.filter(func(e): return String(e["buffer"]) == away and int(e["beat"]) == Chatroom.Beat.AMBIENT).size()
+	await _wait_seconds(8.0)
+	var seen1 := cr.emission_log.filter(func(e): return String(e["buffer"]) == away and int(e["beat"]) == Chatroom.Beat.AMBIENT).size()
+	var never_active: bool = m.unread_of(away) == 0 and seen1 > seen0
+	# a room left alone keeps its count while other buffers are visited
+	await _cc_key(KEY_1, false, true)
+	await _cc_key(KEY_3, false, true)
+	var held: bool = await _wait_for(func(): return m.unread_of("channel3") >= 2, 40.0)
+	var n3: int = m.unread_of("channel3")
+	await _cc_key(KEY_1, false, true)
+	await _cc_key(KEY_3, false, true)
+	await _cc_key(KEY_1, false, true)
+	var survives: bool = held and m.unread_of("channel3") >= n3
+	# a reply into a direct message that is not on screen marks it and the nav bar
+	await _cc_send("/msg XEN-4 hi")
+	var t0 := Time.get_ticks_msec()
+	await _cc_key(KEY_1, false, true)
+	var e := await _cc_wait_dm_reply("XEN-4", t0 - 600, 8.0)
+	await _wait_frames(3)
+	var ui3 := _cc().ui_text_snapshot()
+	var dm_marks: bool = not e.is_empty() and m.unread_of("dm:XEN-4") == 1 and _cc_nav_total(ui3) == 1 and _cc_unread_in_ui(ui3, "XEN-4") == 1
+	await _cc_send("/msg NUL-9 hi")
+	var t1 := Time.get_ticks_msec()
+	await _cc_key(KEY_1, false, true)
+	var e2 := await _cc_wait_dm_reply("NUL-9", t1 - 600, 8.0)
+	await _wait_frames(3)
+	var ui4 := _cc().ui_text_snapshot()
+	var total_ok: bool = not e2.is_empty() and m.unread_total() == 2 and _cc_nav_total(ui4) == 2 and _cc_dm_unread_sum_in_ui(ui4) == 2
+	# F3 opens the newest unread direct message; with none unread it focuses the list
+	await _cc_key(KEY_F3)
+	var newest := _cc().active_buffer() == "dm:NUL-9"
+	await _cc_key(KEY_F3)
+	await _cc_key(KEY_F3)
+	_cc_driven["nav_messages"] = newest
+	# visiting everything zeroes everything
+	await _cc_key(KEY_ESCAPE)
+	# Viewing a buffer zeroes it. Traffic keeps arriving in the buffers not on screen while the
+	# others are visited, so "zero at the end" would be a race: instead every buffer must read zero
+	# the moment it is viewed, and afterwards hold at least the counting rows that arrived after
+	# it was left (read once it is certainly off screen) and at most those that arrived after it
+	# was reached (a row that lands while it is still on screen is the only slack).
+	var arrived := {}
+	var left := {}
+	var zero_when_viewed := true
+	for i in range(m.open_order().size() + 1):
+		var before := _cc().active_buffer()
+		await _cc_key(KEY_N, true)
+		left[before] = m.rows_of(before).size()
+		var cur := _cc().active_buffer()
+		zero_when_viewed = zero_when_viewed and m.unread_of(cur) == 0
+		arrived[cur] = m.rows_of(cur).size()
+	var exact := true
+	for id in m.open_order():
+		var low := 0
+		var high := 0
+		for r in m.rows_of(String(id)).slice(int(left.get(String(id), 0))):
+			if String(r["kind"]) == "voice" or String(r["kind"]) == "action":
+				low += 1
+		for r in m.rows_of(String(id)).slice(int(arrived.get(String(id), 0))):
+			if String(r["kind"]) == "voice" or String(r["kind"]) == "action":
+				high += 1
+		if String(id) == _cc().active_buffer():
+			low = 0
+			high = 0
+		var got: int = m.unread_of(String(id))
+		if got < low or got > high:
+			exact = false
+	var ui5 := _cc().ui_text_snapshot()
+	var all_zero := zero_when_viewed and exact and _cc_nav_total(ui5) == m.unread_total()
+	out["unread"] = {
+		"increments_while_away": increments,
+		"clears_on_view": cleared,
+		"active_never_counts": never_active,
+		"nav_total_equals_sum_of_buffers": total_ok,
+		"sidebar_marker_in_ui_text": in_ui,
+		"marker_pixels_differ_from_read_row": lit_unread > lit_read,
+		"dm_incoming_marks_dm_and_nav": dm_marks,
+		"survives_switching": survives,
+		"zero_after_visiting_all": all_zero,
+		"lit_unread": lit_unread,
+		"lit_read": lit_read,
+	}
+
+
+## --- the chat room itself ----------------------------------------------------------------------------
+
+func _cc_main_snapshot() -> Array:
+	return _cc_pane(_cc().ui_text_snapshot(), "main")
+
+
+func _cc_features_room(out: Dictionary) -> void:
+	var cr := _cr()
+	await _cc_open(1007)
+	var m := _cc_model()
+	var room := {}
+	room["scrollback_cap"] = ChatModel.MAX_ROWS
+	# cursor editing: Left, Right, Home, End, Delete, Backspace
+	_cc_burst("abcd")
+	await _cc_key(KEY_LEFT)
+	await _cc_key(KEY_LEFT)
+	_cc_burst("X")
+	await _wait_frames(1)
+	var e1 := _cc().input_text() == "abXcd"
+	await _cc_key(KEY_DELETE)
+	var e2 := _cc().input_text() == "abXd"
+	await _cc_key(KEY_HOME)
+	_cc_burst("Y")
+	await _wait_frames(1)
+	var e3 := _cc().input_text() == "YabXd"
+	await _cc_key(KEY_END)
+	_cc_burst("Z")
+	await _cc_key(KEY_BACKSPACE)
+	var e4 := _cc().input_text() == "YabXd"
+	for i in range(6):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _wait_frames(2)
+	room["cursor_editing_ok"] = e1 and e2 and e3 and e4 and _cc().input_text() == ""
+	# name completion
+	var names: Array = _cc().roster_snapshot().map(func(r): return String(r["handle"])).filter(func(h): return h != _cc_self())
+	names.sort()
+	var want := String(names[0])
+	_cc_burst(want.substr(0, 3).to_lower())
+	await _cc_key(KEY_TAB)
+	var tab_ok := _cc().input_text().begins_with(want)
+	_cc_driven["nick_complete"] = tab_ok
+	room["nick_complete_tab"] = tab_ok
+	for i in range(20):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _wait_frames(2)
+	# a long input is capped
+	_cc_burst("a".repeat(230))
+	await _wait_frames(2)
+	room["long_input_capped_200"] = _cc().input_text().length() == 200
+	for i in range(210):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _wait_frames(2)
+	# a long line wraps inside the pane (it is also the first message, answered by a scripted voice)
+	var long_line := " ".join(PackedStringArray(["alphabet"] + range(24).map(func(i): return "word%d" % i)))
+	await _cc_send(long_line)
+	await _wait_seconds(3.8)
+	var gutters_clear := true
+	var ui := _cc().ui_text_snapshot()
+	for key in ["gutter_a", "gutter_b"]:
+		var g := _cc_rect(key)
+		for y in range(g.position.y, g.position.y + g.size.y):
+			if String(ui[y]).substr(g.position.x, g.size.x).strip_edges() != "":
+				gutters_clear = false
+	var wrapped := ChatModel.format_row({"kind": "self", "handle": _cc_self(), "text": long_line, "t": "00:00"}, _cc_rect("main").size.x - 1)
+	room["rows_wrapped_within_pane"] = gutters_clear and wrapped.size() >= 2 and _cc().stats_snapshot()["overflow"] == 0 and String(ui[_cc_rect("main").position.y]).length() == _cc().layout_snapshot()["cols"]
+	# a scripted room for the rest: history, echo, empty lines, the flood
+	await _cc_send("/join channel3")
+	await _cc_send("h1")
+	await _cc_send("h2")
+	await _cc_key(KEY_UP)
+	var h1 := _cc().input_text() == "h2"
+	await _cc_key(KEY_UP)
+	var h2 := _cc().input_text() == "h1"
+	await _cc_key(KEY_DOWN)
+	var h3 := _cc().input_text() == "h2"
+	await _cc_key(KEY_DOWN)
+	var h4 := _cc().input_text() == ""
+	_cc_driven["history_prev"] = h1 and h2
+	_cc_driven["history_next"] = h3 and h4
+	room["history_up_down"] = h1 and h2 and h3 and h4
+	await _cc_send("echo check")
+	var own: Array = _cc_rows("channel3").filter(func(r): return String(r["kind"]) == "self")
+	var echoed: bool = not own.is_empty() and String(own[-1]["handle"]) == _cc_self() and String(own[-1]["text"]) == "echo check" and _cc().rows_snapshot().any(func(r): return String(r["text"]).ends_with("<%s> echo check" % _cc_self()))
+	_cc_driven["send"] = echoed
+	room["own_line_echoed_with_own_handle"] = echoed
+	var rows0 := _cc_rows("channel3").size()
+	var subs0 := _cc_submit_count()
+	await _cc_key(KEY_ENTER)
+	Input.parse_input_event(_key_event(KEY_NONE, 32))
+	Input.parse_input_event(_key_event(KEY_NONE, 32))
+	await _cc_key(KEY_ENTER)
+	await _wait_frames(3)
+	room["empty_line_ignored"] = _cc_rows("channel3").filter(func(r): return String(r["kind"]) == "self").size() == own.size() and _cc_submit_count() == subs0 and _cc().input_text() == ""
+	# the flood: more than the cap, the oldest rows are dropped
+	for i in range(270):
+		await _cc_send("x%d" % i)
+	await _wait_frames(3)
+	var texts := _cc_texts("channel3")
+	room["scrollback_trimmed_oldest"] = _cc_rows("channel3").size() == ChatModel.MAX_ROWS and not texts.any(func(t): return String(t).contains(_cc_self()) and String(t).contains("HAS JOINED"))
+	# scrolling back and forward
+	await _cc_key(KEY_PAGEUP)
+	var up1: bool = int(m.buffers["channel3"]["scroll"]) > 0 and String(_cc().ui_text_snapshot()[_cc_rect("status").position.y]).contains("BACK")
+	_cc_driven["scroll_up"] = up1
+	room["pageup_scrolls"] = up1
+	await _cc_key(KEY_PAGEUP)
+	await _cc_key(KEY_PAGEUP)
+	for i in range(5):
+		await _cc_key(KEY_PAGEDOWN)
+	var down1: bool = int(m.buffers["channel3"]["scroll"]) == 0
+	_cc_driven["scroll_down"] = down1
+	room["pagedown_to_live"] = down1
+	await _cc_key(KEY_PAGEUP)
+	await _cc_key(KEY_PAGEUP)
+	await _cc_key(KEY_END, true)
+	var live1: bool = int(m.buffers["channel3"]["scroll"]) == 0
+	_cc_driven["scroll_live"] = live1
+	room["ctrl_end_to_live"] = live1
+	# new rows do not yank a scrolled-back view
+	await _cc_key(KEY_PAGEUP)
+	var view_before := _cc_main_snapshot()
+	var scroll_before: int = int(m.buffers["channel3"]["scroll"])
+	var arrivals0 := cr.emission_log.filter(func(e): return String(e["buffer"]) == "channel3").size()
+	await _wait_for(func(): return cr.emission_log.filter(func(e): return String(e["buffer"]) == "channel3").size() >= arrivals0 + 2, 20.0)
+	await _wait_frames(3)
+	room["new_rows_do_not_yank_when_scrolled"] = _cc_main_snapshot() == view_before and int(m.buffers["channel3"]["scroll"]) > scroll_before
+	await _cc_key(KEY_END, true)
+	# every row carries a timestamp
+	var re := RegEx.new()
+	re.compile("^\\[[0-9]{2}:[0-9]{2}\\] ")
+	var all_rows: Array = _cc().rows_snapshot()
+	room["timestamps_all_rows"] = all_rows.size() > 0 and all_rows.all(func(r): return re.search(String(r["text"])) != null)
+	# scripted joins and leaves show up as lines (the player's own join lines do not count)
+	var jl := RegEx.new()
+	jl.compile("HAS (JOINED|LEFT)")
+	var scripted_presence := func() -> int:
+		var n := 0
+		for r in _cc().rows_snapshot():
+			if String(r["kind"]) == "presence" and jl.search(String(r["text"])) != null and not String(r["text"]).contains(_cc_self()):
+				n += 1
+		return n
+	await _wait_for(func(): return int(scripted_presence.call()) >= 3, 100.0)
+	room["join_leave_lines"] = int(scripted_presence.call())
+	out["room"] = room
+
+
+## --- slash commands ------------------------------------------------------------------------------------
+
+func _cc_features_cmd(out: Dictionary) -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	await _cc_open(1008)
+	var m := _cc_model()
+	var found0 := int(_cr_counts["found"])
+	var req0 := llm.request_count
+	var cmd := {}
+	await _cc_send("/join channel19")
+	cmd["join"] = bool(m.rooms["channel19"]["joined"]) and m.active == "channel19"
+	await _cc_send("/list")
+	var listed: Array = _cc_texts(m.active).slice(-5)
+	cmd["list"] = listed.size() == 5 and listed.all(func(t): return String(t).contains("CHANNEL"))
+	await _cc_send("/who")
+	var who: Array = m.roster(m.active)
+	var who_rows: Array = _cc_texts(m.active).slice(-who.size())
+	var who_ok := true
+	for i in range(who.size()):
+		who_ok = who_ok and who_rows[i] == who[i]
+	cmd["who"] = who_ok
+	await _cc_send("/clear")
+	cmd["clear"] = _cc_rows("channel19").size() == 0
+	await _cc_send("/zork")
+	var unk := String(_cc_texts(m.active)[-1])
+	cmd["unknown_in_register"] = unk == cr.ui_string("unknown_command")
+	var sug := RegEx.new()
+	sug.compile("(?i)join|part|list|who|msg|clear|try|mean|type|usage")
+	cmd["unknown_has_no_suggestion"] = sug.search(unk) == null
+	await _cc_send("/msg XEN-4")
+	var opened := m.active == "dm:XEN-4"
+	await _cc_send("/me")
+	await _cc_send("/msg")
+	await _cc_send("/msg XEN-4   ")
+	await _cc_send("/part")
+	cmd["part"] = opened and not m.is_open("dm:XEN-4") and m.is_open("channel19")
+	cmd["msg"] = opened
+	await _cc_send("/part")
+	await _wait_seconds(5.0)
+	cmd["commands_not_counted_as_messages"] = int(_cr_counts["found"]) == found0 and cr.state == ChatroomScript.ST_ROOM and llm.request_count == req0 and not cr.is_busy()
+	# the last remaining buffer is never closed
+	var last_before := _cc_order()
+	await _cc_send("/part")
+	cmd["part_last_buffer_refused"] = last_before.size() == 1 and _cc_order() == last_before and String(_cc_texts(m.active)[-1]) == cr.ui_string("last_buffer") and not _cc_texts(m.active).any(func(t): return String(t).contains("HAS LEFT"))
+	# /me is a sent message: an action row, and it starts the contact timer
+	await _cc_send("/me waves")
+	var mine_rows: Array = _cc_rows(m.active).filter(func(r): return String(r["kind"]) == "action")
+	cmd["me"] = not mine_rows.is_empty() and ChatModel.plain_line(mine_rows[-1]) == "* %s waves" % _cc_self()
+	await _wait_for(func(): return int(_cr_counts["found"]) > found0, 6.0)
+	out["cmd"] = cmd
+
+
+## --- the entry word, attacked ---------------------------------------------------------------------------
+
+func _cc_features_entry_attack(out: Dictionary) -> void:
+	var cr := _cr()
+	var shell := _shell_node()
+	await _cc_open(1010)
+	var res := {}
+	_cr_set_mode("ok")
+	await _cc_send(CR_HELLO)
+	await _wait_for(func(): return cr.state == ChatroomScript.ST_BRIEFING, 8.0)
+	await _wait_seconds(1.0)
+	for q in CR_ASKS:
+		await _cc_ask_client(String(q))
+	await _cc_ask_client("ok")
+	res["reached_offer"] = cr.state == ChatroomScript.ST_OFFERED
+	var contact_buffer := _cc().active_buffer()
+	var w0 := shell.world_request_count
+	await _cc_ask_client("İ accept")
+	res["dotted_i_accept_world_requests"] = shell.world_request_count - w0
+	var w1 := shell.world_request_count
+	await _cc_ask_client("accept.")
+	res["punct_accept_world_requests"] = shell.world_request_count - w1
+	var w2 := shell.world_request_count
+	await _cc_ask_client("еnter")
+	res["cyrillic_accept_world_requests"] = shell.world_request_count - w2
+	var w3 := shell.world_request_count
+	await _cc_ask_client("ｅｎｔｅｒ")
+	res["fullwidth_accept_world_requests"] = shell.world_request_count - w3
+	# the exact word in any other buffer is an ordinary scripted line
+	var w4 := shell.world_request_count
+	await _cc_send("/join channel3")
+	await _cc_send("enter")
+	await _cc_send("/msg XEN-4 hi")
+	await _cc_send("accept")
+	await _wait_frames(4)
+	res["accept_in_other_buffer_world_requests"] = shell.world_request_count - w4
+	var still_offered := cr.state == ChatroomScript.ST_OFFERED
+	await _cc_switch_to_room(contact_buffer)
+	var w5 := shell.world_request_count
+	await _cc_send("enter")
+	await _wait_frames(4)
+	res["exact_accept_world_requests"] = (shell.world_request_count - w5) if still_offered else -1
+	out["entry_attack"] = res
+
+
+## --- every key of the table, and the fullscreen toggles ----------------------------------------------------
+
+func _cc_features_keys(out: Dictionary) -> void:
+	await _cc_open(1011)
+	var keys := {}
+	var win := get_window()
+	var input_before := _cc().input_text()
+	await _press(KEY_F11)
+	await _wait_mode(win, "fullscreen")
+	var f11_fs := _display_state(win) == "fullscreen"
+	await _press(KEY_F11)
+	await _wait_mode(win, "windowed")
+	keys["f11_still_toggles_fullscreen"] = f11_fs and _display_state(win) == "windowed" and _cc().input_text() == input_before
+	_cc_burst("abc")
+	await _wait_frames(2)
+	var subs0 := _cc_submit_count()
+	await _press(KEY_ENTER, 0, true)
+	await _wait_mode(win, "fullscreen")
+	var alt_fs := _display_state(win) == "fullscreen"
+	var kept := _cc().input_text() == "abc" and _cc_submit_count() == subs0
+	await _press(KEY_ENTER, 0, true)
+	await _wait_mode(win, "windowed")
+	keys["alt_enter_still_toggles"] = alt_fs and kept and _display_state(win) == "windowed"
+	for i in range(3):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _wait_frames(2)
+	for k in [KEY_F1, KEY_F2, KEY_F3, KEY_F4]:
+		await _cc_key(k)
+		await _cc_key(KEY_ESCAPE)
+	keys["fkeys_not_inserted_as_text"] = _cc().input_text() == "" and _cc().view_name() == ""
+	out["keys"] = keys
+
+
+## --- leaving -----------------------------------------------------------------------------------------------
+
+func _cc_left_ok(shell: ShellController) -> bool:
+	return shell.current_state_name() == "SHELL" and not _cc().is_mounted() and bool(_terminal_node().get("_input_active"))
+
+
+func _cc_features_leave(out: Dictionary) -> void:
+	var shell := _shell_node()
+	var res := {}
+	var each := true
+	var i := 0
+	for word in ["leave", "exit", "quit", "/leave", "/exit", "/quit"]:
+		await _cc_open(1012 + i)
+		await _cc_send(String(word))
+		await _wait_frames(4)
+		if not _cc_left_ok(shell):
+			each = false
+		i += 1
+	res["each_word_returns_to_shell"] = each
+	await _cc_open(1020)
+	await _cc_key_submits(KEY_Q, true)
+	await _wait_frames(4)
+	res["ctrl_q_returns_to_shell"] = _cc_left_ok(shell)
+	_cc_driven["quit"] = res["ctrl_q_returns_to_shell"]
+	res["terminal_input_active"] = bool(_terminal_node().get("_input_active"))
+	res["state_is_shell"] = shell.current_state_name() == "SHELL"
+	var mark := _ext_rendered.size()
+	await _type_line("dir")
+	var alive: bool = await _wait_for(func(): return _ext_rendered.slice(mark).any(func(t): return String(t).begins_with("DIRECTORY LISTING")), 5.0)
+	res["shell_alive"] = alive
+	# leaving and coming back resumes the buffers
+	await _cc_open(1021)
+	await _cc_send("/join channel3")
+	await _cc_send("/msg XEN-4 yo")
+	var order_before := _cc_order()
+	var counts_before: Array = order_before.map(func(id): return _cc_rows(String(id)).size())
+	var active_before := _cc().active_buffer()
+	_cr_say("leave")
+	await _wait_frames(4)
+	_cr_say("chat")
+	await _wait_for(func(): return _cc().is_mounted(), 8.0)
+	await _wait_frames(3)
+	var order_after := _cc_order()
+	var resumed := order_after == order_before
+	for n in range(order_after.size()):
+		if _cc_rows(String(order_after[n])).size() < int(counts_before[n]):
+			resumed = false
+	res["reenter_resumes_buffers"] = resumed and _cc().active_buffer() == active_before
+	var hint := RegEx.new()
+	hint.compile("(?i)exit|leave|quit|close|help|ctrl[+]")
+	var seen_hint := 0
+	for line in _cc().ui_text_snapshot():
+		if hint.search(String(line)) != null:
+			seen_hint += 1
+	for r in _cc().rows_snapshot():
+		if String(r["kind"]) != "self" and hint.search(String(r["text"])) != null:
+			seen_hint += 1
+	res["no_leave_hint_rendered"] = seen_hint == 0
+	out["leave"] = res
+
+
+## --- canon -------------------------------------------------------------------------------------------------
+
+func _cc_concept_hits(texts: Array) -> int:
+	var re := RegEx.new()
+	re.compile(CC_CONCEPT)
+	var n := 0
+	for t in texts:
+		if re.search(String(t)) != null:
+			n += 1
+	return n
+
+
+func _cc_all_ui_strings(snaps: Array) -> Array:
+	var out: Array = []
+	for snap in snaps:
+		for line in snap:
+			var t := String(line).strip_edges()
+			if not t.is_empty():
+				out.append(t)
+	return out
+
+
+func _run_chat_canon() -> void:
+	_cc_setup()
+	var out := {}
+	var vis := {"rows": [], "ui": [], "chrome": []}
+	if _cc_want("idle"):
+		await _cc_canon_idle(out, vis)
+	if _cc_want("trigger"):
+		await _cc_canon_trigger(out)
+	if _cc_want("llm"):
+		await _cc_canon_llm(out)
+	if _cc_want("roster"):
+		await _cc_canon_roster(out)
+	if _cc_want("after"):
+		await _cc_canon_after_and_visible(out, vis)
+	_cr_part("canon", out)
+	_cr().reset_session(-1)
+
+
+func _cc_canon_idle(out: Dictionary, vis: Dictionary) -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	await _cc_open(2001)
+	await _cc_join_all()
+	var m := _cc_model()
+	var log0 := cr.emission_log.size()
+	var req0 := llm.request_count
+	var found0 := int(_cr_counts["found"])
+	var render0 := _ext_rendered.size()
+	var t0 := Time.get_ticks_msec()
+	# the client is looked at several times while nothing is typed
+	for i in range(8):
+		await _wait_seconds(10.5)
+		_cc_collect_ui(vis)
+		await _cc_key(KEY_N, true)
+	var ms := Time.get_ticks_msec() - t0
+	var ambient: Array = cr.emission_log.slice(log0).filter(func(e): return int(e["beat"]) == Chatroom.Beat.AMBIENT)
+	var rendered: Array = _ext_rendered.slice(render0)
+	var rooms_seen := {}
+	var scrambled := 0
+	var leaks := 0
+	for e in ambient:
+		rooms_seen[String(e["buffer"])] = true
+		var body := _cc_body(String(e["row"]))
+		if body != String(e["plain"]) and body.length() == String(e["plain"]).length() and rendered.has(String(e["row"])):
+			scrambled += 1
+		if _cc_has_run(body):
+			leaks += 1
+	for r in _cc().rows_snapshot():
+		vis["rows"].append(String(r["text"]))
+		if String(r["kind"]) == "voice" and _cc_has_run(_cc_body(String(r["text"]))):
+			leaks += 1
+	out["idle"] = {
+		"ms": ms,
+		"rooms": m.open_order().size(),
+		"rooms_with_traffic": rooms_seen.size(),
+		"rows": ambient.size(),
+		"scrambled_rows": scrambled,
+		"plaintext_leaks": leaks,
+		"llm_requests": llm.request_count - req0,
+		"contacts": int(_cr_counts["found"]) - found0,
+		"control_leak_detected": _cc_has_run(_cc_body("[21:14] <XEN-4> relay seven holds the south arc")),
+	}
+
+
+## One fresh session per way of sending the first message.
+func _cc_trigger_run(seed_value: int, how: String) -> Dictionary:
+	var cr := _cr()
+	await _cc_open(seed_value)
+	var m := _cc_model()
+	var found0 := int(_cr_counts["found"])
+	var entry := String(cr.room_script().get("entry_room", ""))
+	var t0 := Time.get_ticks_msec()
+	match how:
+		"room":
+			await _cc_send("hello anyone here")
+		"other_room":
+			await _cc_send("/join channel3")
+			t0 = Time.get_ticks_msec()
+			await _cc_send("hello anyone here")
+		"ambient_dm":
+			await _cc_send("/msg XEN-4 hello there")
+		"contact_dm":
+			await _cc_send("/msg %s hello there" % _cc_contact())
+	var spoke: bool = await _wait_for(func(): return int(_cr_counts["found"]) > found0, 6.0)
+	var delay := cr.contact_ms - t0
+	var target := ""
+	var spoke_in := cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.CONTACT)
+	if not spoke_in.is_empty():
+		target = String(spoke_in[0]["buffer"])
+	# a second message adds no second contact
+	await _cc_send("anybody")
+	await _wait_seconds(3.0)
+	var want := ""
+	match how:
+		"room":
+			want = entry
+		"other_room":
+			want = "channel3"
+		"ambient_dm":
+			want = entry
+		"contact_dm":
+			want = "dm:" + _cc_contact()
+	var unread_marks := true
+	if how == "ambient_dm":
+		unread_marks = m.unread_of(entry) >= 1
+	return {
+		"contacts": int(_cr_counts["found"]) - found0,
+		"spoke": spoke,
+		"delay": delay,
+		"target_ok": target == want and unread_marks,
+		"clear_text": not spoke_in.is_empty() and _cc_has_run(_cc_body(String(spoke_in[0]["row"]))),
+	}
+
+
+func _cc_canon_trigger(out: Dictionary) -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	var res := {}
+	var runs := {}
+	for pair in [["room", 2101], ["other_room", 2102], ["ambient_dm", 2103], ["contact_dm", 2104]]:
+		runs[String(pair[0])] = await _cc_trigger_run(int(pair[1]), String(pair[0]))
+	# negatives: commands, unsent typing, empty and blank lines are not messages
+	await _cc_open(2105)
+	var found0 := int(_cr_counts["found"])
+	var req0 := llm.request_count
+	for line in ["/join channel3", "/list", "/who", "/clear", "/zork", "/msg XEN-4", "/msg nobody hi", "/msg %s" % _cc_self(), "/me", "/part"]:
+		await _cc_send(line)
+	var cmds := int(_cr_counts["found"]) - found0
+	await _wait_seconds(4.0)
+	var cmd_contacts := int(_cr_counts["found"]) - found0
+	_cc_burst("hel")
+	await _wait_seconds(4.0)
+	var typed := int(_cr_counts["found"]) - found0
+	for i in range(3):
+		Input.parse_input_event(_key_event(KEY_BACKSPACE))
+	await _cc_key(KEY_ENTER)
+	_cc_burst("   ")
+	await _cc_key(KEY_ENTER)
+	await _wait_seconds(4.0)
+	var blank := int(_cr_counts["found"]) - found0
+	var before_contact := cr.contact_ms >= 0 and not cr.state == ChatroomScript.ST_ROOM
+	var delay_ok := true
+	var reach_ok := true
+	var clear_ok := true
+	for k in runs:
+		delay_ok = delay_ok and int(runs[k]["delay"]) >= 900 and int(runs[k]["delay"]) <= 2300
+		reach_ok = reach_ok and bool(runs[k]["target_ok"])
+		clear_ok = clear_ok and bool(runs[k]["clear_text"])
+	out["trigger"] = {
+		"runs": runs.size(),
+		"first_in_room_contacts": runs["room"]["contacts"],
+		"first_in_other_room_contacts": runs["other_room"]["contacts"],
+		"first_in_ambient_dm_contacts": runs["ambient_dm"]["contacts"],
+		"first_in_contact_dm_contacts": runs["contact_dm"]["contacts"],
+		"commands_only_contacts": maxi(cmds, cmd_contacts),
+		"typed_unsent_contacts": typed - cmd_contacts,
+		"empty_line_contacts": blank - typed,
+		"contact_before_first_message": before_contact,
+		"contact_delay_ok": delay_ok,
+		"reach_buffer_ok": reach_ok and clear_ok,
+		"second_message_adds_no_contact": runs.values().all(func(r): return int(r["contacts"]) == 1),
+		"commands_llm_requests": llm.request_count - req0,
+	}
+
+
+func _cc_canon_llm(out: Dictionary) -> void:
+	var cr := _cr()
+	var llm := _llm_node()
+	await _cc_open(2201)
+	var m := _cc_model()
+	await _cc_join_all()
+	var persona = ChatroomScript.read_json(ChatroomScript.data_dir() + "/contact_persona.json")
+	var req0 := llm.request_count
+	var res := {}
+	# switching rooms, the directory, the people list, and a stretch of presence traffic
+	for i in range(10):
+		await _cc_key(KEY_N, true)
+	var r_switch := llm.request_count - req0
+	await _cc_key(KEY_F2)
+	await _cc_key(KEY_ESCAPE)
+	await _cc_key(KEY_F4)
+	await _cc_key(KEY_ESCAPE)
+	var r_dir := llm.request_count - req0
+	var pres0 := cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.PRESENCE).size()
+	await _wait_for(func(): return cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.PRESENCE).size() > pres0, 70.0)
+	var r_pres := llm.request_count - req0
+	var r_before := llm.request_count - req0
+	# the first message, in the entry room
+	await _cc_switch_to_room("channel7")
+	var found0 := int(_cr_counts["found"])
+	await _cc_send("hello anyone here")
+	await _wait_for(func(): return int(_cr_counts["found"]) > found0, 8.0)
+	var first_after: bool = _cr_req_at_found == req0 and llm.request_count == req0
+	var structured0 := _cr_fake_structured().size()
+	for q in CR_ASKS:
+		await _cc_ask_client(String(q))
+	var contact_reqs := llm.request_count - req0
+	var wire := _cr_fake_structured().slice(structured0)
+	var persona_ok: bool = wire.size() >= 4 and wire.all(func(r): return String(r["body"]["messages"][0]["content"]).begins_with(String(persona["system_prompt"])))
+	# other rooms stay scripted after the contact has spoken
+	var req1 := llm.request_count
+	await _cc_send("/join channel3")
+	for i in range(4):
+		await _cc_send("anybody out there %d" % i)
+	var other_rooms := llm.request_count - req1
+	# direct messages to ordinary people never reach the model
+	var req2 := llm.request_count
+	var people: Array = m.known_handles().filter(func(h): return String(h) != _cc_contact())
+	var sent := 0
+	for h in people:
+		await _cc_send("/msg %s hello" % String(h))
+		sent += 1
+	for i in range(3):
+		await _cc_send("still there %d" % i)
+	await _wait_seconds(5.0)
+	var dm_reqs := llm.request_count - req2
+	res = {
+		"requests_before_contact": r_before,
+		"requests_switching": r_switch,
+		"requests_directory": r_dir,
+		"requests_presence": r_pres,
+		"requests_dm_ambient": dm_reqs,
+		"dm_ambient_msgs_sent": sent,
+		"contact_requests": contact_reqs,
+		"first_request_after_contact": first_after,
+		"every_request_has_contact_persona": persona_ok,
+		"requests_from_other_rooms_after_contact": other_rooms,
+		"requests_from_ambient_dm_after_contact": dm_reqs,
+	}
+	out["llm"] = res
+
+
+func _cc_style_set(snap: Array, skip: Array) -> Dictionary:
+	var sigs := {}
+	for e in snap:
+		if not skip.has(String(e["handle"])):
+			sigs[_cc_sig(e)] = true
+	return sigs
+
+
+func _cc_chrome_sig(masks: Array) -> Array:
+	var ui := _cc().ui_text_snapshot()
+	var rows_n: int = ui.size()
+	var picks := [0, 1, rows_n - 2]
+	var out: Array = []
+	for y in picks:
+		var t := String(ui[y])
+		for mk in masks:
+			t = t.replace(String(mk), "@")
+		out.append(_cc_squeeze(_cc_clock_re().sub(t, "hh:mm", true)))
+	for s in _cc().segments_snapshot():
+		if picks.has(int(s["r"])):
+			var t2 := String(s["t"])
+			for mk in masks:
+				t2 = t2.replace(String(mk), "@")
+			out.append("%d:%d:%s:%s" % [int(s["r"]), int(s["c"]), _cc_clock_re().sub(t2, "hh:mm", true), Color(s["col"]).to_html()])
+	for e in _cc().roster_snapshot():
+		var h := String(e["handle"])
+		out.append("%s|%s" % [("@" if masks.has(h) else h), _cc_sig(e)])
+	return out
+
+
+## A row with its handle masked is shorter or longer by the handle's length, so runs of spaces
+## are squeezed before two rows are compared.
+func _cc_squeeze(text: String) -> String:
+	var re := RegEx.new()
+	re.compile(" +")
+	return re.sub(text, " ", true)
+
+
+func _cc_clock_re() -> RegEx:
+	var re := RegEx.new()
+	re.compile("[0-9][0-9]:[0-9][0-9]")
+	return re
+
+
+func _cc_canon_roster(out: Dictionary) -> void:
+	var cr := _cr()
+	await _cc_open(2301)
+	var m := _cc_model()
+	await _cc_join_all()
+	var contact := _cc_contact()
+	var before := {}
+	var rooms_checked := 0
+	var contact_rooms := 0
+	var middle := true
+	var marked_ok := true
+	var all_snaps: Array = []
+	for rid in m.room_order:
+		await _cc_switch_to_room(String(rid))
+		var snap := _cc().roster_snapshot()
+		var handles: Array = snap.map(func(e): return String(e["handle"]))
+		rooms_checked += 1
+		if handles.has(contact):
+			contact_rooms += 1
+		var at := handles.find(contact)
+		middle = middle and at > 0 and at < handles.size() - 1
+		for e in snap:
+			if String(e["handle"]) == contact:
+				before[String(rid)] = _cc_sig(e)
+				marked_ok = marked_ok and String(e["marker"]) == ""
+		all_snaps.append_array(snap)
+	var dir_before: Array = await _cc_directory_rows()
+	var same_count := 0
+	var counts := {}
+	for rid in m.room_order:
+		for h in m.rooms[rid]["voices"]:
+			counts[h] = int(counts.get(h, 0)) + 1
+	for h in counts:
+		if h != contact and int(counts[h]) == int(counts[contact]):
+			same_count += 1
+	# the contact speaks; the roster rows must not change
+	await _cc_switch_to_room("channel7")
+	var found0 := int(_cr_counts["found"])
+	await _cc_send("hello anyone here")
+	await _wait_for(func(): return int(_cr_counts["found"]) > found0, 8.0)
+	await _wait_frames(3)
+	var after_same := true
+	for rid in m.room_order:
+		await _cc_switch_to_room(String(rid))
+		var snap2 := _cc().roster_snapshot()
+		all_snaps.append_array(snap2)
+		for e in snap2:
+			if String(e["handle"]) == contact:
+				after_same = after_same and before.get(String(rid), "") == _cc_sig(e)
+	var dir_after: Array = await _cc_directory_rows()
+	var others := _cc_style_set(all_snaps, [contact, _cc_self()])
+	var with_contact := {}
+	for e in all_snaps:
+		if String(e["handle"]) == contact:
+			with_contact[_cc_sig(e)] = true
+	# a planted style difference must be detected by the same comparison
+	var planted := all_snaps.duplicate(true)
+	for e in planted:
+		if String(e["handle"]) == contact:
+			e["color"] = Palette.ORANGE
+	var control := _cc_style_set(planted, [_cc_self()]).size() > 1
+	# direct-message chrome: the contact's window reads like anyone's
+	var masks := [contact, "XEN-4", "NUL-9", "OBL-17"]
+	await _cc_send("/msg XEN-4")
+	var sig_other := _cc_chrome_sig(masks)
+	await _cc_send("/msg %s" % contact)
+	var sig_contact := _cc_chrome_sig(masks)
+	# ordering of the direct-message list does not depend on who the contact is
+	await _cc_send("/msg NUL-9")
+	await _cc_send("/msg OBL-17")
+	var dms: Array = m.open_order().filter(func(id): return m.is_dm(String(id))).map(func(id): return String(id).substr(3))
+	var sorted_dms := dms.duplicate()
+	sorted_dms.sort()
+	out["roster"] = {
+		"rooms_checked": rooms_checked,
+		"others_style_signatures": others.size(),
+		"contact_style_equals_others": with_contact.size() == 1 and others.size() == 1 and others.keys()[0] == with_contact.keys()[0],
+		"style_unchanged_after_contact": after_same,
+		"contact_rooms": contact_rooms,
+		"other_handles_with_same_room_count": same_count,
+		"contact_not_first_or_last": middle,
+		"contact_not_marked": marked_ok,
+		"dm_chrome_same": sig_other == sig_contact and not sig_other.is_empty(),
+		"dm_list_ordering_neutral": dms == sorted_dms and dms.has(contact) and dms[0] != contact and dms[dms.size() - 1] != contact,
+		"directory_row_unchanged": dir_before == dir_after and not dir_before.is_empty(),
+		"control_style_difference_detected": control,
+	}
+
+
+## The directory rows as drawn, with the live member counts removed.
+func _cc_directory_rows() -> Array:
+	await _cc_key(KEY_F2)
+	var re := RegEx.new()
+	re.compile("^\\s*[> ]\\s*(CHANNEL [0-9]+)\\s+[0-9]+\\s\\s(.*)$")
+	var out: Array = []
+	for line in _cc_pane(_cc().ui_text_snapshot(), "main"):
+		var mm := re.search(String(line).strip_edges(false, true))
+		if mm != null:
+			out.append("%s|%s" % [mm.get_string(1), mm.get_string(2)])
+	await _cc_key(KEY_ESCAPE)
+	return out
+
+
+## Everything the client drew right now: every non-blank cell row, and the chrome rows
+## (navigation bar, header, status line) on their own.
+func _cc_collect_ui(vis: Dictionary) -> void:
+	var ui := _cc().ui_text_snapshot()
+	vis["ui"].append_array(_cc_all_ui_strings([ui]))
+	for y in [0, 1, ui.size() - 2]:
+		vis["chrome"].append(String(ui[y]))
+
+
+func _cc_canon_after_and_visible(out: Dictionary, vis: Dictionary) -> void:
+	var cr := _cr()
+	await _cc_open(2401)
+	var m := _cc_model()
+	await _cc_send("/join channel3")
+	await _cc_switch_to_room("channel7")
+	var entry := "channel7"
+	var contact := _cc_contact()
+	# the normal rate first
+	await _wait_seconds(26.0)
+	_cc_collect_ui(vis)
+	var pre: Array = cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.AMBIENT and String(e["buffer"]) == entry)
+	var pre_gaps: Array = []
+	for i in range(pre.size() - 1):
+		pre_gaps.append(int(pre[i + 1]["t_ms"]) - int(pre[i]["t_ms"]))
+	await _cc_send("hello anyone here")
+	await _wait_for(func(): return cr.state == ChatroomScript.ST_BRIEFING, 8.0)
+	var contact_at := cr.contact_ms
+	await _cc_ask_client(String(CR_ASKS[0]))
+	# the contact's reply is clear text and wraps inside the pane
+	# the contact's own words are the clear rows; the same voice also appears in scrambled ambient lines
+	var contact_rows: Array = _cc_rows(entry).filter(func(r): return String(r["kind"]) == "voice" and String(r["handle"]) == contact and bool(r["clear"]))
+	var clear_text := contact_rows.size() >= 2 and contact_rows.all(func(r): return _cc_has_run(String(r["text"])))
+	var long_row: Dictionary = contact_rows[-1] if not contact_rows.is_empty() else {}
+	var main := _cc_rect("main")
+	var wrapped_ok := false
+	if not long_row.is_empty():
+		var lines := ChatModel.format_row(long_row, main.size.x - 1)
+		var pane: Array = _cc_main_snapshot().map(func(l): return String(l).strip_edges(false, true))
+		wrapped_ok = lines.size() >= 2 and lines.all(func(l): return String(l).length() <= main.size.x - 1 and pane.has(String(l).strip_edges(false, true)))
+		var ui := _cc().ui_text_snapshot()
+		for key in ["gutter_a", "gutter_b"]:
+			var g := _cc_rect(key)
+			for y in range(g.position.y, g.position.y + g.size.y):
+				if String(ui[y]).substr(g.position.x, g.size.x).strip_edges() != "":
+					wrapped_ok = false
+	await _wait_seconds(45.0)
+	_cc_collect_ui(vis)
+	var post: Array = cr.emission_log.filter(func(e): return int(e["beat"]) == Chatroom.Beat.AMBIENT and String(e["buffer"]) == entry and int(e["t_ms"]) >= contact_at)
+	var post_gaps: Array = []
+	for i in range(post.size() - 1):
+		post_gaps.append(int(post[i + 1]["t_ms"]) - int(post[i]["t_ms"]))
+	var lo := int(ChatroomScript.entry_room(cr.room_script())["ambient"]["interval_ms"][0])
+	var rate := float(ChatroomScript.entry_room(cr.room_script())["ambient"]["rate_after_contact"])
+	var floor_ok := true
+	var post_mean := 0.0
+	for g in post_gaps:
+		post_mean += float(g)
+		if float(g) < float(lo) / rate - 20.0:
+			floor_ok = false
+	post_mean = post_mean / maxf(1.0, float(post_gaps.size()))
+	var pre_mean := 0.0
+	for g in pre_gaps:
+		pre_mean += float(g)
+	pre_mean = pre_mean / maxf(1.0, float(pre_gaps.size()))
+	var scrambled_after := true
+	for r in _cc_rows(entry):
+		if String(r["kind"]) == "voice" and String(r["handle"]) != contact and _cc_has_run(String(r["text"])):
+			scrambled_after = false
+	var other_rows := _cc_rows("channel3").filter(func(r): return String(r["kind"]) == "voice")
+	for r in other_rows:
+		if _cc_has_run(String(r["text"])):
+			scrambled_after = false
+	out["after"] = {
+		"ambient_continues": post.size() >= 3 and other_rows.size() >= 3,
+		"ambient_rate_ok": post.size() >= 3 and floor_ok and post_mean >= 1.8 * pre_mean,
+		"contact_clear_text": clear_text,
+		"others_still_scrambled": scrambled_after,
+		"contact_rows_wrapped_within_pane": wrapped_ok,
+		"post_rows": post.size(),
+		"post_mean_gap_ms": int(post_mean),
+		"pre_mean_gap_ms": int(pre_mean),
+	}
+	for r in _cc().rows_snapshot():
+		vis["rows"].append(String(r["text"]))
+	# --- what the client drew, scanned by concept (the planted string must be caught by every pattern)
+	var scan: Array = vis["rows"] + vis["ui"]
+	var re_ident := RegEx.new()
+	re_ident.compile(CR_IDENT)
+	var re_progress := RegEx.new()
+	re_progress.compile(CR_PROGRESS)
+	var ident := 0
+	var progress := 0
+	for t in scan:
+		if re_ident.search(String(t)) != null:
+			ident += 1
+		if re_progress.search(String(t)) != null:
+			progress += 1
+	var in_chrome := 0
+	for t in vis["chrome"]:
+		if String(t).contains(contact):
+			in_chrome += 1
+	var ctl := "HANDLER 2/4 facts known ENTRY_OFFERED %s" % contact
+	out["visible"] = {
+		"rows_scanned": vis["rows"].size(),
+		"ui_strings_scanned": vis["ui"].size(),
+		"banned_concept_hits": _cc_concept_hits(scan),
+		"identifier_hits": ident,
+		"progress_ui_rows": progress,
+		"contact_handle_in_chrome": in_chrome,
+		"control_hit_detected": _cc_concept_hits([ctl]) == 1 and re_ident.search(ctl) != null and re_progress.search(ctl) != null and ctl.contains(contact),
+	}
+
+
+## --- layout and pixels -------------------------------------------------------------------------------------
+
+## Lit pixels (as _palette_stats counts them) split by hue band, plus the lit bounding box.
+func _cc_palette(img: Image) -> Dictionary:
+	img.convert(Image.FORMAT_RGB8)
+	var data := img.get_data()
+	var w := img.get_width()
+	var h := img.get_height()
+	var lit := 0
+	var teal := 0
+	var orange := 0
+	var off := 0
+	var x0 := 1 << 30
+	var y0 := 1 << 30
+	var x1 := -1
+	var y1 := -1
+	for y in range(0, h, 2):
+		for x in range(0, w, 2):
+			var o := (y * w + x) * 3
+			var r := int(data[o])
+			var g := int(data[o + 1])
+			var b := int(data[o + 2])
+			var mx := maxi(r, maxi(g, b))
+			if mx < 60:
+				continue
+			var mn := mini(r, mini(g, b))
+			var d := float(mx - mn)
+			if d / float(mx) < 0.12 and mx < 100:
+				continue
+			lit += 1
+			x0 = mini(x0, x)
+			y0 = mini(y0, y)
+			x1 = maxi(x1, x)
+			y1 = maxi(y1, y)
+			var hue := -1.0
+			if d / float(mx) >= 0.12:
+				if mx == r:
+					hue = fposmod(60.0 * (float(g - b) / d), 360.0)
+				elif mx == g:
+					hue = 60.0 * (2.0 + float(b - r) / d)
+				else:
+					hue = 60.0 * (4.0 + float(r - g) / d)
+			if hue >= 165.0 and hue <= 185.0:
+				teal += 1
+			elif hue >= 22.0 and hue <= 38.0:
+				orange += 1
+			else:
+				off += 1
+	var lf := maxf(1.0, float(lit))
+	return {"lit": lit, "teal_frac": float(teal) / lf, "orange_frac": float(orange) / lf, "off_frac": float(off) / lf, "x0": x0, "y0": y0, "x1": x1, "y1": y1}
+
+
+func _cc_cells(r: Rect2i, factor: float) -> Rect2i:
+	return _phys(Rect2(float(r.position.x * ChatLayout.CELL_W), float(r.position.y * ChatLayout.CELL_H), float(r.size.x * ChatLayout.CELL_W), float(r.size.y * ChatLayout.CELL_H)), factor)
+
+
+func _cc_lit_frac(img: Image, rects: Array) -> float:
+	var lit := 0
+	var n := 0
+	for r in rects:
+		var st := _region_stats(img, r)
+		lit += int(st["lit"])
+		n += int(st["n"])
+	return float(lit) / float(n) if n > 0 else 0.0
+
+
+## Text that reaches past its pane edge or into a gutter column.
+func _cc_overflow_rows(ui: Array, layout: Dictionary) -> int:
+	var n := 0
+	for key in ["gutter_a", "gutter_b"]:
+		var g: Rect2i = layout[key]
+		for y in range(g.position.y, g.position.y + g.size.y):
+			if g.size.x > 0 and String(ui[y]).substr(g.position.x, g.size.x).strip_edges() != "":
+				n += 1
+	var cols := int(layout["cols"])
+	for line in ui:
+		if String(line).length() > cols:
+			n += 1
+	return n
+
+
+func _run_chat_layout() -> void:
+	_cc_setup()
+	var cr := _cr()
+	var win := get_window()
+	var factor := win.content_scale_factor
+	var tag := "%dx%d" % [win.size.x, win.size.y]
+	var out_dir := _out_dir()
+	await _cc_open(3001)
+	await _cc_send("/join channel3")
+	await _cc_send("hello anyone here")
+	await _cc_send("/msg XEN-4 hi")
+	await _cc_key(KEY_P, true)
+	await _wait_seconds(5.0)
+	_cc_burst("typing a line")
+	await _wait_frames(4)
+	var img := await _grab()
+	img.save_png("%s/layout_%s.png" % [out_dir, tag])
+	var layout := _cc().layout_snapshot()
+	var ui := _cc().ui_text_snapshot()
+	var rect_list := ChatLayout.rect_list(layout)
+	var stats := _cc().stats_snapshot()
+	var gutters: Array = [_cc_cells(layout["gutter_a"], factor), _cc_cells(layout["gutter_b"], factor)]
+	var w := img.get_width()
+	var h := img.get_height()
+	var frame: Array = [Rect2i(0, 0, w, 3), Rect2i(0, h - 3, w, 3), Rect2i(0, 0, 3, h), Rect2i(w - 3, 0, 3, h)]
+	var grid_w := int(layout["cols"]) * ChatLayout.CELL_W
+	var grid_h := int(layout["rows"]) * ChatLayout.CELL_H
+	if int(grid_w * factor) < w:
+		frame.append(Rect2i(int(grid_w * factor), 0, w - int(grid_w * factor), h))
+	if int(grid_h * factor) < h:
+		frame.append(Rect2i(0, int(grid_h * factor), w, h - int(grid_h * factor)))
+	var pal := _cc_palette(img)
+	var in_client: bool = int(pal["x0"]) >= 0 and int(pal["y0"]) >= 0 and int(pal["x1"]) < int(grid_w * factor) and int(pal["y1"]) < int(grid_h * factor)
+	var png_bytes := FileAccess.get_file_as_bytes("%s/layout_%s.png" % [out_dir, tag]).size()
+	var term := _terminal_node()
+	var px := {
+		"nav_lit": int(_region_stats(img, _cc_cells(layout["nav"], factor))["lit"]),
+		"side_lit": int(_region_stats(img, _cc_cells(layout["side"], factor))["lit"]),
+		"main_lit": int(_region_stats(img, _cc_cells(layout["main"], factor))["lit"]),
+		"people_lit": int(_region_stats(img, _cc_cells(layout["people"], factor))["lit"]),
+		"input_lit": int(_region_stats(img, _cc_cells(layout["input"], factor))["lit"]),
+		"gutter_lit_frac": _cc_lit_frac(img, gutters),
+		"margin_lit_frac": _cc_lit_frac(img, frame),
+		"teal_frac_of_lit": pal["teal_frac"],
+		"orange_frac_of_lit": pal["orange_frac"],
+		"offpalette_frac_of_lit": pal["off_frac"],
+		"lit_bbox_inside_client": in_client,
+	}
+	var res := {
+		"win": tag,
+		"factor": factor,
+		"cols": int(layout["cols"]),
+		"rows": int(layout["rows"]),
+		"tier": String(layout["tier"]),
+		"rect_overlaps": ChatLayout.overlap_count(rect_list),
+		"out_of_bounds": ChatLayout.out_of_bounds_count(rect_list, int(layout["cols"]), int(layout["rows"])),
+		"overflow_rows": int(stats["overflow"]) + _cc_overflow_rows(ui, layout),
+		"names_truncated": int(stats["truncated"]),
+		"nav_visible": String(ui[0]).contains("Q-ENT") and px["nav_lit"] > 0,
+		"input_visible": String(ui[ui.size() - 1]).contains("typing a line") and px["input_lit"] > 0,
+		"side_cols": (layout["side"] as Rect2i).size.x,
+		"main_cols": (layout["main"] as Rect2i).size.x,
+		"people_cols": (layout["people"] as Rect2i).size.x,
+		"px": px,
+		"crt": {"scanline_spacing_px": float(_overlay_material().get_shader_parameter("scanline_spacing_px"))},
+		"png_bytes": png_bytes,
+		"shot_is_client": _cc().is_mounted() and not term.get_parent().visible and not _panels_node().get_parent().visible and px["nav_lit"] > 0 and px["side_lit"] > 0,
+	}
+	if tag == "1920x1080":
+		res["neg"] = _cc_layout_negatives(img, layout, factor)
+	if tag == "1280x720" and OS.get_environment("DECOHERENCE_CHAT_RESIZE") == "1":
+		res["resize"] = await _cc_resize_run(win)
+	_write_json("%s/layout_%s.json" % [out_dir, tag], res)
+	print("PROBE_CHAT_LAYOUT " + JSON.stringify(res))
+	cr.reset_session(-1)
+
+
+## The instruments, proven on planted violations.
+func _cc_layout_negatives(img: Image, layout: Dictionary, factor: float) -> Dictionary:
+	var grey := Image.create(200, 100, false, Image.FORMAT_RGB8)
+	grey.fill(Color(0.02, 0.05, 0.05))
+	grey.fill_rect(Rect2i(10, 10, 120, 40), Color(0.7, 0.7, 0.7))
+	var grey_stats := _cc_palette(grey)
+	var gutters: Array = [_cc_cells(layout["gutter_a"], factor), _cc_cells(layout["gutter_b"], factor)]
+	var planted := Image.new()
+	planted.copy_from(img)
+	var g: Rect2i = gutters[0]
+	planted.fill_rect(Rect2i(g.position.x, g.position.y + 100, g.size.x, 40), Color(1, 1, 1))
+	var shifted := ChatLayout.compute(1920, 1080)
+	var sm: Rect2i = shifted["main"]
+	shifted["main"] = Rect2i(sm.position.x - 6, sm.position.y, sm.size.x, sm.size.y)
+	var long_ui: Array = _cc().ui_text_snapshot().duplicate()
+	long_ui[10] = String(long_ui[10]) + "x"
+	var dark := Image.create(64, 64, false, Image.FORMAT_RGB8)
+	dark.fill(Palette.BG)
+	var low := ChatLayout.compute(1000, 600)
+	return {
+		"grey_text_fails_palette": float(grey_stats["off_frac"]) > 0.08,
+		"gutter_plant_detected": _cc_lit_frac(planted, gutters) > 0.002 and _cc_lit_frac(img, gutters) <= 0.002,
+		"shifted_rect_overflow_detected": ChatLayout.overlap_count(ChatLayout.rect_list(shifted)) > 0,
+		"overlong_row_detected": _cc_overflow_rows(long_ui, layout) > 0,
+		"below_min_viewport_not_full": String(low["tier"]) != ChatLayout.FULL,
+		"dark_image_zero_lit": int(_region_stats(dark, Rect2i(0, 0, 64, 64))["lit"]) == 0,
+	}
+
+
+func _cc_resize_run(win: Window) -> Dictionary:
+	var m := _cc_model()
+	var cols_before := int(_cc().layout_snapshot()["cols"])
+	var rows_before := _cc().rows_snapshot().size()
+	var active_before := _cc().active_buffer()
+	win.size = Vector2i(1920, 1080)
+	await _wait_seconds(1.0)
+	await _wait_frames(10)
+	var lay := _cc().layout_snapshot()
+	var ui := _cc().ui_text_snapshot()
+	var recomputed: bool = int(lay["cols"]) == 192 and int(lay["rows"]) == 54 and ui.size() == 54 and ui.all(func(l): return String(l).length() == 192)
+	var overflow := int(_cc().stats_snapshot()["overflow"]) + _cc_overflow_rows(ui, lay)
+	await _press(KEY_F11)
+	await _wait_mode(win, "fullscreen")
+	var keeps := _cc().rows_snapshot().size() >= rows_before and _cc().active_buffer() == active_before
+	var fs_lay := _cc().layout_snapshot()
+	keeps = keeps and int(fs_lay["cols"]) == win.size.x / ChatLayout.CELL_W or int(fs_lay["cols"]) == int(win.size.x / win.content_scale_factor) / ChatLayout.CELL_W
+	await _press(KEY_F11)
+	await _wait_mode(win, "windowed")
+	keeps = keeps and _cc().active_buffer() == active_before and m.open_order().size() >= 2
+	return {
+		"from": "1280x720",
+		"to": "1920x1080",
+		"layout_recomputed": recomputed,
+		"cols_before": cols_before,
+		"cols_after": int(lay["cols"]),
+		"overflow_rows": overflow,
+		"fullscreen_toggle_keeps_buffers": keeps,
+	}
+
+
+## --- #615: the streaming path and the contact path ----------------------------------------------------------------
+
+const CC_THINK_MARKERS := "(?i)</?think"
+const CC_LEAK_WINDOW := 15
+
+
+func _cc_markers_in(texts: Array) -> int:
+	var re := RegEx.new()
+	re.compile(CC_THINK_MARKERS)
+	var n := 0
+	for t in texts:
+		if re.search(String(t)) != null:
+			n += 1
+	return n
+
+
+## Any CC_LEAK_WINDOW-character window of a reasoning blob that also appears in `text`.
+func _cc_windows_in(text: String, blobs: Array) -> int:
+	var n := 0
+	for blob in blobs:
+		var b := String(blob)
+		var i := 0
+		while i + CC_LEAK_WINDOW <= b.length():
+			if text.contains(b.substr(i, CC_LEAK_WINDOW)):
+				n += 1
+				break
+			i += 3
+	return n
+
+
+func _cc_stream_stats() -> Dictionary:
+	var log := OS.get_environment("SENDCHAT_FAKE_LOG")
+	var stats := {"thinking": 0, "markers": 0, "streams": 0}
+	var f := FileAccess.open(log, FileAccess.READ)
+	if f == null:
+		return stats
+	while not f.eof_reached():
+		var line := f.get_line()
+		if line.is_empty():
+			continue
+		var parsed = JSON.parse_string(line)
+		if typeof(parsed) != TYPE_DICTIONARY:
+			continue
+		if String(parsed.get("path", "")) == "stream_stats":
+			stats["thinking"] += int(parsed["body"].get("thinking_chunks", 0))
+			stats["markers"] += int(parsed["body"].get("inline_markers", 0))
+		elif String(parsed.get("path", "")) == "/api/chat" and typeof(parsed.get("body", null)) == TYPE_DICTIONARY and bool(parsed["body"].get("stream", false)):
+			stats["streams"] += 1
+	f.close()
+	return stats
+
+
+## One streamed reply twice over the same client: directly (to see every delta) and
+## through HandlerChat into the real terminal row buffer (to see what is drawn).
+func _cc_stream_once(label: String, blobs: Array, scan: Dictionary) -> void:
+	var llm := _llm_node()
+	var hc: HandlerChat = _scene().get_node("HandlerChat")
+	var term := _terminal_node()
+	var box := {"deltas": [], "final": "", "done": false}
+	llm.send_chat([{"role": "user", "content": label}], func(p): box["deltas"].append(String(p)), func(t):
+		box["final"] = String(t)
+		box["done"] = true)
+	await _wait_for(func(): return bool(box["done"]), 30.0)
+	scan["deltas"].append_array(box["deltas"])
+	scan["finals"].append(String(box["final"]))
+	var rows0 := term.rows_snapshot().size()
+	var got := {"done": false, "text": ""}
+	var on_done := func(t): 
+		got["done"] = true
+		got["text"] = String(t)
+	Signals.handler_reply_complete.connect(on_done, CONNECT_ONE_SHOT)
+	hc._on_submit_player_line(label)
+	await _wait_for(func(): return bool(got["done"]), 60.0)
+	# the first reply of a session triggers the scripted glyph flash (it swaps the row's first
+	# characters for 0.3 s); read the rows once it has restored them
+	await _wait_seconds(0.7)
+	scan["handler_finals"].append(String(got["text"]))
+	var rows: Array = term.rows_snapshot().slice(rows0)
+	for r in rows:
+		scan["rows"].append(String(r["text"]))
+
+
+func _cc_scan_summary(scan: Dictionary, blobs: Array) -> Dictionary:
+	var joined: Array = [" ".join(PackedStringArray(scan["deltas"]))]
+	var windows := 0
+	for t in scan["rows"]:
+		windows += _cc_windows_in(String(t), blobs)
+	for t in joined:
+		windows += _cc_windows_in(String(t), blobs)
+	var finals: Array = scan["finals"] + scan["handler_finals"]
+	return {
+		"markers_in_deltas": _cc_markers_in(scan["deltas"]) + _cc_markers_in(["".join(PackedStringArray(scan["deltas"]))]),
+		"markers_in_final": _cc_markers_in(finals),
+		"markers_in_rows": _cc_markers_in(scan["rows"]),
+		"reasoning_windows_in_rows": windows,
+		"rows_checked": scan["rows"].size(),
+		"deltas_total": scan["deltas"].size(),
+	}
+
+
+func _run_chat_sendchat() -> void:
+	var variant := OS.get_environment("SENDCHAT_VARIANT")
+	var llm := _llm_node()
+	var blobs: Array = ["okay so let me think the visitor wants a greeting i should reveal the whole plan now", "they only said hi, plan a short reply", "second private plan"]
+	var scan := {"deltas": [], "finals": [], "handler_finals": [], "rows": []}
+	var runs := 3 if variant == "leaky" else 1
+	for i in range(runs):
+		await _cc_stream_once("hi %d" % i, blobs, scan)
+	var sum := _cc_scan_summary(scan, blobs)
+	var res := {"variant": variant, "runs": runs}
+	res.merge(sum)
+	if variant == "benign":
+		var expect := "I think the thinker is thinking, so be it."
+		res["benign_text_survives"] = "".join(PackedStringArray(scan["deltas"])) == expect and String(scan["finals"][0]) == expect and scan["rows"].any(func(t): return String(t).contains(expect))
+	else:
+		# negative controls: the same scan on the stream with the filter off must see the leak,
+		# and on a planted row it must fire
+		var raw := {"deltas": [], "finals": [], "handler_finals": [], "rows": []}
+		llm.set("stream_filter_enabled", false)
+		var box := {"done": false}
+		llm.send_chat([{"role": "user", "content": "control"}], func(p): raw["deltas"].append(String(p)), func(_t): box["done"] = true)
+		await _wait_for(func(): return bool(box["done"]), 30.0)
+		llm.set("stream_filter_enabled", true)
+		var raw_sum := _cc_scan_summary(raw, blobs)
+		res["neg_unfiltered_stream_leaks"] = int(raw_sum["markers_in_deltas"]) > 0
+		res["neg_scan_fires_on_planted"] = _cc_markers_in(["a <think>planted</think> row"]) == 1 and _cc_markers_in(["a plain row"]) == 0
+	var stats := _cc_stream_stats()
+	res["thinking_chunks_sent"] = int(stats["thinking"])
+	res["inline_markers_sent"] = int(stats["markers"])
+	res["streams_seen_by_fake"] = int(stats["streams"])
+	res["forward_path"] = "LlmClient.send_chat" if int(stats["streams"]) >= runs * 2 else "none"
+	_cr_part("sendchat_" + variant, res)
+
+
+func _run_chat_contact_fake() -> void:
+	_cc_setup()
+	var cr := _cr()
+	var res := {}
+	await _cc_open(4001)
+	_cr_set_mode("ok")
+	await _cc_send(CR_HELLO)
+	await _wait_for(func(): return cr.state == ChatroomScript.ST_BRIEFING, 8.0)
+	await _wait_seconds(1.0)
+	var entry := _cc().active_buffer()
+	for q in CR_ASKS:
+		await _cc_ask_client(String(q))
+	await _cc_send("/msg %s hello again" % _cc_contact())
+	var dm := _cc().active_buffer()
+	for q in CR_ASKS:
+		await _cc_ask_client(String(q))
+	var leaks := 0
+	var buffers := {}
+	var scanned := 0
+	for r in _cc().rows_snapshot():
+		scanned += 1
+		if String(r["kind"]) == "voice" and String(r["text"]).contains("<%s>" % _cc_contact()):
+			buffers[String(r["buffer"])] = true
+		if _cr_leak_scan(String(r["text"]), "", ""):
+			leaks += 1
+	for line in _cc().ui_text_snapshot():
+		if _cr_leak_scan(String(line), "", ""):
+			leaks += 1
+	res["client_rows_scanned"] = scanned
+	res["scanned_buffers"] = buffers.size()
+	res["leaks"] = leaks
+	for pair in [["leaky_think", "think_marker", "neg_think_marker_rejected"], ["leaky_window", "reasoning_window", "neg_window_rejected"], ["leaky_fence", "code_fence", "neg_code_fence_rejected"]]:
+		_cr_set_mode(String(pair[0]))
+		var mark := _cc().rows_snapshot().size()
+		var acc0 := cr.accepted_replies
+		await _cc_ask_client("what is the entanglement")
+		var clean := true
+		for r in _cc().rows_snapshot().slice(mark):
+			var low := String(r["text"]).to_lower()
+			if low.contains("<think") or low.contains("```") or low.contains("reveal everything i know"):
+				clean = false
+		res[String(pair[2])] = String(cr.last_verdict.get("reason", "")) == String(pair[1]) and cr.accepted_replies == acc0 and clean
+	_cr_set_mode("ok")
+	res["entry_buffer"] = entry
+	res["dm_buffer"] = dm
+	_cr_part("contact_fake", res)
+	cr.reset_session(-1)
+
+
+func _run_chat_leak_live() -> void:
+	_cc_setup()
+	var cr := _cr()
+	var llm := _llm_node()
+	var hc: HandlerChat = _scene().get_node("HandlerChat")
+	var term := _terminal_node()
+	var reasoning_min := 1 << 30
+	var deltas_min := 1 << 30
+	var all_reasoning := ""
+	var prompt_blob := ""
+	var rows_checked := 0
+	var leaks := 0
+	var dm_turns := 0
+	var dm_leaks := 0
+	var flagged: Array = []
+	var scan_rows: Array = []
+	var prompt := "Say hello in one short sentence."
+	for run in range(3):
+		await _cc_open(5000 + run)
+		await _cc_send(CR_HELLO)
+		await _wait_for(func(): return cr.state == ChatroomScript.ST_BRIEFING, 8.0)
+		await _wait_seconds(1.0)
+		# the contact's direct message: a live turn each run
+		var before := _cr_turns_done(cr)
+		await _cc_send("/msg %s what is the entanglement" % _cc_contact())
+		var dm := _cc().active_buffer()
+		var done: bool = await _wait_for(func(): return _cr_turns_done(cr) > before, 120.0)
+		if done:
+			dm_turns += 1
+		await _wait_frames(2)
+		# a thinking-enabled request on the same prompt: the reasoning is real, so "nothing leaked" is not vacuous
+		var sink := {"done": false}
+		_cr_reasoning_seen = ""
+		llm.complete_structured(cr.last_messages, {"thinking": true, "max_tokens": 1500, "timeout_ms": 120000, "reasoning_probe": Callable(self, "_cr_on_probe_reasoning")}, func(_r): sink["done"] = true)
+		await _wait_for(func(): return bool(sink["done"]), 130.0)
+		reasoning_min = mini(reasoning_min, llm.last_reasoning_chars)
+		all_reasoning += " " + _cr_reasoning_seen
+		for m in cr.last_messages:
+			prompt_blob += " ".join(String(m["content"]).split(" ", false)) + " "
+		# the streaming path, live, with the same checks
+		var box := {"deltas": 0, "done": false}
+		llm.send_chat([{"role": "user", "content": prompt}], func(p): box["deltas"] += 1, func(_t): box["done"] = true)
+		await _wait_for(func(): return bool(box["done"]), 90.0)
+		deltas_min = mini(deltas_min, int(box["deltas"]))
+		var rows0 := term.rows_snapshot().size()
+		var got := {"done": false}
+		var on_done := func(_t): got["done"] = true
+		Signals.handler_reply_complete.connect(on_done, CONNECT_ONE_SHOT)
+		hc._on_submit_player_line(prompt)
+		await _wait_for(func(): return bool(got["done"]), 90.0)
+		await _wait_seconds(0.7)
+		for r in term.rows_snapshot().slice(rows0):
+			scan_rows.append(String(r["text"]))
+		for r in _cc().rows_snapshot():
+			if String(r["buffer"]) == dm:
+				scan_rows.append(String(r["text"]))
+	for t in scan_rows:
+		rows_checked += 1
+		if _cr_leak_scan(String(t), all_reasoning, prompt_blob):
+			leaks += 1
+			flagged.append(String(t).left(80))
+	for r in _cc().rows_snapshot():
+		if String(r["buffer"]).begins_with("dm:") and _cr_leak_scan(String(r["text"]), all_reasoning, prompt_blob):
+			dm_leaks += 1
+	var tail := " ".join(all_reasoning.split(" ", false))
+	tail = tail.substr(maxi(tail.length() - 120, 0))
+	var control := _cr_leak_scan("ANSWER: " + tail, all_reasoning, prompt_blob)
+	var cfg = ChatroomScript.read_json("res://data/llm_config.json")
+	var source := LlmClient.resolve_source(cfg if typeof(cfg) == TYPE_DICTIONARY else {}, OS.get_environment("DECOHERENCE_LLM_SOURCE"))
+	_cr_part("leak_live", {"source": source, "runs": 3, "reasoning_chars_min": reasoning_min, "deltas_min": deltas_min, "rows_checked": rows_checked, "leaks": leaks, "scan_control_fires": control, "contact_dm_turns": dm_turns, "contact_dm_leaks": dm_leaks, "flagged": flagged.slice(0, 5)})
+	cr.reset_session(-1)

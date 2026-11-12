@@ -100,3 +100,10 @@ signal chatroom_entry_granted
 
 ## The player typed a leave command; the shell takes the keyboard back.
 signal chatroom_left
+
+## --- Additive contract, Spec #562 (chat client). Everything above stays
+## byte-identical; this is new surface only.
+
+## The chat model changed (a row arrived, a buffer opened or closed, the unread
+## state moved): the chat client redraws.
+signal chat_model_changed

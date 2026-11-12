@@ -21,6 +21,11 @@ const ST_BRIEFING := "BRIEFING"
 const ST_OFFERED := "ENTRY_OFFERED"
 
 const ACTS := ["none", "offer_entry"]
+## The three outcomes of a routed line in the chat client (Spec #562): scripted
+## voices, the single model-backed thread, or a client command. Code decides.
+const ROUTE_SCRIPTED := "scripted"
+const ROUTE_CONTACT := "contact"
+const ROUTE_COMMAND := "command"
 ## Longest scripted room line, in characters (one terminal row with its handle).
 const MAX_LINE_CHARS := 80
 const HISTORY_MESSAGES := 6
@@ -75,11 +80,16 @@ static func load_bundle() -> Dictionary:
 
 
 static func entry_room(script: Dictionary) -> Dictionary:
+	return room_by_id(script, String(script.get("entry_room", "__none__")))
+
+
+## The room with this id, or {} (Spec #562: the script now carries several rooms).
+static func room_by_id(script: Dictionary, room_id: String) -> Dictionary:
 	var rooms = script.get("rooms", [])
 	if typeof(rooms) != TYPE_ARRAY:
 		return {}
 	for r in rooms:
-		if typeof(r) == TYPE_DICTIONARY and String(r.get("id", "")) == String(script.get("entry_room", "__none__")):
+		if typeof(r) == TYPE_DICTIONARY and String(r.get("id", "")) == room_id:
 			return r
 	return {}
 
@@ -244,6 +254,11 @@ static func kw_hit(text: String, kw: String) -> bool:
 ## Exact command match: ASCII case-folded and whitespace-collapsed, nothing
 ## else. A Cyrillic or full-width look-alike is a different string and fails.
 static func matches_command(commands: Array, text: String) -> bool:
+	# Spec #562 D14 (#902): any non-ASCII input is rejected before case folding,
+	# because to_lower() folds U+0130 (dotted capital I) to a plain "i".
+	for i in range(text.length()):
+		if text.unicode_at(i) > 127:
+			return false
 	var parts := text.strip_edges().to_lower().replace("\t", " ").split(" ", false)
 	var flat := " ".join(parts)
 	for c in commands:
@@ -302,8 +317,8 @@ static func scramble(plain: String, seed_value: int, rules: Dictionary) -> Strin
 ## lower bound is raised just enough that any `max_per_minute` consecutive
 ## emissions span more than a minute, and the cap check always stays
 ## satisfiable within the range because validate() requires cap * max > 60 s.
-static func ambient_plan(script: Dictionary, seed_value: int, n: int) -> Array:
-	var amb: Dictionary = entry_room(script).get("ambient", {})
+static func ambient_plan(script: Dictionary, seed_value: int, n: int, room_id: String = "") -> Array:
+	var amb: Dictionary = (room_by_id(script, room_id) if not room_id.is_empty() else entry_room(script)).get("ambient", {})
 	var lines: Array = amb.get("lines", [])
 	var plan: Array = []
 	if lines.is_empty() or n <= 0:
@@ -357,8 +372,8 @@ static func ambient_plan(script: Dictionary, seed_value: int, n: int) -> Array:
 ## The scripted reply to a player line while the room is all there is:
 ## {id, voice, plain, fallback}. Cues match whole words or phrases; when none
 ## matches, the fallbacks rotate by `fallback_index`.
-static func respond(script: Dictionary, text: String, fallback_index: int) -> Dictionary:
-	var room := entry_room(script)
+static func respond(script: Dictionary, text: String, fallback_index: int, room_id: String = "") -> Dictionary:
+	var room := room_by_id(script, room_id) if not room_id.is_empty() else entry_room(script)
 	var padded := " " + normalize(text) + " "
 	for r in room.get("responders", []):
 		for cue in r.get("match_any", []):

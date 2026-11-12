@@ -29,6 +29,7 @@ GODOT="${GODOT:-$HOME/.local/bin/godot}"
 export DISPLAY=":99"
 ## Never reach Kel's Wayland desktop: Godot prefers WAYLAND_DISPLAY over DISPLAY.
 unset WAYLAND_DISPLAY
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus
 mkdir -p "$XDG_DATA_HOME" "$(dirname "$OUT_FILE")"
 : > "$OUT_FILE"
 

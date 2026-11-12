@@ -26,6 +26,7 @@ GODOT="${GODOT:-$HOME/.local/bin/godot}"
 : "${OUT_DIR:?verify_chatroom: OUT_DIR is required}"
 export DISPLAY=":99"
 unset WAYLAND_DISPLAY
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus
 mkdir -p "$OUT_DIR"
 : "${XDG_DATA_HOME:=$OUT_DIR/xdg}"
 export XDG_DATA_HOME
