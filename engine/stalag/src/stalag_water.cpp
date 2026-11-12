@@ -27,6 +27,7 @@ constexpr double COL = 0.5; // column pitch, metres
 constexpr int MARGIN = 8; // cell-enumeration margin ring (lattice units)
 constexpr int LAT_Y_MIN = -8, LAT_Y_MAX = 64;
 constexpr int SHELF_FOOT_COLS = 224; // shelf columns exist only where |column index| < this (the 112 m walkable footprint, 0.5 m columns)
+constexpr int FALL_GUARD_COLS = 2; // new course bank water keeps this many columns clear of a fall column (Spec #561)
 
 enum Src : uint8_t { SRC_POND = 0, SRC_COURSE = 1, SRC_FALL = 2 };
 
@@ -219,12 +220,14 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 	// pond's), up to that pond's surface. Where a cell's own ground stands exactly one terrace
 	// higher, the water rides that terrace as a flat film (see BANK CARPET). Pure function of the
 	// plan (columns are looked up by address, not from the cell box), so chunk seams stay safe.
-	// River and fall water is never a source here (issue #928 keeps those banks).
+	// River and fall water is a source too (Spec #561): each bank column takes the highest level among
+	// the water columns that reach it, ring by ring, and a tie goes to still water. Course banks stay
+	// FALL_GUARD_COLS clear of any fall column, so no sheet grows on a fall face.
 	{
 		// A shelf column is a plan-dry column the rim reaches: ring 1 touches water (8-neighbour),
 		// ring 2 touches ring 1, each only if its centre terrace is at or below the level that
 		// reaches it (the plan's own rim, the Shore cap). shelf_level() is the level of the still
-		// water it belongs to, or SHELF_NONE (river and fall rims are left to the SHORE rule).
+		// water it belongs to, or SHELF_NONE.
 		constexpr int SHELF_NONE = -100000;
 		struct Rim {
 			int level;
@@ -257,9 +260,18 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 			}
 			return rim1_cache.emplace(k, r).first->second;
 		};
+		// A fall column within FALL_GUARD_COLS keeps non-still bank water away (the fall face is not a bank).
+		auto near_fall = [&](int32_t gx, int32_t gz) {
+			for (int dz = -FALL_GUARD_COLS; dz <= FALL_GUARD_COLS; dz++) {
+				for (int dx = -FALL_GUARD_COLS; dx <= FALL_GUARD_COLS; dx++) {
+					if (course_fall_top_at(plan, gx + dx, gz + dz) != WATER_DRY) return true;
+				}
+			}
+			return false;
+		};
 		auto shelf_level = [&](int32_t gx, int32_t gz) -> int {
 			const Rim a = rim1(gx, gz);
-			if (a.level != SHELF_NONE) return a.still ? a.level : SHELF_NONE;
+			if (a.level != SHELF_NONE) return (a.still || !near_fall(gx, gz)) ? a.level : SHELF_NONE;
 			const int64_t k = (int64_t)gx * 100003 + gz;
 			auto it = rim2_cache.find(k);
 			if (it != rim2_cache.end()) return it->second.level;
@@ -273,7 +285,7 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 						if (n.level != SHELF_NONE) pick(have, best, n.level, n.still);
 					}
 				}
-				if (have && best.still && terrace_ok(gx, gz, best.level)) r = best;
+				if (have && terrace_ok(gx, gz, best.level) && (best.still || !near_fall(gx, gz))) r = best;
 			}
 			rim2_cache.emplace(k, r);
 			return r.level;
