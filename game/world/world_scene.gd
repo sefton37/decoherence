@@ -61,6 +61,8 @@ var flora_clock_frozen: bool = false
 ## The probe drives the walker itself; real key reads are skipped while it does.
 var scripted_input: bool = false
 var _exit_emitted: bool = false
+## How many times the menu's quit path flushed this scene (read by the probes).
+var flush_calls: int = 0
 
 ## Spec 576: the homestead belongs to the assigned colonist. The id (set before the scene enters the
 ## tree; S2 wires the Launch seam to it) is hashed to the site seed; empty means the default site.
@@ -153,6 +155,7 @@ func _pad_flora_rects() -> Array:
 
 func _ready() -> void:
 	add_to_group("stalag_world")
+	add_to_group("quit_flush")
 	_plan_homestead()
 	_build_look()
 	streamer.plan_failed.connect(_on_plan_failed)
@@ -206,10 +209,11 @@ func request_exit() -> void:
 	exited.emit()
 
 
-func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_ESCAPE:
-		request_exit()
-		get_viewport().set_input_as_handled()
+## Spec #578: the pause menu (Esc) owns leaving the world, and quitting the game flushes the streamer.
+## Called by the menu's quit path before the process ends: the streamer waits for its worker tasks.
+func flush_for_exit() -> void:
+	flush_calls += 1
+	streamer.shutdown()
 
 
 func _process(delta: float) -> void:

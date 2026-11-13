@@ -112,12 +112,38 @@ func setup(terminal_grid: TerminalGrid, llm: LlmClient, shell: ShellController) 
 		Signals.chat_opened.connect(_on_chat_opened)
 	if not Signals.submit_player_line.is_connected(_on_player_line):
 		Signals.submit_player_line.connect(_on_player_line)
+	# Spec #578: time spent under the pause menu is not the player's (the tree stood still, the clock did not).
+	if not PauseMenu.closed.is_connected(_on_pause_closed):
+		PauseMenu.closed.connect(_on_pause_closed)
 
 
 ## The one clock every timer in this node reads. A probe switches it to a
 ## simulated clock (sim_enable) and advances it by hand; in play it is the engine's.
 func now_ms() -> int:
 	return _sim_ms if _sim else Time.get_ticks_msec()
+
+
+## Moves every pending time forward by `ms`: the funnel's own clocks, the outbox and the
+## direct-message replies, so nothing she was about to say fires the moment the player returns.
+func _shift_queues(ms: int) -> void:
+	funnel.shift_time(ms)
+	_outbox_end += ms
+	for item in _outbox:
+		item["due"] = int(item["due"]) + ms
+	for item in _dm_pending:
+		item["at"] = int(item["at"]) + ms
+
+
+## The pause menu closed after `paused_msec` of a stopped tree: a room the player is in moves all of
+## its timers forward by that much, the ambient and presence ones included. A room the player is not
+## in is covered by its own away clock when the player comes back.
+func _on_pause_closed(paused_msec: int) -> void:
+	if not _inside or paused_msec <= 0:
+		return
+	_shift_queues(paused_msec)
+	for rid in model.room_order:
+		_rooms_rt[rid]["next_ms"] = int(_rooms_rt[rid]["next_ms"]) + paused_msec
+		_rooms_rt[rid]["next_pres_ms"] = int(_rooms_rt[rid]["next_pres_ms"]) + paused_msec
 
 
 ## Test hook (probes only): run every timer on a simulated clock.
@@ -353,12 +379,7 @@ func _on_chat_opened() -> void:
 		# Time spent outside the room does not count against the player.
 		var away := now - _left_ms
 		_left_ms = -1
-		funnel.shift_time(away)
-		_outbox_end += away
-		for item in _outbox:
-			item["due"] = int(item["due"]) + away
-		for item in _dm_pending:
-			item["at"] = int(item["at"]) + away
+		_shift_queues(away)
 	if _banner_pending:
 		_banner_pending = false
 		for line in room.get("banner", []):

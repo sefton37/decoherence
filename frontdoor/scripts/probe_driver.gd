@@ -474,7 +474,7 @@ func _world_finish() -> void:
 ## same send path a real Enter keypress uses.
 ## ===========================================================================
 
-const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale", "chat_features", "chat_layout", "chat_sendchat", "chat_contact_fake", "funnel_e2e", "funnel_refuse", "funnel_persist", "funnel_memory", "funnel_canon", "funnel_nolie", "funnel_mutate", "funnel_shots", "funnel_leak_live", "handler_flow", "handler_resume", "handler_mutate", "handler_layout", "handler_states", "handler_world", "handler_isolation"]
+const EXT_MODES := ["density", "router", "e2e_fastpath", "e2e_thinking", "e2e_dispatch", "e2e_settings", "e2e_relaunch", "e2e_corrupt", "seam", "shell_shot", "tone", "scale", "chat_features", "chat_layout", "chat_sendchat", "chat_contact_fake", "funnel_e2e", "funnel_refuse", "funnel_persist", "funnel_memory", "funnel_canon", "funnel_nolie", "funnel_mutate", "funnel_shots", "funnel_leak_live", "handler_flow", "handler_resume", "handler_mutate", "handler_layout", "handler_states", "handler_world", "handler_isolation", "pause_menu"]
 const EXT_WATCHDOG_SECONDS := 3300.0
 const RESOLVE_TIMEOUT_SEC := 25.0
 
@@ -607,6 +607,10 @@ func _run_ext() -> void:
 		return
 	if _ext_mode == "handler_isolation":
 		await HandlerProbe.new(self).run(_ext_mode)
+		_ext_quit(0)
+		return
+	if _ext_mode == "pause_menu":
+		await PauseMenuProbe.new(self).run()
 		_ext_quit(0)
 		return
 	await Signals.shell_ready

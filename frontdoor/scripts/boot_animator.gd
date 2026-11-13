@@ -168,5 +168,5 @@ static func animate_line(tree: SceneTree, terminal: TerminalGrid, style_id: Stri
 	rng.seed = seed_value
 	terminal.write_line(split["prefix"] + frame_value(style_id, split["value"], 0, total_frames, rng), color)
 	for i in range(1, total_frames):
-		await tree.create_timer(FRAME_INTERVAL_SEC).timeout
+		await tree.create_timer(FRAME_INTERVAL_SEC, false).timeout  # pausable: the pause menu (Spec #578) freezes the show
 		terminal.update_last_line(split["prefix"] + frame_value(style_id, split["value"], i, total_frames, rng))

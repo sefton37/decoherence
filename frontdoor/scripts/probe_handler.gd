@@ -147,7 +147,7 @@ func focus_pane(name: String) -> void:
 ## Leaves the module if open, clears a dry-run hand-off, and opens it again with the typed command.
 func reopen() -> void:
 	if shell.current_state_name() == "HANDLER":
-		await key(KEY_ESCAPE)
+		await key(back_key())
 	if shell.current_state_name() == "CHAT":
 		d._cr_say("leave")
 		await d._wait_frames(3)
@@ -238,6 +238,12 @@ func fields_found(lines: Array, pairs: Array) -> int:
 
 func ui_data() -> Dictionary:
 	return cr.handler_data().get("ui", {})
+
+
+## The keycode of the data-driven back action (Spec 578: Esc belongs to the pause menu).
+func back_key() -> int:
+	var spec := String(ui_data().get("keys", {}).get("back", ""))
+	return int(HandlerScreen._parse_key(spec).get("key", KEY_NONE))
 
 
 func rules_data() -> Dictionary:
@@ -403,7 +409,7 @@ func _content() -> Dictionary:
 
 ## /forget typed in the real chat, then the module again: the answers read as not on file.
 func _not_on_file() -> bool:
-	await key(KEY_ESCAPE)
+	await key(back_key())
 	shell.enter(true)
 	d._cr_say("chat")
 	await d._wait_for(func(): return d._cc().is_mounted(), 8.0)
@@ -423,7 +429,7 @@ func _not_on_file() -> bool:
 ## Hostile answers (braces, markup, format tokens, long words): literal, inside the pane, nothing else changes.
 func _hostile() -> bool:
 	var before := cr.colonist_id()
-	await key(KEY_ESCAPE)
+	await key(back_key())
 	var dossier := ProfileStore.empty_dossier()
 	dossier["fields"]["origin"] = HOSTILE_ORIGIN.substr(0, 60)
 	dossier["fields"]["doing"] = HOSTILE_DOING.substr(0, 60)
@@ -518,7 +524,7 @@ func _attack_defs() -> Array:
 		await focus_pane("launch")
 		await key(KEY_ENTER, false, false, false, false, false, false))
 	add.call("escape_then_enter", func():
-		await key(KEY_ESCAPE)
+		await key(back_key())
 		await key(KEY_ENTER)
 		await key(KEY_ENTER))
 	add.call("typed_world_word_on_module", func(): await type_text("world"))
@@ -544,10 +550,10 @@ func _attack_defs() -> Array:
 		await mouse(centre(sc.launch_rect_cells()), MOUSE_BUTTON_WHEEL_DOWN)
 		await mouse(centre(sc.launch_rect_cells()), MOUSE_BUTTON_WHEEL_UP))
 	add.call("spoof_launch_signal_after_close", func():
-		await key(KEY_ESCAPE)
+		await key(back_key())
 		Signals.emit_signal("handler_launch_requested"))
 	add.call("spoof_closed_signal_in_shell", func():
-		await key(KEY_ESCAPE)
+		await key(back_key())
 		Signals.emit_signal("handler_module_closed")
 		Signals.emit_signal("handler_launch_requested"))
 	return out
@@ -774,7 +780,7 @@ func _data_copy(tag: String, edit: Callable) -> String:
 ## dictionary to save first, "corrupt" for a file that does not parse, or null for a fresh install.
 func restart(profile: Variant, gate: bool = true) -> void:
 	if shell.current_state_name() == "HANDLER":
-		await key(KEY_ESCAPE)
+		await key(back_key())
 	if shell.current_state_name() == "CHAT":
 		d._cr_say("leave")
 		await d._wait_frames(3)
@@ -905,16 +911,16 @@ func _mode_resume() -> void:
 	await mouse(centre(sc.launch_rect_cells()))
 	gf["accept_ok"] = shell.last_launch_result == "ok" and disk_accepted() and d._llm_node().request_count == llm1
 	res["gate_failed"] = gf
-	# Esc returns to the prompt; the module reopens with the same colonist; the chat still opens
+	# The back key returns to the prompt; the module reopens with the same colonist; the chat still opens
 	await restart(base.duplicate(true), true)
 	var eb := {}
 	var id1 := cr.colonist_id()
-	await key(KEY_ESCAPE)
+	await key(back_key())
 	eb["state"] = shell.current_state_name()
 	d._cr_say("handler")
 	await d._wait_for(func(): return shell.current_state_name() == "HANDLER" and sc.is_mounted(), 5.0)
 	eb["reopen_same_colonist"] = cr.colonist_id() == id1
-	await key(KEY_ESCAPE)
+	await key(back_key())
 	d._cr_say("chat")
 	await d._wait_for(func(): return d._cc().is_mounted(), 8.0)
 	eb["chat_still_opens"] = shell.current_state_name() == "CHAT" and d._cc().is_mounted()

@@ -87,6 +87,9 @@ var _gate_success: bool = false
 ## beat are unchanged, only its peak scales.
 var _flicker_factor: float = 1.0
 
+## Spec #578: milliseconds the pause menu has held the tree so far (stage minimum durations skip it).
+var _paused_total_ms: int = 0
+
 ## Gallery (DECOHERENCE_BOOT_GALLERY=1): frames per treatment at the panels'
 ## 12 Hz tick = about 12 s each.
 const BOOT_GALLERY_FRAMES := 144
@@ -121,6 +124,9 @@ func _ready() -> void:
 	Signals.handler_module_opened.connect(_on_handler_mount)
 	Signals.handler_module_closed.connect(_on_handler_unmount)
 	Signals.setting_changed.connect(_apply_setting)
+	# Spec #578: the menu's settings row asks for the display toggle; the F11 path below does the work.
+	PauseMenu.display_toggle_requested.connect(_shell.toggle_display)
+	PauseMenu.closed.connect(_on_pause_closed)
 	_apply_all_settings(_shell.get_settings())
 	_setup_panels()
 	_terminal.set_input_line_active(false)
@@ -155,6 +161,10 @@ func _apply_scale() -> void:
 	var material: ShaderMaterial = _crt_overlay.material
 	if material != null:
 		material.set_shader_parameter("scanline_spacing_px", UiScale.crt_spacing(factor))
+
+
+func _on_pause_closed(paused_msec: int) -> void:
+	_paused_total_ms += paused_msec
 
 
 ## Spec #541 D12: F11 and Alt+Enter toggle fullscreen through the settings path
@@ -235,7 +245,7 @@ func _run_boot_gallery() -> void:
 			_panels.apply_gallery_script(f)
 			_panels.set_frame(f)
 			_panels.sample_now()
-			await get_tree().create_timer(BOOT_GALLERY_FRAME_SEC).timeout
+			await get_tree().create_timer(BOOT_GALLERY_FRAME_SEC, false).timeout
 		print("PROBE_GALLERY_TREATMENT n=%d active_cells=%d" % [i + 1, _panels.active_cells()])
 		var shots_dir := OS.get_environment("DECOHERENCE_GALLERY_SHOTS")
 		if shots_dir != "":
@@ -280,6 +290,7 @@ func _run_boot_sequence() -> void:
 ## boot_animator.gd's own determinism contract).
 func _run_stage(stage: Dictionary, stage_index: int) -> void:
 	var start_ms := Time.get_ticks_msec()
+	var paused_at_start := _paused_total_ms  # time under the pause menu is not stage time
 	var stage_id := String(stage.get("id", ""))
 	_panels.set_stage_state(stage_id, "INIT")
 
@@ -300,7 +311,7 @@ func _run_stage(stage: Dictionary, stage_index: int) -> void:
 			await BootAnimator.animate_line(get_tree(), _terminal, anim_style, seed_value, text, col, anim_duration_ms)
 		else:
 			_terminal.write_line(text, col)
-			await get_tree().create_timer(LINE_STAGGER_SEC).timeout
+			await get_tree().create_timer(LINE_STAGGER_SEC, false).timeout
 
 	if stage.get("gate", "") == "model_ready":
 		await _wait_for_model_ready()
@@ -310,10 +321,10 @@ func _run_stage(stage: Dictionary, stage_index: int) -> void:
 
 	_panels.set_stage_state(stage_id, "UP")
 
-	var elapsed: int = Time.get_ticks_msec() - start_ms
+	var elapsed: int = Time.get_ticks_msec() - start_ms - (_paused_total_ms - paused_at_start)
 	var min_ms: int = stage.get("min_duration_ms", 0)
 	if elapsed < min_ms:
-		await get_tree().create_timer((min_ms - elapsed) / 1000.0).timeout
+		await get_tree().create_timer((min_ms - elapsed) / 1000.0, false).timeout
 
 
 ## GALLERY mode (Spec #373 / plan-373 SS4): demonstrates all 6 registered
@@ -359,7 +370,7 @@ func _wait_for_model_ready() -> void:
 			BootAnimator.indeterminate_bar_frame("STANDBY -- CORTEX WARMING", tick_index)
 		)
 		tick_index += 1
-		await get_tree().create_timer(SPINNER_TICK_SEC).timeout
+		await get_tree().create_timer(SPINNER_TICK_SEC, false).timeout
 
 	if _gate_success:
 		_terminal.update_last_line(BootAnimator.full_bar_frame("STANDBY -- CORTEX WARMING"))

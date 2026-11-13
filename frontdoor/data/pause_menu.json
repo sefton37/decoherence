@@ -1,0 +1,14 @@
+{
+ "_note": "DRAFT PLACEHOLDER WORDS (Spec 578). Every word the pause menu shows lives here and nowhere in code. The wording and the look are a taste call for the owner; rewrite freely, keep the item ids.",
+ "draft": true,
+ "title": "Q-ENT OS // SYSTEM MENU",
+ "hint": "UP/DOWN: SELECT   ENTER: CONFIRM   ESC: BACK",
+ "items": [
+  {"id": "resume", "label": "RESUME"},
+  {"id": "settings", "label": "SETTINGS"},
+  {"id": "exit_shell", "label": "EXIT TO Q-ENT OS"},
+  {"id": "exit_desktop", "label": "EXIT TO DESKTOP"}
+ ],
+ "settings_display_fullscreen": "DISPLAY: FULLSCREEN",
+ "settings_display_windowed": "DISPLAY: WINDOWED"
+}

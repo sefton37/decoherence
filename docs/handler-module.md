@@ -71,7 +71,7 @@ never formatted into a template, so braces and long words in an answer stay lite
 The keys are named in `handler_ui.json`. Tab and Shift+Tab move the focus between the dossier, the
 profile and Launch. Up, Down, PageUp, PageDown, Home and End scroll the focused pane, and the wheel
 scrolls the pane under the pointer. Enter or Space on a focused Launch accepts; so does a click on the
-button. Esc returns to the shell prompt. The initial focus is the dossier, so a stray Enter (the one
+button. Backspace returns to the shell prompt (Esc opens the pause menu). The initial focus is the dossier, so a stray Enter (the one
 that ended the chat) does nothing; a held key repeats nothing but scrolling. F11 and Alt+Enter belong
 to the boot controller and never accept. There is no decline control and no help legend.
 

@@ -20,6 +20,7 @@ config/features=PackedStringArray("4.5")
 
 Signals="*res://frontdoor/scripts/signal_bus.gd"
 ProbeDriver="*res://frontdoor/scripts/probe_driver.gd"
+PauseMenu="*res://frontdoor/scripts/pause_menu.gd"
 
 [display]
 

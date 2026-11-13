@@ -173,6 +173,10 @@ func _input(event: InputEvent) -> void:
 		return
 	_last_key_ms = Time.get_ticks_msec()
 	var action := _action_for(k)
+	# Spec #578: Esc closes a pane only when one is open. With none open the key is not ours: it is left
+	# unhandled so the pause menu opens.
+	if action == "close_view" and _view.is_empty():
+		return
 	if not action.is_empty():
 		_run_action(action)
 		_finish_key()

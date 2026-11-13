@@ -17,7 +17,8 @@ class_name HandlerScreen
 ## Controls: the keys come from handler_ui.json. Initial focus is the dossier, so a
 ## stray or repeated Enter at mount does nothing; Enter or Space accepts only while
 ## Launch has the focus; a held key repeats nothing but scrolling. The fullscreen
-## toggles belong to the boot controller and never reach this node's actions.
+## toggles belong to the boot controller and never reach this node's actions. Esc is never a key
+## of this screen (Spec 578): it belongs to the pause menu, so "Esc" is not a parsable key name here.
 
 const FONT_PATH := "res://assets/fonts/DejaVuSansMono.ttf"
 const FONT_SIZE := 16
@@ -120,8 +121,8 @@ static func _parse_key(spec: String) -> Dictionary:
 			code = KEY_SPACE
 		"Tab":
 			code = KEY_TAB
-		"Esc":
-			code = KEY_ESCAPE
+		"Backspace":
+			code = KEY_BACKSPACE
 		"Up":
 			code = KEY_UP
 		"Down":
