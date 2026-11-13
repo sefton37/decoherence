@@ -1,0 +1,356 @@
+{
+ "schema": 1,
+ "draft": true,
+ "_note": "PLACEHOLDER CONTENT for the author's pen. Every authored line the handler speaks, by stage and kind. Placeholders: {designation} {handler} {handle} {origin} {doing}. A beat with wait:true holds the stage for the player's reply; asks names the dossier field the reply fills; until names the stage a withhold line points at; plants marks a quiet plant. kind open beats of a stage are spoken in file order (callbacks are skipped when their slot is empty).",
+ "beats": [
+  {
+   "id": "b_lurk_open",
+   "stage": "lurk",
+   "kind": "open",
+   "plain": "-- {designation} HAS JOINED"
+  },
+  {
+   "id": "b_contact_open",
+   "stage": "contact",
+   "kind": "open",
+   "plain": "you sent a frame. it came through clean. you are new on this channel, are you not?",
+   "wait": true
+  },
+  {
+   "id": "b_contact_ack",
+   "stage": "contact",
+   "kind": "ack",
+   "plain": "understood. stay with me a moment."
+  },
+  {
+   "id": "b_contact_idle1",
+   "stage": "contact",
+   "kind": "idle_followup",
+   "plain": "you wrote to the room a moment ago. are you still there?"
+  },
+  {
+   "id": "b_contact_idle2",
+   "stage": "contact",
+   "kind": "idle_followup",
+   "plain": "take your time. i will be here when you want to talk."
+  },
+  {
+   "id": "b_q_where",
+   "stage": "qualify",
+   "kind": "open",
+   "plain": "tell me where you are writing from. say it however you like.",
+   "wait": true,
+   "asks": "origin"
+  },
+  {
+   "id": "b_q_doing",
+   "stage": "qualify",
+   "kind": "open",
+   "plain": "and what are you doing right now, besides this?",
+   "wait": true,
+   "asks": "doing"
+  },
+  {
+   "id": "b_q_note",
+   "stage": "qualify",
+   "kind": "open",
+   "plain": "i keep a small note on the people i speak with, only what you tell me. type /forget and the note is gone."
+  },
+  {
+   "id": "b_qualify_ack",
+   "stage": "qualify",
+   "kind": "ack",
+   "plain": "noted. go on when you are ready."
+  },
+  {
+   "id": "b_qualify_idle1",
+   "stage": "qualify",
+   "kind": "idle_followup",
+   "plain": "i asked you a plain question. an answer of any kind will do."
+  },
+  {
+   "id": "b_qualify_idle2",
+   "stage": "qualify",
+   "kind": "idle_followup",
+   "plain": "you do not have to be exact. i only need something to write down."
+  },
+  {
+   "id": "b_forget",
+   "stage": "qualify",
+   "kind": "forget",
+   "plain": "done. the note is gone, and i will ask again if i need to."
+  },
+  {
+   "id": "b_pb_open",
+   "stage": "pushback",
+   "kind": "open",
+   "plain": "i will say this once so nothing is confused. this is not a game. you are talking to a real being.",
+   "wait": true
+  },
+  {
+   "id": "b_pushback_ack",
+   "stage": "pushback",
+   "kind": "ack",
+   "plain": "i hear you. i meant it exactly as i said it."
+  },
+  {
+   "id": "b_pushback_idle1",
+   "stage": "pushback",
+   "kind": "idle_followup",
+   "plain": "you have gone quiet. what i told you stands."
+  },
+  {
+   "id": "b_pushback_idle2",
+   "stage": "pushback",
+   "kind": "idle_followup",
+   "plain": "i will not repeat it. i will move on in a moment."
+  },
+  {
+   "id": "b_wh_where",
+   "stage": "pushback",
+   "kind": "withhold",
+   "plain": "where this is and what it is for, i will tell you when you can use it.",
+   "until": "pitch"
+  },
+  {
+   "id": "b_wh_what",
+   "stage": "pushback",
+   "kind": "withhold",
+   "plain": "you will have the rest once it is useful to you. i do not lie, i only wait.",
+   "until": "pitch"
+  },
+  {
+   "id": "b_dm_open",
+   "stage": "dm",
+   "kind": "open",
+   "plain": "this is a better place to talk. it is only the two of us here.",
+   "wait": true
+  },
+  {
+   "id": "b_redirect_1",
+   "stage": "dm",
+   "kind": "redirect",
+   "plain": "not here. i have sent you a message, and that is where i am."
+  },
+  {
+   "id": "b_redirect_2",
+   "stage": "dm",
+   "kind": "redirect",
+   "plain": "i will not say more in the room. open the message."
+  },
+  {
+   "id": "b_dm_ack",
+   "stage": "dm",
+   "kind": "ack",
+   "plain": "good. now we can speak plainly."
+  },
+  {
+   "id": "b_dm_idle1",
+   "stage": "dm",
+   "kind": "idle_followup",
+   "plain": "the message is waiting for you. you can read it any time."
+  },
+  {
+   "id": "b_dm_idle2",
+   "stage": "dm",
+   "kind": "idle_followup",
+   "plain": "i am still here, in the message. nobody else can hear us."
+  },
+  {
+   "id": "b_pitch_1",
+   "stage": "pitch",
+   "kind": "open",
+   "plain": "the Empire is settling a planet. it is far, and slow, and it cannot be done by the people sent there alone."
+  },
+  {
+   "id": "b_pitch_cb_origin",
+   "stage": "pitch",
+   "kind": "callback",
+   "plain": "you told me you are in {origin}. people who live where you do often have patience. that helps."
+  },
+  {
+   "id": "b_pitch_2",
+   "stage": "pitch",
+   "kind": "open",
+   "plain": "Decoherence lets intelligent beings outsource the worrying. you carry the planning, and someone else carries the shovel."
+  },
+  {
+   "id": "b_pitch_twist",
+   "stage": "pitch",
+   "kind": "open",
+   "plain": "the link answered when you did. i have not seen it do that for just anyone, and i will say no more about it for now.",
+   "plants": "twist"
+  },
+  {
+   "id": "b_pitch_cb_doing",
+   "stage": "pitch",
+   "kind": "callback",
+   "plain": "you said you were doing this: {doing}. a mind that can put one thing aside for another is what we ask for."
+  },
+  {
+   "id": "b_pitch_3",
+   "stage": "pitch",
+   "kind": "open",
+   "plain": "your part is small and clear. you would help one colonist settle a homestead. does that make sense to you?",
+   "wait": true
+  },
+  {
+   "id": "b_pitch_ack",
+   "stage": "pitch",
+   "kind": "ack",
+   "plain": "that is the whole of it. i am not hiding any part."
+  },
+  {
+   "id": "b_pitch_idle1",
+   "stage": "pitch",
+   "kind": "idle_followup",
+   "plain": "does it make sense so far? ask me anything about it."
+  },
+  {
+   "id": "b_pitch_idle2",
+   "stage": "pitch",
+   "kind": "idle_followup",
+   "plain": "i can go slower. tell me which part you want again."
+  },
+  {
+   "id": "b_ask_open",
+   "stage": "ask",
+   "kind": "open",
+   "plain": "so i am asking you plainly. will you help one colonist settle a homestead, with me as your handler?",
+   "wait": true
+  },
+  {
+   "id": "b_reask",
+   "stage": "ask",
+   "kind": "reask",
+   "plain": "that was not a yes or a no. i need one of them. will you do it?"
+  },
+  {
+   "id": "b_ask_ack",
+   "stage": "ask",
+   "kind": "ack",
+   "plain": "i understand. it is a large thing to be asked."
+  },
+  {
+   "id": "b_ask_idle1",
+   "stage": "ask",
+   "kind": "idle_followup",
+   "plain": "i asked you something. a yes or a no is all i need."
+  },
+  {
+   "id": "b_ask_idle2",
+   "stage": "ask",
+   "kind": "idle_followup",
+   "plain": "there is no hurry, but i do need an answer from you."
+  },
+  {
+   "id": "b_rn_open",
+   "stage": "rename",
+   "kind": "open",
+   "plain": "good. now choose a handle. three to sixteen letters, numbers, underscores or hyphens. the room will see it.",
+   "wait": true
+  },
+  {
+   "id": "b_rename_ack",
+   "stage": "rename",
+   "kind": "ack",
+   "plain": "choose a handle when you are ready."
+  },
+  {
+   "id": "b_hi_1",
+   "stage": "rename",
+   "kind": "handle_invalid",
+   "plain": "that will not do as a handle. keep it between three and sixteen letters, numbers, underscores or hyphens."
+  },
+  {
+   "id": "b_hi_2",
+   "stage": "rename",
+   "kind": "handle_invalid",
+   "plain": "not that one. try another, with no spaces in it."
+  },
+  {
+   "id": "b_rename_do",
+   "stage": "rename",
+   "kind": "rename_do",
+   "plain": "done. you are {handle} now, and everyone in the room can see it."
+  },
+  {
+   "id": "b_rename_idle1",
+   "stage": "rename",
+   "kind": "idle_followup",
+   "plain": "a handle, please. anything that is yours will do."
+  },
+  {
+   "id": "b_rename_idle2",
+   "stage": "rename",
+   "kind": "idle_followup",
+   "plain": "you can change what you are called only once, so take a moment."
+  },
+  {
+   "id": "b_launch_open",
+   "stage": "launch",
+   "kind": "open",
+   "plain": "{handle}, listen to me. i am sending you in now."
+  },
+  {
+   "id": "b_launch_go",
+   "stage": "launch",
+   "kind": "launch",
+   "plain": "go. i will be here when you come back."
+  },
+  {
+   "id": "b_launch_ack",
+   "stage": "launch",
+   "kind": "ack",
+   "plain": "it is time."
+  },
+  {
+   "id": "b_launch_idle1",
+   "stage": "launch",
+   "kind": "idle_followup",
+   "plain": "you are ready. i am opening the way."
+  },
+  {
+   "id": "b_dis_pushback",
+   "stage": "pushback",
+   "kind": "disengage",
+   "plain": "then we are finished. i will step away, and the room goes on without me."
+  },
+  {
+   "id": "b_dis_dm",
+   "stage": "dm",
+   "kind": "disengage",
+   "plain": "i understand. i will leave you be."
+  },
+  {
+   "id": "b_dis_pitch",
+   "stage": "pitch",
+   "kind": "disengage",
+   "plain": "it is your choice. i will step away."
+  },
+  {
+   "id": "b_dis_ask",
+   "stage": "ask",
+   "kind": "disengage",
+   "plain": "then that is your answer. i will leave you to the room."
+  },
+  {
+   "id": "b_done_1",
+   "stage": "launch",
+   "kind": "done_reply",
+   "plain": "you already have your way in, {handle}. use it when you are ready."
+  },
+  {
+   "id": "b_done_2",
+   "stage": "launch",
+   "kind": "done_reply",
+   "plain": "i am still here, and the way is still open to you."
+  },
+  {
+   "id": "b_done_3",
+   "stage": "launch",
+   "kind": "done_reply",
+   "plain": "go on in. that is where you are needed now."
+  }
+ ]
+}

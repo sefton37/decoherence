@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "draft": true,
-  "_note": "PLACEHOLDER CONTENT for Kel's pen. Every line, handle, cue word and number below is a stand-in so the mechanism can be built and tested; rewrite freely. The format (keys and types) is the contract; the words are not.",
+  "_note": "PLACEHOLDER CONTENT for the author's pen. Every line, handle, cue word and number below is a stand-in so the mechanism can be built and tested; rewrite freely. The format (keys and types) is the contract; the words are not. Spec 573: each voice carries a hidden side (empire or faction, never rendered); the voice with slot handler is the generated Empire handler, whose handle is filled in at session build.",
   "entry_room": "channel7",
   "scramble": {
     "pools": [
@@ -17,12 +17,57 @@
     "shape": {
       "_note": "Spec 562 A1 knobs for ChatroomScript.scramble_line. length_classes: tokens [lo,hi], weight, lean (+1 favoured by speakers biased short, -1 by speakers biased long). token_len_ranges: glyphs per token, one range per message. class_count_weights: weights for 1, 2 and 3 glyph classes per message. class_weights: how often each pool is drawn. lead_class_share: share of tokens in the message's lead class. clause_tokens/clause_marks: multi-clause long lines. speaker: per-handle tendencies hashed from the handle (salt), identical rules for every handle.",
       "length_classes": [
-        { "name": "burst", "tokens": [1, 4], "weight": 0.22, "lean": 1 },
-        { "name": "mid", "tokens": [5, 11], "weight": 0.48, "lean": 0 },
-        { "name": "long", "tokens": [14, 30], "weight": 0.30, "lean": -1 }
+        {
+          "name": "burst",
+          "tokens": [
+            1,
+            4
+          ],
+          "weight": 0.22,
+          "lean": 1
+        },
+        {
+          "name": "mid",
+          "tokens": [
+            5,
+            11
+          ],
+          "weight": 0.48,
+          "lean": 0
+        },
+        {
+          "name": "long",
+          "tokens": [
+            14,
+            30
+          ],
+          "weight": 0.3,
+          "lean": -1
+        }
       ],
-      "token_len_ranges": [[1, 3], [2, 6], [3, 8], [2, 11]],
-      "class_count_weights": [0.25, 0.5, 0.25],
+      "token_len_ranges": [
+        [
+          1,
+          3
+        ],
+        [
+          2,
+          6
+        ],
+        [
+          3,
+          8
+        ],
+        [
+          2,
+          11
+        ]
+      ],
+      "class_count_weights": [
+        0.25,
+        0.5,
+        0.25
+      ],
       "class_weights": {
         "box": 1.0,
         "box_heavy": 0.8,
@@ -34,8 +79,16 @@
         "letterlike": 0.35
       },
       "lead_class_share": 0.7,
-      "clause_tokens": [3, 7],
-      "clause_marks": [",", ";", ":", "."],
+      "clause_tokens": [
+        3,
+        7
+      ],
+      "clause_marks": [
+        ",",
+        ";",
+        ":",
+        "."
+      ],
       "max_chars": 200,
       "speaker": {
         "salt": "a1",
@@ -67,23 +120,29 @@
       "voices": [
         {
           "id": "v1",
-          "handle": "XEN-4"
+          "handle": "XEN-4",
+          "side": "empire"
         },
         {
           "id": "v2",
-          "handle": "OBL-17"
+          "handle": "OBL-17",
+          "side": "faction"
         },
         {
           "id": "v3",
-          "handle": "THRESH"
+          "handle": "THRESH",
+          "side": "faction"
         },
         {
           "id": "v4",
-          "handle": "NUL-9"
+          "handle": "NUL-9",
+          "side": "empire"
         },
         {
           "id": "v5",
-          "handle": "WREN-22"
+          "handle": "{HANDLER}",
+          "slot": "handler",
+          "side": "empire"
         }
       ],
       "ambient": {
@@ -222,18 +281,7 @@
           "voice": "v2",
           "plain": "not routed"
         }
-      ],
-      "handler_trigger": {
-        "on": "first_player_message",
-        "contact_delay_ms": [
-          900,
-          2200
-        ],
-        "contact_line": {
-          "voice": "v5",
-          "plain": "you sent a frame. it came through clean."
-        }
-      }
+      ]
     },
     {
       "id": "channel3",
@@ -247,23 +295,29 @@
       "voices": [
         {
           "id": "v1",
-          "handle": "XEN-4"
+          "handle": "XEN-4",
+          "side": "empire"
         },
         {
           "id": "v2",
-          "handle": "OBL-17"
+          "handle": "OBL-17",
+          "side": "faction"
         },
         {
           "id": "v4",
-          "handle": "NUL-9"
+          "handle": "NUL-9",
+          "side": "empire"
         },
         {
           "id": "v5",
-          "handle": "WREN-22"
+          "handle": "{HANDLER}",
+          "slot": "handler",
+          "side": "empire"
         },
         {
           "id": "v6",
-          "handle": "KITE-3"
+          "handle": "KITE-3",
+          "side": "faction"
         }
       ],
       "ambient": {
@@ -398,18 +452,7 @@
           "voice": "v2",
           "plain": "not logged"
         }
-      ],
-      "handler_trigger": {
-        "on": "first_player_message",
-        "contact_delay_ms": [
-          900,
-          2200
-        ],
-        "contact_line": {
-          "voice": "v5",
-          "plain": "you sent a frame. it came through clean."
-        }
-      }
+      ]
     },
     {
       "id": "channel12",
@@ -423,23 +466,29 @@
       "voices": [
         {
           "id": "v1",
-          "handle": "XEN-4"
+          "handle": "XEN-4",
+          "side": "empire"
         },
         {
           "id": "v3",
-          "handle": "THRESH"
+          "handle": "THRESH",
+          "side": "faction"
         },
         {
           "id": "v4",
-          "handle": "NUL-9"
+          "handle": "NUL-9",
+          "side": "empire"
         },
         {
           "id": "v5",
-          "handle": "WREN-22"
+          "handle": "{HANDLER}",
+          "slot": "handler",
+          "side": "empire"
         },
         {
           "id": "v7",
-          "handle": "SABLE-31"
+          "handle": "SABLE-31",
+          "side": "faction"
         }
       ],
       "ambient": {
@@ -574,18 +623,7 @@
           "voice": "v1",
           "plain": "not on the manifest"
         }
-      ],
-      "handler_trigger": {
-        "on": "first_player_message",
-        "contact_delay_ms": [
-          900,
-          2200
-        ],
-        "contact_line": {
-          "voice": "v5",
-          "plain": "you sent a frame. it came through clean."
-        }
-      }
+      ]
     },
     {
       "id": "channel19",
@@ -599,27 +637,34 @@
       "voices": [
         {
           "id": "v1",
-          "handle": "XEN-4"
+          "handle": "XEN-4",
+          "side": "empire"
         },
         {
           "id": "v2",
-          "handle": "OBL-17"
+          "handle": "OBL-17",
+          "side": "faction"
         },
         {
           "id": "v4",
-          "handle": "NUL-9"
+          "handle": "NUL-9",
+          "side": "empire"
         },
         {
           "id": "v5",
-          "handle": "WREN-22"
+          "handle": "{HANDLER}",
+          "slot": "handler",
+          "side": "empire"
         },
         {
           "id": "v8",
-          "handle": "VORT-8"
+          "handle": "VORT-8",
+          "side": "faction"
         },
         {
           "id": "v9",
-          "handle": "DRIFT-12"
+          "handle": "DRIFT-12",
+          "side": "empire"
         }
       ],
       "ambient": {
@@ -754,18 +799,7 @@
           "voice": "v2",
           "plain": "not trimmed"
         }
-      ],
-      "handler_trigger": {
-        "on": "first_player_message",
-        "contact_delay_ms": [
-          900,
-          2200
-        ],
-        "contact_line": {
-          "voice": "v5",
-          "plain": "you sent a frame. it came through clean."
-        }
-      }
+      ]
     },
     {
       "id": "channel4",
@@ -779,27 +813,34 @@
       "voices": [
         {
           "id": "v1",
-          "handle": "XEN-4"
+          "handle": "XEN-4",
+          "side": "empire"
         },
         {
           "id": "v3",
-          "handle": "THRESH"
+          "handle": "THRESH",
+          "side": "faction"
         },
         {
           "id": "v4",
-          "handle": "NUL-9"
+          "handle": "NUL-9",
+          "side": "empire"
         },
         {
           "id": "v5",
-          "handle": "WREN-22"
+          "handle": "{HANDLER}",
+          "slot": "handler",
+          "side": "empire"
         },
         {
           "id": "v6",
-          "handle": "KITE-3"
+          "handle": "KITE-3",
+          "side": "faction"
         },
         {
           "id": "v7",
-          "handle": "SABLE-31"
+          "handle": "SABLE-31",
+          "side": "faction"
         }
       ],
       "ambient": {
@@ -934,28 +975,11 @@
           "voice": "v3",
           "plain": "not sealed"
         }
-      ],
-      "handler_trigger": {
-        "on": "first_player_message",
-        "contact_delay_ms": [
-          900,
-          2200
-        ],
-        "contact_line": {
-          "voice": "v5",
-          "plain": "you sent a frame. it came through clean."
-        }
-      }
+      ]
     }
   ],
   "handler": {
-    "offer_fallback_line": "you have what you need. say you accept and I will bring you through.",
     "degrade_line": "LINK DEGRADED -- FRAME LOST.",
-    "accept_commands": [
-      "enter",
-      "accept",
-      "i accept"
-    ],
     "leave_commands": [
       "leave",
       "exit",

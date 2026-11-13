@@ -14,7 +14,7 @@ const SEED := 20261112
 const SAMPLE_PER_ROOM := 200
 const FONT_PATH := "res://assets/fonts/DejaVuSansMono.ttf"
 const FONT_SIZE := 16
-const CONTACT := "WREN-22"
+var _contact: String = ""
 
 var _bundle: Dictionary = {}
 
@@ -25,7 +25,14 @@ func _init() -> void:
 		print("SCRAMBLE_STATS_FAIL load: %s" % String(_bundle.get("error", "")))
 		quit(1)
 		return
-	var script: Dictionary = _bundle["script"]
+	# The handler's handle is generated per player: take the one a session would draw.
+	var statics: Array = []
+	for r in _bundle["script"]["rooms"]:
+		for v in r["voices"]:
+			if String(v.get("slot", "")) != "handler":
+				statics.append(String(v["handle"]))
+	_contact = HandlerNames.generate(_bundle["names"], SEED, statics)
+	var script: Dictionary = ChatroomScript.with_handler(_bundle["script"], _contact)
 	var shaped: Dictionary = script["scramble"]
 	var legacy: Dictionary = shaped.duplicate(true)
 	legacy.erase("shape")
@@ -162,8 +169,8 @@ func _measure(lines: Array, rules: Dictionary) -> Dictionary:
 
 ## Does the contact's handle sit inside the range the other handles span?
 func _envelope(per: Dictionary) -> Dictionary:
-	var res := {"handles": per.size(), "contact_present": per.has(CONTACT)}
-	if not per.has(CONTACT):
+	var res := {"handles": per.size(), "contact_present": per.has(_contact)}
+	if not per.has(_contact):
 		return res
 	var metrics := ["mean_len", "burst_share", "long_share"]
 	var inside := true
@@ -172,20 +179,20 @@ func _envelope(per: Dictionary) -> Dictionary:
 		var lo := INF
 		var hi := -INF
 		for h in per:
-			if h == CONTACT:
+			if h == _contact:
 				continue
 			lo = minf(lo, float(per[h][m]))
 			hi = maxf(hi, float(per[h][m]))
-		var v := float(per[CONTACT][m])
+		var v := float(per[_contact][m])
 		spread[m] = {"others_min": lo, "others_max": hi, "contact": v}
 		if v < lo or v > hi:
 			inside = false
 	var leads := {}
 	for h in per:
-		if h != CONTACT:
+		if h != _contact:
 			leads[per[h]["lead_class"]] = true
 	res["contact_inside_others_range"] = inside
-	res["contact_lead_class_shared"] = leads.has(per[CONTACT]["lead_class"])
+	res["contact_lead_class_shared"] = leads.has(per[_contact]["lead_class"])
 	res["spread"] = spread
 	return res
 

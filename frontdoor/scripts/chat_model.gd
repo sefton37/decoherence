@@ -27,9 +27,15 @@ const ROW_SYSTEM := "system"
 
 ## Bare words that leave the client (also accepted with a leading slash).
 const LEAVE_WORDS := ["leave", "exit", "quit"]
-const VERBS := ["join", "part", "list", "who", "msg", "me", "clear"]
+const VERBS := ["join", "part", "list", "who", "msg", "me", "clear", "forget"]
 
 var self_handle: String = ""
+## Hidden per-voice side (empire or faction): never drawn, only read by the
+## legibility rule. handle -> side.
+var sides: Dictionary = {}
+## Voices that never leave a room on their own (the generated handler sits in every
+## room): presence_step skips them.
+var pinned: Array = []
 var rooms: Dictionary = {}
 var room_order: Array = []
 var buffers: Dictionary = {}
@@ -46,6 +52,8 @@ var _seq: int = 0
 ## Builds the rooms and buffers from the loaded script and opens the entry room.
 func setup(script: Dictionary, handle: String, entry_id: String) -> void:
 	self_handle = handle
+	sides = {}
+	pinned = []
 	rooms = {}
 	room_order = []
 	buffers = {}
@@ -59,6 +67,9 @@ func setup(script: Dictionary, handle: String, entry_id: String) -> void:
 		var handles: Array = []
 		for v in r.get("voices", []):
 			handles.append(String(v.get("handle", "")))
+			sides[String(v.get("handle", ""))] = String(v.get("side", ""))
+			if String(v.get("slot", "")) == "handler":
+				pinned.append(String(v.get("handle", "")))
 		rooms[rid] = {
 			"id": rid,
 			"name": String(r.get("name", rid)),
@@ -307,15 +318,16 @@ func presence_step(room_id: String, rng: RandomNumberGenerator) -> Dictionary:
 		if not present.has(h):
 			absent.append(h)
 	var size := present.size() + (1 if bool(r["joined"]) else 0)
+	var leavers: Array = present.filter(func(h): return not pinned.has(String(h)))
 	var leave := false
 	if absent.is_empty():
 		leave = true
 	elif size > MIN_ROSTER:
 		leave = rng.randf() < 0.5
 	if leave:
-		if size <= MIN_ROSTER or present.is_empty():
+		if size <= MIN_ROSTER or leavers.is_empty():
 			return {}
-		var gone: String = String(present[rng.randi_range(0, present.size() - 1)])
+		var gone: String = String(leavers[rng.randi_range(0, leavers.size() - 1)])
 		present.erase(gone)
 		return {"kind": "leave", "handle": gone}
 	var back: String = String(absent[rng.randi_range(0, absent.size() - 1)])
@@ -368,6 +380,38 @@ func room_id_for(arg: String) -> String:
 		if _ascii_lower(String(rid)) == key or _ascii_lower(String(rooms[rid]["name"])).replace(" ", "") == key:
 			return String(rid)
 	return ""
+
+
+## The hidden side of a voice ("empire", "faction"), "" for anyone unknown.
+func side_of(handle: String) -> String:
+	return String(sides.get(handle, ""))
+
+
+## The player's own handle changes (the rename): the people panes, the nav label and
+## the self marker all read self_handle, so they change together.
+func rename_self(new_handle: String) -> void:
+	self_handle = new_handle
+
+
+## One voice is replaced by another in every room (a handler leaves, a new one
+## arrives). Presence is carried over; the old name's direct message keeps its rows.
+## Returns the ids of the rooms where the old voice was present.
+func swap_voice(old_handle: String, new_handle: String) -> Array:
+	var was_present: Array = []
+	for rid in room_order:
+		var r: Dictionary = rooms[rid]
+		var i: int = (r["voices"] as Array).find(old_handle)
+		if i >= 0:
+			r["voices"][i] = new_handle
+		var j: int = (r["present"] as Array).find(old_handle)
+		if j >= 0:
+			r["present"][j] = new_handle
+			was_present.append(rid)
+	sides[new_handle] = String(sides.get(old_handle, "empire"))
+	sides.erase(old_handle)
+	if pinned.has(old_handle):
+		pinned[pinned.find(old_handle)] = new_handle
+	return was_present
 
 
 ## --- Input history ---------------------------------------------------------------------------

@@ -27,6 +27,8 @@ export DISPLAY=":99"
 unset WAYLAND_DISPLAY
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus
 SHOTS="${STALAG_SHOTS_DIR:-$(mktemp -d)}"
+# The game boots on a scratch user:// so the real profile and dossier are never touched.
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$(mktemp -d)}"
 mkdir -p "$SHOTS"
 rm -f "$SHOTS/entry_world.png"
 : > "$STALAG_LOG"

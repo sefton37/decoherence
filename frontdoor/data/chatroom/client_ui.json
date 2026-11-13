@@ -38,6 +38,7 @@
     "msg": { "args": 2 },
     "me": { "args": 1 },
     "clear": { "args": 0 },
+    "forget": { "args": 0 },
     "quit": { "args": 0 }
   },
   "strings": {
@@ -54,6 +55,7 @@
     "last_buffer": "LAST OPEN WINDOW STAYS OPEN.",
     "joined_line": "-- {name} HAS JOINED",
     "left_line": "-- {name} HAS LEFT",
+    "renamed_line": "-- {old} IS NOW KNOWN AS {new}",
     "list_line": "{name}  {count}",
     "who_line": "{name}"
   }

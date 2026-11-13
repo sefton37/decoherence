@@ -1,26 +1,25 @@
 extends RefCounted
 class_name ChatroomScript
 
-## Pure logic for the chatroom (Spec #542): script loading and validation,
-## the seeded scrambler, the randomized ambient planner, scripted responders,
-## the first-message trigger, fact unlocking, readiness and the model-reply
-## gate. Everything here is a static function over plain data, so the unit
-## harness exercises it with no scene, no model and no clock.
+## Pure logic for the chatroom (Spec #542, reworked by Spec #573): script
+## loading and validation, the seeded scrambler, the randomized ambient planner,
+## scripted responders and the funnel's model prompt. Everything here is a static
+## function over plain data, so the unit harness exercises it with no scene, no
+## model and no clock.
 ##
-## No lore lives in this file. Every spoken word comes from the four data
-## files under frontdoor/data/chatroom/ (or the directory named by
-## DECOHERENCE_CHATROOM_DIR): the room script, the briefing facts, the tabled
-## readiness values and the contact's persona.
+## No lore lives in this file. Every spoken word comes from the data files under
+## frontdoor/data/chatroom/ (or the directory named by DECOHERENCE_CHATROOM_DIR):
+## the room script, the briefing facts, the persona, and the funnel's mechanics,
+## beats and name parts.
 
 const DEFAULT_DIR := "res://frontdoor/data/chatroom"
 const ENV_DIR := "DECOHERENCE_CHATROOM_DIR"
 
 ## Internal state names. They are never rendered (Spec #542 D19).
 const ST_ROOM := "ROOM"
-const ST_BRIEFING := "BRIEFING"
-const ST_OFFERED := "ENTRY_OFFERED"
+const ST_ENGAGED := "ENGAGED"
+const ST_LAUNCH := "LAUNCH"
 
-const ACTS := ["none", "offer_entry"]
 ## The three outcomes of a routed line in the chat client (Spec #562): scripted
 ## voices, the single model-backed thread, or a client command. Code decides.
 const ROUTE_SCRIPTED := "scripted"
@@ -28,10 +27,7 @@ const ROUTE_CONTACT := "contact"
 const ROUTE_COMMAND := "command"
 ## Longest scripted room line, in characters (one terminal row with its handle).
 const MAX_LINE_CHARS := 80
-const HISTORY_MESSAGES := 6
-const MAX_RAW_REPLY := 2000
 const WINDOW_MS := 60000
-const OFFER_INSTRUCTION := "INSTRUCTION: OFFER ENTRY NOW."
 ## The same three Unicode pools TerminalGrid draws its alien glyphs from (Box
 ## Drawing, Block Elements, Braille). Copied rather than referenced so this file
 ## compiles in a headless --script run, where TerminalGrid (which names the
@@ -69,24 +65,27 @@ static func read_json(path: String) -> Variant:
 	return JSON.parse_string(text)
 
 
-## Loads and cross-checks the four data files. {ok, error, script, briefing,
-## readiness, persona}. Any problem is a named error, never a partial bundle.
+## Loads and cross-checks the data files. {ok, error, script, briefing, persona,
+## funnel, beats, names}. Any problem is a named error, never a partial bundle.
 static func load_bundle() -> Dictionary:
 	var dir := data_dir()
 	var script = read_json(dir + "/room_script.json")
 	var briefing = read_json(dir + "/handler_briefing.json")
 	var persona = read_json(dir + "/contact_persona.json")
-	if typeof(script) != TYPE_DICTIONARY or typeof(briefing) != TYPE_DICTIONARY or typeof(persona) != TYPE_DICTIONARY:
-		return {"ok": false, "error": "unreadable_data"}
-	var rd := load_readiness(dir + "/readiness.json", briefing)
-	if not bool(rd["ok"]):
-		return {"ok": false, "error": String(rd["error"])}
-	var errors := validate(script, briefing, rd["cfg"])
+	var funnel = read_json(dir + "/funnel.json")
+	var beats = read_json(dir + "/funnel_beats.json")
+	var names = read_json(dir + "/funnel_names.json")
+	for d in [script, briefing, persona, funnel, beats, names]:
+		if typeof(d) != TYPE_DICTIONARY:
+			return {"ok": false, "error": "unreadable_data"}
+	var errors := validate(script, briefing)
 	if not errors.is_empty():
 		return {"ok": false, "error": String(errors[0])}
 	if typeof(persona.get("system_prompt", null)) != TYPE_STRING or typeof(persona.get("fallback_say", null)) != TYPE_STRING:
 		return {"ok": false, "error": "wrong_type"}
-	return {"ok": true, "error": "", "script": script, "briefing": briefing, "readiness": rd["cfg"], "persona": persona}
+	if typeof(funnel.get("stages", null)) != TYPE_ARRAY or typeof(beats.get("beats", null)) != TYPE_ARRAY or typeof(names.get("onsets", null)) != TYPE_ARRAY:
+		return {"ok": false, "error": "wrong_type"}
+	return {"ok": true, "error": "", "script": script, "briefing": briefing, "persona": persona, "funnel": funnel, "beats": beats["beats"], "names": names}
 
 
 static func entry_room(script: Dictionary) -> Dictionary:
@@ -113,10 +112,9 @@ static func voice_handle(room: Dictionary, voice_id: String) -> String:
 
 ## --- Validation ----------------------------------------------------------------
 
-## Returns the list of named errors; empty means valid. `briefing` and
-## `readiness_cfg` are optional: when both are given the required facts are
-## cross-checked against the briefing.
-static func validate(script: Variant, briefing: Variant = null, readiness_cfg: Variant = null) -> Array:
+## Returns the list of named errors; empty means valid. `briefing` is optional:
+## when given, every fact must name a stage the funnel has.
+static func validate(script: Variant, briefing: Variant = null) -> Array:
 	var errs: Array = []
 	if typeof(script) != TYPE_DICTIONARY:
 		return ["wrong_type"]
@@ -137,21 +135,15 @@ static func validate(script: Variant, briefing: Variant = null, readiness_cfg: V
 	if typeof(h) != TYPE_DICTIONARY:
 		errs.append("wrong_type")
 	else:
-		if typeof(h.get("accept_commands", null)) != TYPE_ARRAY or h["accept_commands"].is_empty():
-			errs.append("no_accept_command")
 		if typeof(h.get("leave_commands", null)) != TYPE_ARRAY or h["leave_commands"].is_empty():
 			errs.append("no_leave_command")
-		for key in ["degrade_line", "offer_fallback_line", "leave_line"]:
+		for key in ["degrade_line", "leave_line"]:
 			if typeof(h.get(key, null)) != TYPE_STRING:
 				errs.append("wrong_type")
-	if typeof(briefing) == TYPE_DICTIONARY and typeof(readiness_cfg) == TYPE_DICTIONARY:
-		var ids: Array = []
+	if typeof(briefing) == TYPE_DICTIONARY:
 		for f in briefing.get("facts", []):
-			if typeof(f) == TYPE_DICTIONARY:
-				ids.append(String(f.get("id", "")))
-		for need in readiness_cfg.get("required_facts", []):
-			if not ids.has(String(need)):
-				errs.append("unknown_required_fact")
+			if typeof(f) != TYPE_DICTIONARY or typeof(f.get("id", null)) != TYPE_STRING or typeof(f.get("from_stage", null)) != TYPE_STRING:
+				errs.append("wrong_type")
 	return errs
 
 
@@ -161,9 +153,16 @@ static func _validate_room(r: Dictionary, errs: Array) -> void:
 	if typeof(voices) != TYPE_ARRAY:
 		errs.append("wrong_type")
 		voices = []
+	var slots := 0
 	for v in voices:
 		if typeof(v) == TYPE_DICTIONARY:
 			ids.append(String(v.get("id", "")))
+			if String(v.get("slot", "")) == "handler":
+				slots += 1
+			if not ["empire", "faction"].has(String(v.get("side", ""))):
+				errs.append("bad_side")
+	if slots != 1:
+		errs.append("no_handler_slot")
 	var amb = r.get("ambient", null)
 	if typeof(amb) != TYPE_DICTIONARY:
 		errs.append("wrong_type")
@@ -185,14 +184,6 @@ static func _validate_room(r: Dictionary, errs: Array) -> void:
 			continue
 		for item in group:
 			_validate_line(item, ids, errs)
-	var trig = r.get("handler_trigger", null)
-	if typeof(trig) != TYPE_DICTIONARY or String(trig.get("on", "")) != "first_player_message":
-		errs.append("bad_trigger")
-	else:
-		_validate_line(trig.get("contact_line", null), ids, errs)
-		var d = trig.get("contact_delay_ms", null)
-		if typeof(d) != TYPE_ARRAY or d.size() != 2 or int(d[0]) < 0 or int(d[0]) > int(d[1]):
-			errs.append("bad_interval")
 
 
 static func _validate_line(item: Variant, voice_ids: Array, errs: Array) -> void:
@@ -203,37 +194,6 @@ static func _validate_line(item: Variant, voice_ids: Array, errs: Array) -> void
 		errs.append("unknown_voice")
 	if String(item["plain"]).length() > MAX_LINE_CHARS:
 		errs.append("oversize_line")
-
-
-## The tabled readiness file (Spec #542 D6, D15). Must still be marked TABLED,
-## must not carry the removed stall knob, and may only name real facts.
-static func load_readiness(path: String, briefing: Dictionary) -> Dictionary:
-	return check_readiness(read_json(path), briefing)
-
-
-static func check_readiness(data: Variant, briefing: Dictionary) -> Dictionary:
-	if typeof(data) != TYPE_DICTIONARY:
-		return {"ok": false, "error": "unreadable_data"}
-	if String(data.get("status", "")) != "TABLED":
-		return {"ok": false, "error": "not_tabled"}
-	if data.has("stall_turns"):
-		return {"ok": false, "error": "stall_turns"}
-	for key in ["min_player_turns", "max_new_facts_per_turn", "offer_grace_turns"]:
-		if typeof(data.get(key, null)) not in [TYPE_INT, TYPE_FLOAT]:
-			return {"ok": false, "error": "wrong_type"}
-	if int(data["max_new_facts_per_turn"]) < 1 or int(data["min_player_turns"]) < 0 or int(data["offer_grace_turns"]) < 0:
-		return {"ok": false, "error": "wrong_type"}
-	var req = data.get("required_facts", null)
-	if typeof(req) != TYPE_ARRAY:
-		return {"ok": false, "error": "wrong_type"}
-	var ids: Array = []
-	for f in briefing.get("facts", []):
-		if typeof(f) == TYPE_DICTIONARY:
-			ids.append(String(f.get("id", "")))
-	for need in req:
-		if not ids.has(String(need)):
-			return {"ok": false, "error": "unknown_required_fact"}
-	return {"ok": true, "error": "", "cfg": data}
 
 
 ## --- Text helpers ---------------------------------------------------------------
@@ -253,12 +213,6 @@ static func normalize(text: String) -> String:
 			out += " "
 			last_space = true
 	return out.strip_edges()
-
-
-## True when `kw` starts a word of `text` ("entangle" hits "entanglement").
-static func kw_hit(text: String, kw: String) -> bool:
-	var k := normalize(kw)
-	return not k.is_empty() and (" " + normalize(text)).contains(" " + k)
 
 
 ## Exact command match: ASCII case-folded and whitespace-collapsed, nothing
@@ -551,81 +505,38 @@ static func respond(script: Dictionary, text: String, fallback_index: int, room_
 	return {"id": "fallback", "voice": String(pick.get("voice", "")), "plain": String(pick.get("plain", "")), "fallback": true}
 
 
-## The contact reaches out only after the player's FIRST sent, non-empty
-## message, and only once.
-static func trigger_fires(trigger: Dictionary, already_fired: bool, text: String) -> bool:
-	if already_fired or String(trigger.get("on", "")) != "first_player_message":
-		return false
-	return not text.strip_edges().is_empty()
+## --- The funnel's model prompt ---------------------------------------------------------------------
 
-
-## --- Briefing ------------------------------------------------------------------------------------
-
-## Ids of the facts the player's own line unlocks now: file order, not already
-## unlocked, at most `max_new_facts_per_turn`. Code never volunteers a fact.
-static func facts_for_turn(briefing: Dictionary, cfg: Dictionary, unlocked: Array, player_text: String) -> Array:
+## The briefing facts whose stage has been reached (file order).
+static func facts_available(briefing: Dictionary, stage_ids: Array, stage_index: int) -> Array:
 	var out: Array = []
-	var cap := int(cfg.get("max_new_facts_per_turn", 2))
-	if player_text.strip_edges().is_empty():
-		return out
 	for f in briefing.get("facts", []):
-		if out.size() >= cap:
-			break
-		var fid := String(f.get("id", ""))
-		if unlocked.has(fid):
-			continue
-		for kw in f.get("ask_keywords", []):
-			if kw_hit(player_text, String(kw)):
-				out.append(fid)
-				break
+		var at := stage_ids.find(String(f.get("from_stage", "")))
+		if at >= 0 and at <= stage_index:
+			out.append(f)
 	return out
 
 
-## Facts newly credited by an accepted reply: unlocked (so present in that
-## turn's prompt) and mentioned through one of their say keywords.
-static func credit(briefing: Dictionary, unlocked: Array, say: String, credited: Array) -> Array:
-	var out: Array = []
-	var low := say.to_lower()
-	for f in briefing.get("facts", []):
-		var fid := String(f.get("id", ""))
-		if not unlocked.has(fid) or credited.has(fid) or out.has(fid):
-			continue
-		for kw in f.get("say_keywords", []):
-			if low.contains(String(kw).to_lower()):
-				out.append(fid)
-				break
-	return out
-
-
-static func readiness(cfg: Dictionary, credited: Array, player_turns: int) -> bool:
-	if player_turns < int(cfg.get("min_player_turns", 0)):
-		return false
-	for need in cfg.get("required_facts", []):
-		if not credited.has(String(need)):
-			return false
-	return true
-
-
-## --- Prompt and reply gate --------------------------------------------------------------------------
-
-## system (persona + rules + only the unlocked facts [+ the offer instruction])
-## + the last HISTORY_MESSAGES turns + the player's line in the user role.
-static func build_messages(persona: Dictionary, briefing: Dictionary, unlocked: Array, history: Array, player_text: String, offer_due: bool) -> Array:
-	var sys := String(persona.get("system_prompt", "")) + "\n\nRULES:\n"
+## system (persona + rules + only the facts available at this stage + the
+## operational note) + the last `history_turns` messages + the player's line.
+## `dossier` is {field: value} and only ever appears as the operational note.
+static func build_funnel_messages(persona: Dictionary, briefing: Dictionary, facts: Array, dossier: Dictionary, handler_name: String, history: Array, player_text: String, history_turns: int) -> Array:
+	var sys := String(persona.get("system_prompt", "")) + "\n\nYour name on this channel is " + handler_name + ".\n\nRULES:\n"
 	for rule in briefing.get("prompt_rules", []):
 		sys += "- " + String(rule) + "\n"
 	sys += "\nKNOWN FACTS (ground truth, never go beyond them):\n"
-	var any := false
-	for f in briefing.get("facts", []):
-		if unlocked.has(String(f.get("id", ""))):
-			sys += "- " + String(f.get("text", "")) + "\n"
-			any = true
-	if not any:
+	if facts.is_empty():
 		sys += "(none)\n"
-	if offer_due:
-		sys += "\n" + OFFER_INSTRUCTION + " " + String(briefing.get("offer_instruction", "")) + "\n"
+	for f in facts:
+		sys += "- (%s) %s\n" % [String(f.get("id", "")), String(f.get("text", ""))]
+	var note := ""
+	for k in dossier:
+		if not String(dossier[k]).is_empty():
+			note += "- %s: %s\n" % [String(k), String(dossier[k])]
+	if not note.is_empty():
+		sys += "\nYOUR NOTE ON THEM (what they told you):\n" + note
 	var messages: Array = [{"role": "system", "content": sys}]
-	var from := maxi(history.size() - HISTORY_MESSAGES, 0)
+	var from := maxi(history.size() - history_turns, 0)
 	for i in range(from, history.size()):
 		messages.append({"role": String(history[i]["role"]), "content": String(history[i]["content"])})
 	messages.append({"role": "user", "content": player_text})
@@ -641,53 +552,23 @@ static func estimate_tokens(messages: Array) -> int:
 	return int(ceil(float(chars) / 4.0))
 
 
-static func response_schema(max_say: int) -> Dictionary:
-	return {
-		"type": "object",
-		"properties": {
-			"say": {"type": "string", "maxLength": max_say},
-			"act": {"type": "string", "enum": ACTS},
-		},
-		"required": ["say", "act"],
-		"additionalProperties": false,
-	}
+## A copy of the script with the handler slot's handle filled in.
+static func with_handler(script: Dictionary, handler_name: String) -> Dictionary:
+	var out: Dictionary = script.duplicate(true)
+	for r in out.get("rooms", []):
+		for v in r.get("voices", []):
+			if String(v.get("slot", "")) == "handler":
+				v["handle"] = handler_name
+	return out
 
 
-## Strict gate for one model reply. {ok, say, act, downgraded, reason}. Any
-## deviation (not JSON, extra key, unknown act, over-long say, think marker,
-## code fence, reasoning window) is ok=false and the caller prints the
-## persona's fallback line instead. An offer before readiness is accepted as
-## speech but downgraded to act "none".
-static func validate_handler_reply(content: String, is_ready: bool, max_say: int, reasoning: String = "") -> Dictionary:
-	var bad := {"ok": false, "say": "", "act": "none", "downgraded": false, "reason": ""}
-	if content.length() > MAX_RAW_REPLY:
-		bad["reason"] = "oversize"
-		return bad
-	var parser := JSON.new()
-	if parser.parse(content) != OK or typeof(parser.data) != TYPE_DICTIONARY:
-		bad["reason"] = "not_json"
-		return bad
-	var obj: Dictionary = parser.data
-	if obj.size() != 2 or not obj.has("say") or not obj.has("act"):
-		bad["reason"] = "keys"
-		return bad
-	if typeof(obj["say"]) != TYPE_STRING or typeof(obj["act"]) != TYPE_STRING:
-		bad["reason"] = "types"
-		return bad
-	if not ACTS.has(String(obj["act"])):
-		bad["reason"] = "unknown_act"
-		return bad
-	if String(obj["say"]).length() > max_say:
-		bad["reason"] = "say_too_long"
-		return bad
-	var cleaned := ReplySanitizer.sanitize(String(obj["say"]), reasoning, max_say)
-	if not bool(cleaned["ok"]):
-		bad["reason"] = String(cleaned["reason"])
-		return bad
-	var act := String(obj["act"])
-	var downgraded := act == "offer_entry" and not is_ready
-	return {"ok": true, "say": String(cleaned["text"]), "act": "none" if downgraded else act, "downgraded": downgraded, "reason": ""}
+## The handle of the slot voice in a room, "" when the room has none.
+static func slot_voice(room: Dictionary) -> Dictionary:
+	for v in room.get("voices", []):
+		if typeof(v) == TYPE_DICTIONARY and String(v.get("slot", "")) == "handler":
+			return v
+	return {}
 
 
 static func entry_allowed(state: String) -> bool:
-	return state == ST_OFFERED
+	return state == ST_LAUNCH

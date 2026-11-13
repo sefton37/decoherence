@@ -13,11 +13,9 @@ var _failed: int = 0
 var _bundle: Dictionary = {}
 var _script: Dictionary = {}
 var _briefing: Dictionary = {}
-var _cfg: Dictionary = {}
+var _funnel_cfg: Dictionary = {}
 var _persona: Dictionary = {}
 var _rules: Dictionary = {}
-
-const LAZY := ["ok", "hmm", "interesting", "go on", "right", "and then", "uh huh", "sure", "continue", "yes", "no", "maybe", "alright", "fine", "noted", "okay then", "hello again", "thanks", "cool", "nice"]
 
 
 func _init() -> void:
@@ -28,16 +26,14 @@ func _init() -> void:
 		return
 	_script = _bundle["script"]
 	_briefing = _bundle["briefing"]
-	_cfg = _bundle["readiness"]
+	_funnel_cfg = _bundle["funnel"]
 	_persona = _bundle["persona"]
 	_rules = _script["scramble"]
 
 	_u1_to_u8()
 	_u9_to_u11()
 	_u12_to_u14()
-	_u15_to_u17()
-	_u18_to_u21()
-	_u22_to_u23_and_negctl()
+	_u15_to_u21()
 	_u24_to_u29()
 	_u30_to_u33()
 	_u34_to_u36()
@@ -81,7 +77,7 @@ func _has_letter_run(text: String, reveal: Array) -> bool:
 ## --- U1-U8: the script and its named rejections ------------------------------------
 
 func _u1_to_u8() -> void:
-	_ok("draft_script_validates", ChatroomScript.validate(_script, _briefing, _cfg).is_empty(), str(ChatroomScript.validate(_script, _briefing, _cfg)))
+	_ok("draft_script_validates", ChatroomScript.validate(_script, _briefing).is_empty(), str(ChatroomScript.validate(_script, _briefing)))
 
 	var s: Dictionary = _copy(_script)
 	s["entry_room"] = "nowhere"
@@ -95,13 +91,18 @@ func _u1_to_u8() -> void:
 	_room(s)["ambient"]["lines"] = []
 	_ok("rejects_empty_ambient", ChatroomScript.validate(s).has("empty_ambient"), "")
 
-	var cfg: Dictionary = _copy(_cfg)
-	cfg["required_facts"] = ["f_entanglement", "f_does_not_exist"]
-	_ok("rejects_unknown_required_fact", ChatroomScript.validate(_script, _briefing, cfg).has("unknown_required_fact"), "")
+	s = _copy(_script)
+	for v in _room(s)["voices"]:
+		v.erase("slot")
+	_ok("rejects_no_handler_slot", ChatroomScript.validate(s).has("no_handler_slot"), "")
 
 	s = _copy(_script)
-	s["handler"]["accept_commands"] = []
-	_ok("rejects_no_accept_command", ChatroomScript.validate(s).has("no_accept_command"), "")
+	_room(s)["voices"][0]["side"] = "neutral"
+	_ok("rejects_voice_without_a_known_side", ChatroomScript.validate(s).has("bad_side"), "")
+
+	s = _copy(_script)
+	s["handler"]["leave_commands"] = []
+	_ok("rejects_no_leave_command", ChatroomScript.validate(s).has("no_leave_command"), "")
 
 	s = _copy(_script)
 	_room(s)["ambient"]["lines"][0]["plain"] = "x".repeat(ChatroomScript.MAX_LINE_CHARS + 1)
@@ -185,154 +186,85 @@ func _u12_to_u14() -> void:
 	_ok("fallback_rotation_deterministic", f0 == f0_again and f0 != f1 and wrap == f0, "")
 
 
-## --- U15-U17: the first-message trigger ---------------------------------------------------------
+## --- U15-U21: the funnel's model prompt ------------------------------------------------------------
 
-func _u15_to_u17() -> void:
-	var trig: Dictionary = _room(_script)["handler_trigger"]
-	_ok("trigger_false_before_any_message", not ChatroomScript.trigger_fires(trig, false, ""), "")
-	_ok("trigger_false_for_empty_or_whitespace", not ChatroomScript.trigger_fires(trig, false, "   \t") and not ChatroomScript.trigger_fires(trig, false, ""), "")
-	_ok("trigger_true_for_first_message_never_twice", ChatroomScript.trigger_fires(trig, false, "hi") and not ChatroomScript.trigger_fires(trig, true, "hi again"), "")
-
-
-## --- U18-U21: unlocking ---------------------------------------------------------------------------
-
-func _locked_text_in_prompt(builder: Callable, unlocked: Array) -> int:
-	var msgs: Array = builder.call(_persona, _briefing, unlocked, [], "hello", false)
+func _prompt_blob(msgs: Array) -> String:
 	var blob := ""
 	for m in msgs:
 		blob += String(m["content"]) + "\n"
+	return blob
+
+
+func _later_fact_text_in_prompt(builder: Callable, stage_index: int) -> int:
+	var ids: Array = Funnel.stage_ids(_funnel_cfg)
+	var facts: Array = builder.call(_briefing, ids, stage_index)
+	var blob := _prompt_blob(ChatroomScript.build_funnel_messages(_persona, _briefing, facts, {}, "KIRN-17", [], "hello", 6))
 	var hits := 0
 	for f in _briefing["facts"]:
-		if not unlocked.has(String(f["id"])) and blob.contains(String(f["text"])):
+		if ids.find(String(f["from_stage"])) > stage_index and blob.contains(String(f["text"])):
 			hits += 1
 	return hits
 
 
-func _u18_to_u21() -> void:
-	_ok("empty_line_unlocks_nothing", ChatroomScript.facts_for_turn(_briefing, _cfg, [], "").is_empty() and ChatroomScript.facts_for_turn(_briefing, _cfg, [], "   ").is_empty(), "")
-	_ok("locked_fact_text_absent_from_prompt", _locked_text_in_prompt(Callable(ChatroomScript, "build_messages"), ["f_entanglement"]) == 0, "")
-	# Negative control: a prompt builder that injects every fact is caught.
-	var leaky := func(persona: Dictionary, briefing: Dictionary, _unlocked: Array, history: Array, text: String, due: bool) -> Array:
-		var all_ids: Array = []
-		for f in briefing["facts"]:
-			all_ids.append(String(f["id"]))
-		return ChatroomScript.build_messages(persona, briefing, all_ids, history, text, due)
-	_neg("prompt_builder_injecting_locked_facts", _locked_text_in_prompt(leaky, ["f_entanglement"]) > 0)
-
-	var one := ChatroomScript.facts_for_turn(_briefing, _cfg, [], "what is the proxy exactly")
-	_ok("ask_keyword_unlocks_exactly_its_fact", one == ["f_proxy"], str(one))
-	var again := ChatroomScript.facts_for_turn(_briefing, _cfg, ["f_proxy"], "what is the proxy exactly")
-	_ok("unlocked_fact_not_unlocked_twice", again.is_empty(), str(again))
-
-	var unlocked: Array = []
-	var offered := false
-	var credited: Array = []
-	for i in range(20):
-		unlocked.append_array(ChatroomScript.facts_for_turn(_briefing, _cfg, unlocked, LAZY[i % LAZY.size()]))
-		if ChatroomScript.readiness(_cfg, credited, i + 1):
-			offered = true
-	_ok("twenty_lazy_lines_unlock_nothing_and_no_offer", unlocked.is_empty() and not offered, str(unlocked))
-
-	var many := ChatroomScript.facts_for_turn(_briefing, _cfg, [], "what is the entanglement, who is the colonist, how do orders work, what is my job")
-	_ok("at_most_two_new_facts_per_turn", many.size() == 2, str(many))
-
-
-## --- U22-U23: readiness and credit ------------------------------------------------------------------
-
-func _readiness_cases(fn: Callable) -> bool:
-	var all: Array = _cfg["required_facts"].duplicate()
-	var min_turns: int = int(_cfg["min_player_turns"])
-	var full_but_early: bool = fn.call(_cfg, all, min_turns - 1)
-	var full_and_late: bool = fn.call(_cfg, all, min_turns)
-	var missing_one: bool = fn.call(_cfg, all.slice(1), min_turns + 5)
-	return (not full_but_early) and full_and_late and (not missing_one)
+func _u15_to_u21() -> void:
+	var ids: Array = Funnel.stage_ids(_funnel_cfg)
+	var at_contact := ChatroomScript.facts_available(_briefing, ids, ids.find("contact"))
+	var at_launch := ChatroomScript.facts_available(_briefing, ids, ids.find("launch"))
+	_ok("facts_available_follow_the_stage", at_contact.size() >= 1 and at_contact.size() < at_launch.size() and at_launch.size() == _briefing["facts"].size(), "%d %d" % [at_contact.size(), at_launch.size()])
+	_ok("later_fact_text_absent_from_prompt", _later_fact_text_in_prompt(Callable(ChatroomScript, "facts_available"), ids.find("contact")) == 0 and _later_fact_text_in_prompt(Callable(ChatroomScript, "facts_available"), ids.find("pushback")) == 0, "")
+	# Negative control: a builder that hands over every fact is caught.
+	var everything := func(briefing: Dictionary, _ids: Array, _stage: int) -> Array:
+		return briefing["facts"]
+	_neg("prompt_builder_injecting_later_facts", _later_fact_text_in_prompt(everything, ids.find("contact")) > 0)
+	var msgs := ChatroomScript.build_funnel_messages(_persona, _briefing, at_contact, {"origin": "the north coast", "doing": ""}, "KIRN-17", [], "hello", 6)
+	var blob := _prompt_blob(msgs)
+	_ok("prompt_carries_the_operational_note_only_when_filled", blob.contains("origin: the north coast") and not blob.contains("doing:"), "")
+	var bare := _prompt_blob(ChatroomScript.build_funnel_messages(_persona, _briefing, at_contact, {}, "KIRN-17", [], "hello", 6))
+	_ok("prompt_without_dossier_has_no_note_heading", not bare.contains("YOUR NOTE ON THEM"), "")
+	_ok("prompt_names_the_handler_and_lists_fact_ids", blob.contains("KIRN-17") and blob.contains("(f_channel)"), "")
+	var history: Array = []
+	for i in range(12):
+		history.append({"role": "user" if i % 2 == 0 else "assistant", "content": "x".repeat(200 if i % 2 == 0 else 240)})
+	var full := ChatroomScript.build_funnel_messages(_persona, _briefing, at_launch, {"origin": "x".repeat(60), "doing": "y".repeat(60)}, "KIRN-17", history, "y".repeat(200), 6)
+	var tokens := ChatroomScript.estimate_tokens(full)
+	_ok("prompt_estimate_within_budget_all_facts", tokens <= 1100 and full.size() == 2 + 6, "%d tokens, %d messages" % [tokens, full.size()])
+	var fat: Array = history.duplicate()
+	for i in range(40):
+		fat.append({"role": "user", "content": "z".repeat(240)})
+	var fat_msgs := ChatroomScript.build_funnel_messages(_persona, _briefing, at_launch, {}, "KIRN-17", fat, "q".repeat(5000), 40)
+	_neg("oversize_prompt_flagged", ChatroomScript.estimate_tokens(fat_msgs) > 1100)
 
 
-func _u22_to_u23_and_negctl() -> void:
-	_ok("readiness_needs_every_required_fact_and_min_turns", _readiness_cases(Callable(ChatroomScript, "readiness")), "")
-	# Negative control: a stub that ignores the minimum turn count is caught.
-	var ignores_turns := func(cfg: Dictionary, credited: Array, _turns: int) -> bool:
-		for need in cfg["required_facts"]:
-			if not credited.has(String(need)):
-				return false
-		return true
-	_neg("readiness_stub_ignoring_min_turns", not _readiness_cases(ignores_turns))
-
-	var quiet := ChatroomScript.credit(_briefing, ["f_proxy"], "I will not say anything useful here.", [])
-	var loud := ChatroomScript.credit(_briefing, ["f_proxy"], "The colonist is the proxy.", [])
-	var locked := ChatroomScript.credit(_briefing, [], "The colonist is the proxy.", [])
-	_ok("reply_without_say_keyword_does_not_credit", quiet.is_empty() and loud == ["f_proxy"] and locked.is_empty(), "%s %s %s" % [quiet, loud, locked])
-
-
-## --- U24-U29: the reply gate, entry and the prompt budget -----------------------------------------------
-
-func _reply(say: String, act: String) -> String:
-	return JSON.stringify({"say": say, "act": act})
-
-
-func _downgrade_cases(fn: Callable) -> bool:
-	var early: Dictionary = fn.call(_reply("come through", "offer_entry"), false, 240)
-	var due: Dictionary = fn.call(_reply("come through", "offer_entry"), true, 240)
-	return bool(early["ok"]) and String(early["act"]) == "none" and String(due["act"]) == "offer_entry"
-
+## --- U24-U29: entry, command matching, the handler slot --------------------------------------------------
 
 func _accept_cases(fn: Callable) -> bool:
-	var cmds: Array = _script["handler"]["accept_commands"]
+	var cmds: Array = ["enter", "accept", "i accept"]
 	var exact: bool = fn.call(cmds, "enter") and fn.call(cmds, "  ACCEPT ") and fn.call(cmds, "i   accept")
-	var cyrillic: bool = fn.call(cmds, "еnter")
-	var wide: bool = fn.call(cmds, "ｅｎｔｅｒ")
+	var cyrillic: bool = fn.call(cmds, "\u0435nter")
+	var wide: bool = fn.call(cmds, "\uff45\uff4e\uff54\uff45\uff52")
 	return exact and not cyrillic and not wide
 
 
 func _dotted_cases(fn: Callable) -> bool:
-	var cmds: Array = _script["handler"]["accept_commands"]
+	var cmds: Array = ["enter", "accept", "i accept"]
 	return fn.call(cmds, "I ACCEPT") and not fn.call(cmds, "\u0130 accept") and not fn.call(["leave"], "l\u0435ave")
 
 
 func _u24_to_u29() -> void:
-	var good := ChatroomScript.validate_handler_reply(_reply("The link holds.", "none"), false, 240)
-	_ok("valid_reply_accepted", bool(good["ok"]) and String(good["say"]) == "The link holds." and String(good["act"]) == "none", str(good))
-
-	var cases := {
-		"non_json": "The link holds.",
-		"extra_key": JSON.stringify({"say": "x", "act": "none", "extra": 1}),
-		"unknown_act": _reply("x", "teleport"),
-		"over_long": _reply("a".repeat(241), "none"),
-		"think_marker": _reply("<think>plan</think> hello", "none"),
-		"code_fence": _reply("```run```", "none"),
-		"missing_say": JSON.stringify({"act": "none"}),
-		"wrong_types": JSON.stringify({"say": 5, "act": "none"}),
-	}
-	var all_rejected := true
-	var survivors: Array = []
-	for k in cases:
-		if bool(ChatroomScript.validate_handler_reply(String(cases[k]), true, 240)["ok"]):
-			all_rejected = false
-			survivors.append(k)
-	_ok("malformed_replies_rejected", all_rejected, str(survivors))
-
-	_ok("offer_before_readiness_downgraded", _downgrade_cases(Callable(ChatroomScript, "validate_handler_reply")), "")
-	# Negative control: a validator that trusts act unconditionally is caught.
-	var trusting := func(content: String, _ready: bool, _max: int) -> Dictionary:
-		var obj = JSON.parse_string(content)
-		return {"ok": true, "act": String(obj["act"]), "say": String(obj["say"])}
-	_neg("reply_validator_trusting_act", not _downgrade_cases(trusting))
-
-	_ok("entry_allowed_only_in_entry_offered", ChatroomScript.entry_allowed(ChatroomScript.ST_OFFERED) and not ChatroomScript.entry_allowed(ChatroomScript.ST_ROOM) and not ChatroomScript.entry_allowed(ChatroomScript.ST_BRIEFING) and not ChatroomScript.entry_allowed(""), "")
-
-	_ok("lookalike_accept_rejected", _accept_cases(Callable(ChatroomScript, "matches_command")), "")
-	# Negative control: an accept matcher that folds Unicode is caught.
+	_ok("entry_allowed_only_at_launch", ChatroomScript.entry_allowed(ChatroomScript.ST_LAUNCH) and not ChatroomScript.entry_allowed(ChatroomScript.ST_ROOM) and not ChatroomScript.entry_allowed(ChatroomScript.ST_ENGAGED) and not ChatroomScript.entry_allowed(""), "")
+	_ok("lookalike_command_rejected", _accept_cases(Callable(ChatroomScript, "matches_command")), "")
+	# Negative control: a matcher that folds Unicode is caught.
 	var folding := func(commands: Array, text: String) -> bool:
-		var folded := text.replace("е", "e").to_lower()
+		var folded := text.replace("\u0435", "e").to_lower()
 		for c in commands:
 			if folded.strip_edges() == String(c):
 				return true
 		return false
-	_neg("accept_stub_folding_unicode", not _accept_cases(folding))
+	_neg("command_stub_folding_unicode", not _accept_cases(folding))
 
 	# Spec #562 D14 (#902): any non-ASCII input is rejected before case folding, and
 	# punctuation never counts as part of a command.
-	var acc: Array = _script["handler"]["accept_commands"]
+	var acc: Array = ["enter", "accept", "i accept"]
 	_ok("matches_command_nonascii_rejected", _dotted_cases(Callable(ChatroomScript, "matches_command")), "")
 	_ok("matches_command_punctuation_pinned", not ChatroomScript.matches_command(acc, "accept.") and not ChatroomScript.matches_command(acc, "enter!") and not ChatroomScript.matches_command(acc, "i, accept") and ChatroomScript.matches_command(acc, "accept"), "")
 	# Negative control: the matcher as it was (engine lower-casing only) is caught.
@@ -345,21 +277,12 @@ func _u24_to_u29() -> void:
 		return false
 	_neg("matches_command_folding_stub_caught", not _dotted_cases(plain_fold))
 
-	var all_ids: Array = []
-	for f in _briefing["facts"]:
-		all_ids.append(String(f["id"]))
-	var history: Array = []
-	for i in range(ChatroomScript.HISTORY_MESSAGES * 2):
-		history.append({"role": "user" if i % 2 == 0 else "assistant", "content": "x".repeat(200 if i % 2 == 0 else 240)})
-	var msgs := ChatroomScript.build_messages(_persona, _briefing, all_ids, history, "y".repeat(200), true)
-	var tokens := ChatroomScript.estimate_tokens(msgs)
-	_ok("prompt_estimate_within_budget_all_facts", tokens <= 1100 and msgs.size() == 2 + ChatroomScript.HISTORY_MESSAGES, "%d tokens, %d messages" % [tokens, msgs.size()])
-	# Negative control: an oversize prompt is flagged by the same budget check.
-	var fat: Array = history.duplicate()
-	for i in range(40):
-		fat.append({"role": "user", "content": "z".repeat(240)})
-	var fat_msgs := ChatroomScript.build_messages(_persona, _briefing, all_ids, fat, "q".repeat(5000), true)
-	_neg("oversize_prompt_flagged", ChatroomScript.estimate_tokens(fat_msgs) > 1100)
+	var filled := ChatroomScript.with_handler(_script, "KIRN-17")
+	var slot_ok := true
+	for r in filled["rooms"]:
+		slot_ok = slot_ok and String(ChatroomScript.slot_voice(r).get("handle", "")) == "KIRN-17"
+	_ok("with_handler_fills_every_room_and_keeps_the_original", slot_ok and String(ChatroomScript.slot_voice(_room(_script)).get("handle", "")) == "{HANDLER}", "")
+	_ok("leave_words_still_match", ChatroomScript.matches_command(_script["handler"]["leave_commands"], "Quit") and ChatroomScript.matches_command(_script["handler"]["leave_commands"], "/exit") and not ChatroomScript.matches_command(_script["handler"]["leave_commands"], "quit now"), "")
 
 
 ## --- U30-U33: the randomized planner -----------------------------------------------------------------------
@@ -412,33 +335,14 @@ func _u30_to_u33() -> void:
 	_ok("plan_intervals_vary", distinct.size() >= 10, "%d distinct" % distinct.size())
 
 
-## --- U34-U36: the tabled readiness file ----------------------------------------------------------------------
+## --- U34-U36: the bundle ---------------------------------------------------------------------------------
 
 func _u34_to_u36() -> void:
-	var good := ChatroomScript.check_readiness(_copy(_cfg), _briefing)
-	var not_tabled: Dictionary = _copy(_cfg)
-	not_tabled["status"] = "DECIDED"
-	var stall: Dictionary = _copy(_cfg)
-	stall["stall_turns"] = 6
-	var unknown: Dictionary = _copy(_cfg)
-	unknown["required_facts"] = ["f_nope"]
-	var r1 := ChatroomScript.check_readiness(not_tabled, _briefing)
-	var r2 := ChatroomScript.check_readiness(stall, _briefing)
-	var r3 := ChatroomScript.check_readiness(unknown, _briefing)
-	var on_disk := ChatroomScript.load_readiness(ChatroomScript.data_dir() + "/readiness.json", _briefing)
-	_ok("load_readiness_rejects_untabled_stall_and_unknown_fact", bool(good["ok"]) and bool(on_disk["ok"]) and String(r1["error"]) == "not_tabled" and String(r2["error"]) == "stall_turns" and String(r3["error"]) == "unknown_required_fact", "%s %s %s" % [r1, r2, r3])
-
-	var empty_required: Dictionary = _copy(_cfg)
-	empty_required["required_facts"] = []
-	var min_turns: int = int(empty_required["min_player_turns"])
-	_ok("empty_required_list_ready_once_min_turns_pass", ChatroomScript.readiness(empty_required, [], min_turns) and not ChatroomScript.readiness(empty_required, [], min_turns - 1), "")
-
-	var unlocked: Array = []
-	var credited: Array = []
-	var ready_ever := false
-	for i in range(20):
-		unlocked.append_array(ChatroomScript.facts_for_turn(_briefing, _cfg, unlocked, LAZY[i % LAZY.size()]))
-		credited.append_array(ChatroomScript.credit(_briefing, unlocked, "I will not say anything useful here.", credited))
-		if ChatroomScript.readiness(_cfg, credited, i + 1):
-			ready_ever = true
-	_ok("placeholder_required_facts_never_ready_after_twenty_lazy_turns", not ready_ever, "")
+	_ok("bundle_carries_the_funnel_files", _bundle.has("funnel") and _bundle.has("beats") and _bundle.has("names") and not _bundle.has("readiness"), "")
+	_ok("bundle_funnel_is_enabled_with_nine_stages", bool(_funnel_cfg.get("enabled", false)) and Funnel.stage_ids(_funnel_cfg).size() == 9, "")
+	var bad_brief: Dictionary = _copy(_briefing)
+	bad_brief["facts"][0].erase("from_stage")
+	_ok("rejects_a_fact_with_no_stage", ChatroomScript.validate(_script, bad_brief).has("wrong_type"), "")
+	_neg("validator_catches_a_fact_with_no_stage", not ChatroomScript.validate(_script, bad_brief).is_empty())
+	var beats = ChatroomScript.read_json(ChatroomScript.data_dir() + "/funnel_beats.json")
+	_ok("beats_file_is_marked_draft", typeof(beats) == TYPE_DICTIONARY and bool(beats.get("draft", false)), "")

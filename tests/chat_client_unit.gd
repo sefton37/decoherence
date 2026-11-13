@@ -26,7 +26,7 @@ func _init() -> void:
 	if typeof(s) != TYPE_DICTIONARY or typeof(u) != TYPE_DICTIONARY:
 		quit(1)
 		return
-	_script = s
+	_script = ChatroomScript.with_handler(s, "PAL-5")
 	_ui = u
 	_layout_units()
 	_data_units()
@@ -58,7 +58,7 @@ func _neg(name: String, caught: bool) -> void:
 
 func _model() -> ChatModel:
 	var m := ChatModel.new()
-	m.setup(_script, "NODE-4821", String(_script["entry_room"]))
+	m.setup(_script, "newb4821", String(_script["entry_room"]))
 	return m
 
 
@@ -211,7 +211,7 @@ func _unread_and_dm_units() -> void:
 	_ok("dm_close_keeps_history", m.rows_of("dm:NUL-9").size() == 1 and not m.is_open("dm:NUL-9"), "rows lost on close")
 	m.add_row("dm:NUL-9", _row("voice", "NUL-9", "you closed me"))
 	_ok("incoming_row_reopens_closed_dm", m.is_open("dm:NUL-9") and m.unread_of("dm:NUL-9") == 1 and m.rows_of("dm:NUL-9").size() == 2, "dm did not reopen")
-	_ok("dm_roster_is_two_people", m.roster("dm:XEN-4") == ["NODE-4821", "XEN-4"], str(m.roster("dm:XEN-4")))
+	_ok("dm_roster_is_two_people", m.roster("dm:XEN-4") == ["XEN-4", "newb4821"], str(m.roster("dm:XEN-4")))
 
 
 ## --- Routing, commands, first message ---------------------------------------------
@@ -230,9 +230,9 @@ func _oracle(buffer: String, text: String, reached: bool, threads: Array) -> Str
 
 
 func _route_units() -> void:
-	var st := {"reached": true, "threads": ["channel7", "dm:WREN-22"]}
+	var st := {"reached": true, "threads": ["channel7", "dm:PAL-5"]}
 	var cold := {"reached": false, "threads": ["channel7"]}
-	_ok("route_table_contact_buffers", ChatModel.route_for("channel7", "hello there", st) == "contact" and ChatModel.route_for("dm:WREN-22", "hello there", st) == "contact", "contact route")
+	_ok("route_table_contact_buffers", ChatModel.route_for("channel7", "hello there", st) == "contact" and ChatModel.route_for("dm:PAL-5", "hello there", st) == "contact", "contact route")
 	_ok("route_table_other_buffers_scripted", ChatModel.route_for("channel3", "hello there", st) == "scripted" and ChatModel.route_for("dm:NUL-9", "hello there", st) == "scripted", "scripted route")
 	_ok("route_table_before_reach_scripted", ChatModel.route_for("channel7", "hello there", cold) == "scripted", "route before reach")
 	_ok("route_table_commands", ChatModel.route_for("channel7", "/join 3", st) == "command" and ChatModel.route_for("channel7", "leave", st) == "command" and ChatModel.route_for("channel7", "   ", st) == "command" and ChatModel.route_for("channel7", "/nonsense", st) == "command", "command route")
@@ -344,7 +344,7 @@ func _text_units() -> void:
 	var re := RegEx.new()
 	re.compile("^\\[[0-9]{2}:[0-9]{2}\\] ")
 	_ok("row_timestamp_shape", re.search(String(lines[0])) != null and String(lines[0]) == "[21:14] <XEN-4> hello", String(lines[0]))
-	_ok("row_kinds_render", String(ChatModel.format_row(_row("presence", "", "-- THRESH HAS JOINED"), 76)[0]) == "[21:14] -- THRESH HAS JOINED" and String(ChatModel.format_row(_row("action", "NODE-4821", "waves"), 76)[0]) == "[21:14] * NODE-4821 waves" and String(ChatModel.format_row(_row("self", "NODE-4821", "hi"), 76)[0]) == "[21:14] <NODE-4821> hi", "row kinds")
+	_ok("row_kinds_render", String(ChatModel.format_row(_row("presence", "", "-- THRESH HAS JOINED"), 76)[0]) == "[21:14] -- THRESH HAS JOINED" and String(ChatModel.format_row(_row("action", "newb4821", "waves"), 76)[0]) == "[21:14] * newb4821 waves" and String(ChatModel.format_row(_row("self", "newb4821", "hi"), 76)[0]) == "[21:14] <newb4821> hi", "row kinds")
 
 
 ## --- Roster and presence ----------------------------------------------------------------
@@ -367,7 +367,7 @@ func _roster_tone_uniform(entries: Array, who: String) -> bool:
 
 
 func m_self() -> String:
-	return "NODE-4821"
+	return "newb4821"
 
 
 func _presence_floor() -> Dictionary:
@@ -399,7 +399,7 @@ func _roster_and_presence_units() -> void:
 		sorted_ok = sorted_ok and _roster_sorted_once(m, String(rid))
 	_ok("roster_sorted_self_once_every_room", sorted_ok, "a roster is unsorted or lists the player twice")
 	var uniform := true
-	var contact_handle := String(ChatroomScript.voice_handle(ChatroomScript.entry_room(_script), String(ChatroomScript.entry_room(_script)["handler_trigger"]["contact_line"]["voice"])))
+	var contact_handle := String(ChatroomScript.slot_voice(ChatroomScript.entry_room(_script)).get("handle", ""))
 	for rid in m.room_order:
 		uniform = uniform and _roster_tone_uniform(ChatModel.roster_entries(m, String(rid)), contact_handle)
 	_ok("roster_style_uniform_for_everyone_else", uniform, "roster rows differ in style")
@@ -503,7 +503,7 @@ func _outside(trials: Array, router: Callable) -> int:
 func _fuzz() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 562
-	var buffers := ["channel7", "channel3", "channel12", "channel19", "channel4", "dm:WREN-22", "dm:NUL-9", "dm:XEN-4", "dm:OBL-17"]
+	var buffers := ["channel7", "channel3", "channel12", "channel19", "channel4", "dm:PAL-5", "dm:NUL-9", "dm:XEN-4", "dm:OBL-17"]
 	var trials: Array = []
 	for i in range(4000):
 		var threads: Array = []

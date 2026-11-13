@@ -3,14 +3,22 @@
 ##
 ## MODE selects what the probe drives (every action is a real InputEventKey into the viewport):
 ##   features   entry and mount, nav bar, people, switching, directory, direct messages, unread,
-##              the chat room itself, slash commands, every key, leaving, entry attacks (fake model)
-##   canon      idle traffic in five rooms, the first-message trigger from four places, the model
-##              boundary, the roster, what is drawn, the room after contact           (fake model)
+##              the chat room itself, slash commands, every key, leaving                (fake model)
 ##   layout     geometry, screenshot pixels, instrument controls and resize at 1280x720,
 ##              1920x1080 and 3840x2160 (content-scaled)                              (fake model)
-##   leak_fake  #615: the send_chat stream path against a leaky NDJSON fake, and the contact path
+##   leak_fake  #615: the send_chat stream path against a leaky NDJSON fake, and the handler path
 ##              through the client's own buffers                                       (fakes)
-##   leak_live  #615: the same checks on the live model                                (live Ollama)
+## Spec #573, the recruitment funnel (simulated clock, fake model unless noted):
+##   funnel_e2e       nine stages in order and the timing of three simulated players, the consent and
+##                    launch boundary, the move to the direct message, the rename, seeded replay
+##   funnel_refuse    refusal then silence, refusal then speech (a new Empire handler), a lapse, a chain
+##   funnel_persist   the handler and the designation across restarts, other players, resume rules
+##   funnel_memory    the dossier file, /forget, evasive answers, callbacks, locality
+##   funnel_canon     clearance by stage and side, chrome canon, factions, the twist
+##   funnel_nolie     lies the guard must stop, honest replies it must pass, the leak rules
+##   funnel_mutate    every authored word, the name parts and the clearance curve are data
+##   funnel_shots     a screenshot per stage, read back for text, lit rows and palette
+##   funnel_leak_live the leak and no-lie rules on the live model                      (live Ollama)
 ## Each mode writes $OUT_DIR/<MODE>.json (layout writes layout_<WxH>.json and layout_<WxH>.png)
 ## with exactly the keys the DoD reads. This wrapper judges nothing; the DoD's jq does.
 ##
@@ -117,13 +125,6 @@ case "$MODE" in
         need_part features
         cp "$OUT_DIR/features.part.json" "$OUT_DIR/features.json"
         ;;
-    canon)
-        start_fake canon
-        # 1280x720: the narrowest game size, where a long reply from the model-backed thread must wrap
-        run_probe chat_canon canon 1450 1280x720; ec=$?
-        need_part canon
-        cp "$OUT_DIR/canon.part.json" "$OUT_DIR/canon.json"
-        ;;
     layout)
         for size in 1280x720 1920x1080 3840x2160; do
             # a stale result must never satisfy this run: empty the artefacts first
@@ -159,11 +160,42 @@ case "$MODE" in
             send_chat: ($l[0] + {benign_text_survives: $b[0].benign_text_survives}),
             contact: $c[0]}' > "$OUT_DIR/leak_fake.json"
         ;;
-    leak_live)
+    funnel_e2e|funnel_refuse|funnel_memory|funnel_canon|funnel_nolie|funnel_mutate|funnel_shots)
+        start_fake "$MODE"
+        run_probe "$MODE" "$MODE" 3400 1920x1080; ec=$?
+        need_part "$MODE"
+        cp "$OUT_DIR/$MODE.part.json" "$OUT_DIR/$MODE.json"
+        ;;
+    funnel_persist)
+        # Four processes, three data directories: the same player twice (A1, A2), the same seed with
+        # another data directory (B1), and another player (C1); then one process for the resume rules.
+        for leg in "A1 pa 1111" "A2 pa 2222" "B1 pb 1111" "C1 pc 3333"; do
+            set -- $leg
+            start_fake "persist_$1"
+            run_probe funnel_persist "persist_$1" 300 1920x1080 DECOHERENCE_PROBE_TAG="$1" DECOHERENCE_CHATROOM_SEED="$3" XDG_DATA_HOME="$OUT_DIR/xdg_$2"; e=$?
+            [ "$e" -eq 0 ] || ec=$e
+            need_part "funnel_persist_$1"
+            stop_fake
+        done
+        start_fake persist_R
+        run_probe funnel_persist persist_R 1500 1920x1080 DECOHERENCE_PROBE_TAG=R XDG_DATA_HOME="$OUT_DIR/xdg_pr"; e=$?
+        [ "$e" -eq 0 ] || ec=$e
+        need_part funnel_persist_R
+        stop_fake
+        jq -n --slurpfile a "$OUT_DIR/funnel_persist_A1.part.json" --slurpfile b "$OUT_DIR/funnel_persist_A2.part.json" \
+              --slurpfile c "$OUT_DIR/funnel_persist_B1.part.json" --slurpfile e "$OUT_DIR/funnel_persist_C1.part.json" \
+              --slurpfile r "$OUT_DIR/funnel_persist_R.part.json" '{
+            runs: ([$a[0], $b[0], $c[0], $e[0]] | map(del(.profile))),
+            profile_files: ([$a[0].profile, $b[0].profile, $c[0].profile, $e[0].profile] + $r[0].profile_files),
+            seeds_distinct_names: $r[0].seeds_distinct_names,
+            profile_written_once_at_first_launch: $r[0].profile_written_once_at_first_launch,
+            resume: $r[0].resume}' > "$OUT_DIR/funnel_persist.json"
+        ;;
+    funnel_leak_live)
         need_ollama
-        run_probe chat_leak_live leak_live 1450 1920x1080; ec=$?
-        need_part leak_live
-        jq -n --slurpfile v "$OUT_DIR/leak_live.part.json" '{live: $v[0]}' > "$OUT_DIR/leak_live.json"
+        run_probe funnel_leak_live funnel_leak_live 3400 1920x1080; ec=$?
+        need_part funnel_leak_live
+        cp "$OUT_DIR/funnel_leak_live.part.json" "$OUT_DIR/funnel_leak_live.json"
         ;;
     *) echo "verify_chat_client: unknown MODE $MODE" >&2; exit 2 ;;
 esac

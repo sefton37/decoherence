@@ -1,6 +1,6 @@
 # Chatroom script format
 
-The chatroom is data. Every spoken word lives in four files under
+The chatroom is data. Every spoken word lives in the files under
 `frontdoor/data/chatroom/`; none of it is in code. The shipped words are
 placeholders (each file says `"draft": true`). The keys and types are the
 contract; the words are yours to rewrite. To try a copy of the directory without
@@ -8,17 +8,22 @@ touching the shipped one, set `DECOHERENCE_CHATROOM_DIR` to it. To replay a
 session exactly, set `DECOHERENCE_CHATROOM_SEED` to an integer (otherwise every
 session draws a fresh seed).
 
-What the player sees: `chat` opens a channel of untranslated traffic. Nothing
-tells them what to do. When they send their first message, a scripted voice
-answers it, and shortly after one more ordinary voice in the room reaches out
-in clear text. From then on that voice talks to the player through the local
-model, but only about what the player's own questions have unlocked.
+What the player sees: `chat` opens a channel of encrypted traffic, and the player
+is a lurker named `newb` plus four digits. Nothing tells them what to do. When
+they send their first message, a scripted voice answers it, and shortly after one
+more ordinary voice in the room, their handler, reaches out in clear text and
+leads a conversation through the funnel below. Code owns every stage; the local
+model only writes the words between the authored lines.
 
 ## room_script.json: the room
 
-`entry_room` names the one room that is played. Each room has `id`, `title`,
-`banner` (the lines printed on entry), `voices` (`id` plus `handle`, an
-ordinary handle like `WREN-22`), and the blocks below.
+`entry_room` names the room the player starts in. Each room has `id`, `title`,
+`banner` (the lines printed on entry), `voices` and the blocks below. A voice is
+`id`, `handle` and a hidden `side` (`empire` or `faction`; never drawn). Exactly
+one voice per room carries `"slot": "handler"` and the handle `{HANDLER}`: it is
+replaced at session build by the generated name, so the same person sits in every
+room and in the ambient lines. Every room needs at least two Empire voices besides
+her and at least two faction voices.
 
 ## ambient: the background traffic
 
@@ -34,11 +39,10 @@ is scrambled (at most 80 characters). Delivery is randomized but replayable:
 - `max_per_minute` caps the rate; the planner raises an interval just enough to
   keep to it, and the script is rejected if the cap cannot be met inside the
   range.
-- `rate_after_contact` (between 0 and 1) slows the traffic once the contact has
-  reached out, by dividing the pace by that factor.
 
-Give the voice that will become the contact at least two ambient lines, so
-nothing marks them out before they speak to the player.
+Give the handler's voice at least two ambient lines per room, so nothing marks
+her out before she speaks to the player. While she is working with the player her
+own ambient traffic stops.
 
 ## scramble: how the traffic is made unreadable
 
@@ -59,7 +63,12 @@ line. `speaker` gives each handle its own tendencies, hashed from the handle
 (`salt`), the same rule for everyone: `length_bias_spread` leans a handle toward
 bursts or long lines, `affinity_boost` favours one glyph class, `habit_share` is
 how often it keeps its usual token length. Nobody has a hand-set profile, and the
-contact is not given one.
+handler is not given one.
+
+The scramble is canon: Q-Ent was breached, the factions talk encrypted, and the
+Empire allows it. As the player's clearance rises, the rows of Empire voices come
+through in clear text for a growing share (`legible_ratio` per stage in
+`funnel.json`); rows of the other factions never do.
 
 `tests/verify_scramble_stats.sh` measures a seeded sample against the pre-change
 scrambler and checks every glyph against the font. Topics keep the older
@@ -80,59 +89,91 @@ has `id`, `match_any` (whole words or phrases, case-insensitive), `voice` and
 `plain`. `fallback_responses` rotate when nothing matches. Answers are
 scrambled like everything else in the room.
 
-## handler_trigger: when the contact reaches out
+## handler: the leave words and the plain strings
 
-`handler_trigger.on` is `first_player_message`: only the first non-empty
-message the player sends counts. Typing without sending, an empty line, or
-waiting never does. `contact_delay_ms` is the `[min, max]` delay before the
-contact line, and `contact_line` is `{voice, plain}`, spoken in clear text.
-The contact's `voice` must be one of the room's ordinary voices.
-
-## accept_commands, leave_commands and the other strings
-
-The `handler` block holds `accept_commands` (exact words that take the player
-through once the offer stands; matched in plain ASCII, so look-alike characters
-fail), `leave_commands` (words that return to the shell), `offer_fallback_line`
-(spoken by code if the model has not made the offer within the grace turns),
+The `handler` block holds `leave_commands` (words that return to the shell),
 `degrade_line` (shown when the link drops mid-conversation) and `leave_line`.
-Nothing on screen advertises the accept or leave words.
+Nothing on screen advertises the leave words.
 
-## handler_briefing.json: facts, ask_keywords and say_keywords
+## funnel.json: the funnel's mechanics
 
-`facts` are the only things the contact may state. Each has `id`, `text`
-(at most 220 characters), `source` (where the fact comes from in canon:
-`handler_persona#1` to `#8`, `lore/charter.md#1.3`, `lore/charter.md#1.4` or
-`lore/narrative.md`), `ask_keywords` and `say_keywords`.
+`stages` is the ordered list `lurk`, `contact`, `qualify`, `pushback`, `dm`,
+`pitch`, `ask`, `rename`, `launch`. Per stage: `legible_ratio` (the share of an
+Empire voice's rows that read at that stage; it only rises, 0 at lurk, at least
+0.9 at launch), `dwell_ms` (`[min, max]` pause before her next authored line),
+`idle_ms` (silence before an idle follow-up) and `max_idle_followups` (after the
+last one goes unanswered she steps away, as for a refusal; `advance_on_idle`
+moves on instead). `faction_legible_ratio` is 0. `target_ms` is the five to eight
+minutes the run should take, `typing_ms_per_char` is how long every line of hers
+is "typed" before it appears, `consent_yes` and `refuse` are the whole-message and
+leading-phrase words code reads (ASCII only; a look-alike never matches),
+`handle` holds the rules for the chosen handle, `dossier` caps her note, and
+`guard` holds the lists the no-lie guard reads. `enabled: false` turns the whole
+funnel off and leaves a quiet room.
 
-- A fact unlocks only when the player's own line contains one of its
-  `ask_keywords` (matched at the start of a word, so `entangle` matches
-  `entanglement`). At most `max_new_facts_per_turn` unlock per turn. The code
-  never volunteers a fact.
-- A fact counts as credited when the contact's accepted reply, while the fact
-  was unlocked, contains one of its `say_keywords`.
-- `prompt_rules` are the standing rules put in front of the model every turn.
+## funnel_beats.json: every authored line
 
-## readiness.json: what clears the player to enter
+`beats` are `{id, stage, kind, plain}`. Kinds: `open` (the stage's own lines, in
+file order; `wait: true` holds the stage for the player's reply, `asks` names the
+note field the reply fills), `callback` (uses `{origin}` or `{doing}`; skipped
+when the note has no value), `withhold` (a timing line, `until` names the stage;
+never a secrecy line), `redirect`, `idle_followup`, `reask`, `handle_invalid`,
+`rename_do`, `launch`, `disengage`, `done_reply`, `forget` and `ack` (the line
+spoken when the model's reply is rejected). Placeholders: `{designation}`,
+`{handler}`, `{handle}`, `{origin}`, `{doing}`. A beat with `plants: "twist"`
+quietly plants the twist; nothing ever states it.
 
-Status `TABLED`: the condition is a placeholder, to be defined. The mechanism is
-fixed: the player is ready when every id in `required_facts` is credited and at
-least `min_player_turns` lines have been sent to the contact. The next turn
-carries the offer instruction; if the model has not offered within
-`offer_grace_turns` more turns, code speaks `offer_fallback_line`. A model
-offer before the player is ready is downgraded to nothing, and the player must
-still type an accept word; the model never opens the world.
+## funnel_names.json: the handler's generated name
 
-With the placeholder values a player who never asks about the required facts is
-never offered entry. Shrinking `required_facts` (an empty list means only
-`min_player_turns` has to pass) lowers the bar. The loader refuses a file that
-is not marked `TABLED`, that carries `stall_turns`, or that names a fact that
-does not exist.
+`onsets`, `vowels` and `codas` (upper case) build one or two syllables, with an
+optional `-NN` suffix up to `suffix_max`. The name is drawn from the first-launch
+seed, saved, never equal to a static voice, the player's designation, a reserved
+word or an earlier handler of the same player.
 
-## contact_persona.json: the contact's voice
+## profile: what is saved about the player
 
-`system_prompt` is the voice (an ordinary person on the channel, played
-completely straight) and `fallback_say` is the line shown when a model reply is
-rejected. Lore enters the model only through the briefing facts.
+`user://profile.json` holds `schema`, `player` (`designation`, `handle`),
+`handler` (`name`, `kind: empire`, `former`), `acceptance` (`accepted`,
+`handler`, `handle`, `launched`) and an empty `assignments` list that the handler
+module builds on. It is written atomically; unknown top-level keys survive a round
+trip; a damaged file is moved aside, never destroyed. A restart after consent but
+before a handle resumes at `rename`; after the handle at `launch`; mid-funnel
+before consent restarts at `contact` with the same handler; after the launch the
+funnel is inert and her direct message is answered from the `done_reply` lines.
+
+## dossier and forget: her note on the player
+
+`user://handler_dossier.json` is `{schema, fields}` with the field names from
+`funnel.json` (each value at most 60 characters, the file at most 2048 bytes).
+Only the qualify answers fill it, an evasive or made-up answer is stored like any
+other, and there is no transcript. Callbacks use it. Typing `/forget` deletes the
+file and the model's short history; the profile is untouched. The dossier follows
+the player across handlers and never leaves the machine except as prompt text to
+the local model.
+
+## handler_briefing.json: facts and prompt rules
+
+`facts` are the only things she may state. Each has `id`, `text` (at most 220
+characters), `source` and `from_stage`: a fact is placed in the prompt only once
+that stage has been reached. A fact that names the Empire, the planet, the
+colony or a homestead stays at `pitch` or later. `prompt_rules` are the standing
+rules put in front of the model every turn; they ask for a `{say, claims}` reply
+and for withholding as timing ("when you can use it"), never as secrecy.
+
+## The no-lie guard
+
+Every model reply is checked in code before it is shown: exact keys `say` and
+`claims`; claims only name facts available at the stage; no number, name, false
+denial, secrecy claim, twist line, think marker, code fence or echo of the
+reasoning; before the pitch none of the withheld words. A rejected reply is
+replaced by the stage's `ack` beat. The guard is lexical, so a human walk is the
+last gate.
+
+## contact_persona.json: the handler's voice
+
+`system_prompt` is the voice (an Empire handler played completely straight, who
+never lies and only withholds by timing) and `fallback_say` is the line shown
+when no `ack` beat exists. Lore enters the model only through the briefing facts.
 
 ## Rooms and topic: several rooms, one line each
 
@@ -156,23 +197,22 @@ room this shows as `-- NAME HAS JOINED` or `-- NAME HAS LEFT`; in a room the
 player has not joined it only changes the count. A voice that is absent but has
 an ambient line due arrives first, then speaks. The agents pane is the roster
 sorted alphabetically; only the player's own row carries a marker (`<`) and
-every other row, the contact's included, has the same colour, shape and rules.
-The contact voice sits in every room under one handle, speaks at least twice in
-each room's ambient lines, and at least two other handles are present in as
-many rooms, so its presence pattern is not unique. The player's handle is
-`NODE-` plus four digits drawn from the session seed.
+every other row, the handler's included, has the same colour, shape and rules.
+The handler sits in every room under one handle, speaks at least twice in each
+room's ambient lines, and at least two other handles are present in as many
+rooms, so her presence pattern is not unique. The player starts as `newb` plus
+four digits and takes the handle they choose at the rename.
 
 ## dm_script.json: direct-message replies
 
 `reply_delay_ms` is the `[min, max]` delay before a reply (between 800 and 6000
 ms; the shipped range is 1200 to 4000), `silence_ratio` is the chance an
 ordinary person does not answer (0 means everyone answers), and `replies` maps
-every handle except the contact's to a pool of at least 3 `{plain}` lines (at
+every handle except the handler's to a pool of at least 3 `{plain}` lines (at
 most 80 characters). A reply is picked from a shuffle bag, scrambled like room
 traffic, and arrives in that person's window even if the player closed it in the
-meantime (which reopens it with an unread count). The contact has no pool: its
-side of a direct message is its opening line, then the model turn, exactly as in
-the room. No reply from this file ever reaches the model.
+meantime (which reopens it with an unread count). The handler has no pool: her
+side of a direct message is the funnel. No reply from this file ever reaches the model.
 
 ## client_ui.json: nav labels, keys, commands, strings
 
@@ -198,7 +238,7 @@ room list, F2 opens the directory, F3 opens the newest unread direct message
 message); Esc closes the open list; Ctrl+W closes the current direct message or
 leaves the current room; Ctrl+Q leaves the client. The bare words `leave`,
 `exit` and `quit` (and the same with a slash) still leave. Slash commands:
-`/join`, `/part`, `/list`, `/who`, `/msg`, `/me`, `/clear`, `/quit`. An unknown
+`/join`, `/part`, `/list`, `/who`, `/msg`, `/me`, `/clear`, `/forget`, `/quit`. An unknown
 command gets a plain refusal line and no suggestion.
 
 ## directory: the room list
@@ -207,14 +247,16 @@ F2 draws one row per room in the data: the short name, the live member count and
 the topic scrambled. Up and Down move the selection (it wraps), Enter joins the
 selected room and Esc closes the list. A room that was left is still listed.
 The directory is data-driven: add a room to `room_script.json` and it appears.
-The contact is not singled out in any row.
+The handler is not singled out in any row.
 
 ## Routing: what may reach the model
 
 Code decides. A line is a command, a scripted line, or a line on the single
-model-backed thread. The thread starts once the contact has spoken and covers
-only the buffer where it spoke and its own direct message; every other room and
-every direct message to an ordinary person stays scripted. The first sent
-message anywhere (a room line, `/me`, a `/msg` with a body) starts the contact
-timer once; commands, empty lines and unsent typing never do. The accept word is
-honoured only on that thread.
+model-backed thread. The thread starts once the handler has spoken and covers
+only the buffer where she spoke and her own direct message (from the direct
+message stage on, only that); every other room and every direct message to an
+ordinary person stays scripted. The first sent message anywhere (a room line,
+`/me`, a `/msg` with a body) starts the contact timer once; commands, empty lines
+and unsent typing never do. A clear yes is read in code at the ask stage and
+nowhere else; the model has no field that could open the world, and the single
+launch is `Chatroom._launch_interim()`.

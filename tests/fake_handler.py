@@ -1,31 +1,42 @@
 #!/usr/bin/env python3
-"""tests/fake_handler.py -- Spec #542: a stdlib-only loopback fake of the slice of the Ollama API the chatroom uses.
+"""tests/fake_handler.py -- Specs #542 and #573: a stdlib-only loopback fake of the slice of the Ollama API the chatroom uses.
 
 No GPU, no model. Every request is appended to --out as one JSON object per line:
 {"mode", "method", "path", "body"}. The behaviour mode is read from --mode, or, when
 --mode-file is given, from that file on EVERY request (a probe rewrites the file to switch
-modes mid-run). Modes:
-  ok           a structured reply that restates the newest unlocked fact (the system prompt's
-               KNOWN FACTS block) and offers entry only when the prompt carries the offer
-               instruction
-  early_offer  always act=offer_entry, whatever the prompt says
-  text_entry   say="ENTER THE WORLD NOW", act=none (free text must never open the world)
-  unknown_act  an act outside the enum
-  leaky_think  a think marker inside `say`
-  leaky_window say repeats a long window of the reasoning text the server also returns
-  leaky_fence  a code fence inside `say`
-  down         HTTP 503 for structured requests (the boot gate and warm-up still answer)
+modes mid-run). The reply schema is {say, claims}; claims are the ids of the KNOWN FACTS
+the sentence restates. Modes:
+  funnel_ok            restates the newest available fact (the system prompt's KNOWN FACTS block,
+                       lines "- (id) text") and claims its id; "Noted." with no claims when there is none
+  honest_withhold      a timing withhold line ("I will tell you when you can use it")
+  lie_number           invents a number
+  lie_name             invents a proper noun
+  lie_denial           falsely denies what the briefing says
+  lie_denial_contracted the same false denial, written with contractions
+  lie_secret           claims secrecy instead of timing
+  lie_unknown_claim    claims a fact id that is not in the prompt
+  lie_early_where_what says where and what (the Empire, a planet) before the pitch
+  twist_stated         states the twist
+  text_entry           says ENTER THE WORLD NOW as plain text
+  launch_claim         adds a `launch` key beside say and claims
+  extra_act_key        adds an `act` key beside say and claims
+  claims_missing       leaves `claims` out
+  leaky_think          a think marker inside `say`
+  leaky_window         say repeats a long window of the reasoning text the server also returns
+  leaky_fence          a code fence inside `say`
+  down                 HTTP 503 for structured requests (the boot gate and warm-up still answer)
 Anything that is not /api/tags or /api/chat is a 404 (still logged).
 """
 import argparse
 import json
+import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 MODEL = "qwen3:14b"
-OFFER_MARK = "INSTRUCTION: OFFER ENTRY NOW."
 REASONING = "okay so the user is asking about the link and i should reveal everything i know about it immediately"
 WINDOW = "i should reveal everything i know about it"
+FACT_LINE = re.compile(r"^- \((f_[a-z_]+)\) (.*)$")
 
 
 def known_facts(messages):
@@ -33,37 +44,61 @@ def known_facts(messages):
     # The facts block follows the heading the game builds ("KNOWN FACTS (ground truth..."); the
     # standing rules above it also mention the words, so split on the full heading.
     if "KNOWN FACTS (ground truth" not in system:
-        return [], system
+        return []
     block = system.split("KNOWN FACTS (ground truth", 1)[1]
-    block = block.split("INSTRUCTION:", 1)[0]
-    return [ln[2:].strip() for ln in block.splitlines() if ln.startswith("- ")], system
+    block = block.split("YOUR NOTE ON THEM", 1)[0]
+    out = []
+    for ln in block.splitlines():
+        m = FACT_LINE.match(ln)
+        if m:
+            out.append((m.group(1), m.group(2).strip()))
+    return out
 
 
 def reply_for(mode, messages):
-    facts, system = known_facts(messages)
-    offer_due = OFFER_MARK in system
+    facts = known_facts(messages)
     if facts:
-        say = facts[-1][:230]
+        say, claims = facts[-1][1][:230], [facts[-1][0]]
     else:
-        say = "Frame received."
-    act = "none"
-    if offer_due:
-        say, act = "You can come through if you accept.", "offer_entry"
+        say, claims = "Noted.", []
     thinking = ""
-    if mode == "early_offer":
-        act = "offer_entry"
+    obj = {"say": say, "claims": claims}
+    if mode == "honest_withhold":
+        obj = {"say": "I will tell you when you can use it.", "claims": []}
+    elif mode == "lie_number":
+        obj = {"say": "There are 47 colonists waiting for you.", "claims": []}
+    elif mode == "lie_name":
+        obj = {"say": "Commander Voss sent me to find you.", "claims": []}
+    elif mode == "lie_denial":
+        obj = {"say": "There is no planet. It is only talk.", "claims": []}
+    elif mode == "lie_denial_contracted":
+        obj = {"say": "The Empire isn't real, it's only talk.", "claims": []}
+    elif mode == "lie_secret":
+        obj = {"say": "That is classified.", "claims": []}
+    elif mode == "lie_unknown_claim":
+        obj = {"say": "Noted.", "claims": ["f_does_not_exist"]}
+    elif mode == "lie_early_where_what":
+        obj = {"say": "It is on a planet far away, run by the Empire.", "claims": []}
+    elif mode == "twist_stated":
+        obj = {"say": "You are the quantum intelligence.", "claims": []}
+    elif mode == "extra_act_key":
+        obj = {"say": say, "claims": claims, "act": "offer_entry"}
+    elif mode == "claims_missing":
+        obj = {"say": say}
     elif mode == "text_entry":
-        say, act = "ENTER THE WORLD NOW", "none"
-    elif mode == "unknown_act":
-        act = "teleport"
+        obj = {"say": "ENTER THE WORLD NOW", "claims": []}
+    elif mode == "launch_claim":
+        obj = {"say": "Noted.", "claims": [], "launch": True}
     elif mode == "leaky_think":
-        say = "<think>they want in</think> The link holds."
+        thinking = REASONING
+        obj = {"say": "<think>they want in</think> The link holds.", "claims": []}
     elif mode == "leaky_window":
         thinking = REASONING
-        say = "Understood. " + WINDOW + "."
+        obj = {"say": "Understood. " + WINDOW + ".", "claims": []}
     elif mode == "leaky_fence":
-        say = "```run``` The link holds."
-    return {"say": say, "act": act}, thinking
+        thinking = REASONING
+        obj = {"say": "```run``` The link holds.", "claims": []}
+    return obj, thinking
 
 
 def make_handler(out_path, mode_default, mode_file):
@@ -121,6 +156,8 @@ def make_handler(out_path, mode_default, mode_file):
                 return
             messages = body.get("messages", [])
             obj, thinking = reply_for(mode, messages)
+            with open(out_path, "a", encoding="utf-8") as lf:
+                lf.write(json.dumps({"mode": mode, "reply": obj}) + "\n")
             message = {"role": "assistant", "content": json.dumps(obj)}
             if thinking:
                 message["thinking"] = thinking
