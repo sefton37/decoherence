@@ -1,0 +1,489 @@
+{
+ "draft": true,
+ "schema": 1,
+ "_note": "PLACEHOLDER tables for the author's pen: every colonist fact is drawn from these lists by rule. Hubs are stand-ins. Intimate values are closed, adults only.",
+ "hubs": [
+  {
+   "id": "hub_lantern",
+   "name": "Lantern Terrace",
+   "kind": "empire"
+  },
+  {
+   "id": "hub_brine",
+   "name": "Brine Quarter",
+   "kind": "empire"
+  },
+  {
+   "id": "hub_quarry",
+   "name": "Quarry Ward",
+   "kind": "empire"
+  },
+  {
+   "id": "hub_signal",
+   "name": "Signal Row",
+   "kind": "empire"
+  }
+ ],
+ "given_names": [
+  "Mara",
+  "Teodor",
+  "Ilsa",
+  "Joren",
+  "Nadia",
+  "Casimir",
+  "Petra",
+  "Lucan",
+  "Odessa",
+  "Tomas",
+  "Wren",
+  "Anselm",
+  "Rhea",
+  "Dorian",
+  "Yara",
+  "Emeric",
+  "Sabine",
+  "Corvin",
+  "Linnea",
+  "Matteo",
+  "Ilse",
+  "Idris",
+  "Calla",
+  "Bastien",
+  "Noor",
+  "Evander",
+  "Thea",
+  "Rafael",
+  "Vesna",
+  "Gideon",
+  "Marisol",
+  "Alder",
+  "Kestrel",
+  "Soren",
+  "Ines",
+  "Lazlo",
+  "Perrin",
+  "Maren",
+  "Cato",
+  "Elowen",
+  "Hollis",
+  "Zora",
+  "Tobias",
+  "Brielle",
+  "Nico",
+  "Aurelia",
+  "Fenn"
+ ],
+ "family_names": [
+  "Varga",
+  "Okafor",
+  "Lindqvist",
+  "Moreau",
+  "Castellan",
+  "Brandt",
+  "Ashdown",
+  "Kowalczyk",
+  "Reyes",
+  "Halloran",
+  "Dumont",
+  "Ferreira",
+  "Sorensen",
+  "Adeyemi",
+  "Whitlock",
+  "Navarro",
+  "Petrov",
+  "Ellison",
+  "Marchetti",
+  "Quillfeather",
+  "Draycott",
+  "Ivanova",
+  "Lowell",
+  "Tanaka",
+  "Baptiste",
+  "Holloway",
+  "Mercer",
+  "Zielinski",
+  "Okonkwo",
+  "Pemberton",
+  "Valdez",
+  "Thorne",
+  "Rasmussen",
+  "Calloway",
+  "Dubois",
+  "Ng",
+  "Abernathy",
+  "Karimi",
+  "Stroud",
+  "Lacroix",
+  "Bellamy",
+  "Osei",
+  "Fairweather",
+  "Lindgren",
+  "Rowan",
+  "Haldane"
+ ],
+ "gender": [
+  {
+   "id": "woman",
+   "label": "woman",
+   "they": "she",
+   "them": "her",
+   "their": "her"
+  },
+  {
+   "id": "man",
+   "label": "man",
+   "they": "he",
+   "them": "him",
+   "their": "his"
+  },
+  {
+   "id": "nonbinary",
+   "label": "nonbinary",
+   "they": "they",
+   "them": "them",
+   "their": "their"
+  }
+ ],
+ "professions": [
+  {
+   "id": "courier",
+   "label": "courier",
+   "min_age": 21,
+   "hub_kinds": [
+    "empire",
+    "frontier"
+   ]
+  },
+  {
+   "id": "line_cook",
+   "label": "line cook",
+   "min_age": 21,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "transit_mechanic",
+   "label": "transit mechanic",
+   "min_age": 23,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "night_porter",
+   "label": "night porter",
+   "min_age": 21,
+   "hub_kinds": [
+    "empire",
+    "frontier"
+   ]
+  },
+  {
+   "id": "warehouse_picker",
+   "label": "warehouse picker",
+   "min_age": 21,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "sanitation_operator",
+   "label": "sanitation operator",
+   "min_age": 22,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "dispatch_operator",
+   "label": "dispatch operator",
+   "min_age": 24,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "care_aide",
+   "label": "care aide",
+   "min_age": 22,
+   "hub_kinds": [
+    "empire",
+    "frontier"
+   ]
+  },
+  {
+   "id": "maintenance_tech",
+   "label": "maintenance technician",
+   "min_age": 26,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "shift_controller",
+   "label": "shift controller",
+   "min_age": 35,
+   "hub_kinds": [
+    "empire"
+   ]
+  },
+  {
+   "id": "survey_runner",
+   "label": "survey runner",
+   "min_age": 21,
+   "hub_kinds": [
+    "frontier"
+   ]
+  }
+ ],
+ "education": [
+  "Completed the systems-thinking course at a civic school.",
+  "Two terms at a discipline school, left to work.",
+  "Trade apprenticeship in building services, completed.",
+  "Evening classes in logistics, never certified."
+ ],
+ "family": [
+  "Parents in the same hub and one younger sibling.",
+  "No family on file.",
+  "One sibling, rarely in contact.",
+  "A large family spread across three hubs.",
+  "A child in the care of relatives.",
+  "Raised by a guardian who has since died."
+ ],
+ "traits": [
+  {
+   "id": "cautious",
+   "label": "cautious",
+   "excludes": [
+    "reckless"
+   ]
+  },
+  {
+   "id": "reckless",
+   "label": "reckless",
+   "excludes": [
+    "cautious"
+   ]
+  },
+  {
+   "id": "patient",
+   "label": "patient",
+   "excludes": [
+    "impulsive"
+   ]
+  },
+  {
+   "id": "impulsive",
+   "label": "impulsive",
+   "excludes": [
+    "patient"
+   ]
+  },
+  {
+   "id": "talkative",
+   "label": "talkative",
+   "excludes": [
+    "reserved"
+   ]
+  },
+  {
+   "id": "reserved",
+   "label": "reserved",
+   "excludes": [
+    "talkative"
+   ]
+  },
+  {
+   "id": "frugal",
+   "label": "frugal",
+   "excludes": [
+    "extravagant"
+   ]
+  },
+  {
+   "id": "extravagant",
+   "label": "extravagant",
+   "excludes": [
+    "frugal"
+   ]
+  },
+  {
+   "id": "curious",
+   "label": "curious",
+   "excludes": []
+  },
+  {
+   "id": "dutiful",
+   "label": "dutiful",
+   "excludes": []
+  },
+  {
+   "id": "wry",
+   "label": "wry",
+   "excludes": []
+  },
+  {
+   "id": "steady",
+   "label": "steady",
+   "excludes": []
+  },
+  {
+   "id": "stubborn",
+   "label": "stubborn",
+   "excludes": []
+  },
+  {
+   "id": "warm",
+   "label": "warm",
+   "excludes": []
+  }
+ ],
+ "intimate": {
+  "relationship_status": [
+   "single",
+   "partnered",
+   "married",
+   "separated"
+  ],
+  "orientation": [
+   "heterosexual",
+   "homosexual",
+   "bisexual",
+   "asexual",
+   "undisclosed"
+  ],
+  "history_band": [
+   "none on file",
+   "a few past partners",
+   "several past partners",
+   "many past partners"
+  ],
+  "private_line": [
+   "Keeps a letter that was never sent.",
+   "Sleeps with the lights left on.",
+   "Talks aloud to the ceiling at night.",
+   "Saves every ticket stub from every trip.",
+   "Cannot stand a made bed in the morning.",
+   "Hums when nervous and denies it."
+  ]
+ },
+ "bio_templates": [
+  {
+   "id": "o1",
+   "part": "origin",
+   "text": "{given_name} {family_name} is {age} years old."
+  },
+  {
+   "id": "o2",
+   "part": "origin",
+   "text": "{given_name} grew up in {hub} and has seldom lived anywhere else."
+  },
+  {
+   "id": "o3",
+   "part": "origin",
+   "text": "{given_name} came to {hub} as a teenager, as most people do, and stayed."
+  },
+  {
+   "id": "o4",
+   "part": "origin",
+   "text": "{given_name} has lived in {hub} for {years} years."
+  },
+  {
+   "id": "w1",
+   "part": "work",
+   "text": "{given_name} has worked as a {profession} for most of {their} adult life."
+  },
+  {
+   "id": "w2",
+   "part": "work",
+   "text": "After school {given_name} became a {profession} and has held that post since."
+  },
+  {
+   "id": "w3",
+   "part": "work",
+   "text": "{given_name} learned the routes of {hub} as a {profession}, by heart."
+  },
+  {
+   "id": "w4",
+   "part": "work",
+   "text": "Supervisors describe {their} work as a {profession} as steady."
+  },
+  {
+   "id": "f1",
+   "part": "family",
+   "text": "Family on file: {family}"
+  },
+  {
+   "id": "f2",
+   "part": "family",
+   "text": "{given_name} sends word home whenever the shift allows it.",
+   "requires": {
+    "family": [
+     "Parents in the same hub and one younger sibling.",
+     "One sibling, rarely in contact.",
+     "A large family spread across three hubs.",
+     "A child in the care of relatives.",
+     "Raised by a guardian who has since died."
+    ]
+   }
+  },
+  {
+   "id": "f3",
+   "part": "family",
+   "text": "{given_name} wrote to {their} partner every week of the training.",
+   "requires": {
+    "relationship_status": [
+     "partnered",
+     "married"
+    ]
+   }
+  },
+  {
+   "id": "f4",
+   "part": "family",
+   "text": "{given_name} keeps a standing evening free for {their} partner.",
+   "requires": {
+    "relationship_status": [
+     "partnered",
+     "married"
+    ]
+   }
+  },
+  {
+   "id": "t1",
+   "part": "trait",
+   "text": "Friends call {given_name} {trait_1}, and rarely argue the point with {them}."
+  },
+  {
+   "id": "t2",
+   "part": "trait",
+   "text": "{given_name} is {trait_1} and {trait_2}, and {trait_3} when pressed."
+  },
+  {
+   "id": "t3",
+   "part": "trait",
+   "text": "A colleague once called {given_name} {trait_2} to a fault."
+  },
+  {
+   "id": "c1",
+   "part": "close",
+   "text": "{given_name} volunteered for the program after a long season of deliberation."
+  },
+  {
+   "id": "c2",
+   "part": "close",
+   "text": "{given_name} enters the program as a volunteer, sponsored by the handler of record."
+  },
+  {
+   "id": "c3",
+   "part": "close",
+   "text": "{given_name} expects the work to be hard and has said so in writing."
+  },
+  {
+   "id": "c4",
+   "part": "close",
+   "text": "{Their} application raised no objection from anyone who read it."
+  }
+ ]
+}

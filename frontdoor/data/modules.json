@@ -8,5 +8,11 @@
     "id": "world",
     "label": "WORLD",
     "description": "Walk the procedurally generated truncated-octahedron terrain."
+  },
+  {
+    "id": "handler",
+    "label": "HANDLER",
+    "description": "Your assigned file and the mission.",
+    "locked_until": "handler_unlocked"
   }
 ]

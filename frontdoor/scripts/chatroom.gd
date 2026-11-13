@@ -58,6 +58,8 @@ var _thread_buf: String = ""
 var _contact_done: bool = false
 
 var _funnel_on: bool = false
+## The HANDLER module's data (Spec #575): tables, rules, ui and route, read again on every reset.
+var _hdata: Dictionary = {}
 var _profile: Dictionary = {}
 var _dossier: Dictionary = {}
 var _handler_name: String = ""
@@ -103,6 +105,7 @@ func setup(terminal_grid: TerminalGrid, llm: LlmClient, shell: ShellController) 
 	if _loaded:
 		_rules = _bundle["script"].get("scramble", {})
 	_load_client_data()
+	_hdata = ProfileStore.load_handler_data()
 	_seed = _draw_seed()
 	_reseed()
 	if not Signals.chat_opened.is_connected(_on_chat_opened):
@@ -325,6 +328,7 @@ func reset_session(new_seed: int = -1, keep_profile: bool = false) -> void:
 	if _loaded:
 		_rules = _bundle["script"].get("scramble", {})
 	_load_client_data()
+	_hdata = ProfileStore.load_handler_data()
 	if not keep_profile:
 		for path in [ProfileStore.PROFILE_FILE, ProfileStore.DOSSIER_FILE]:
 			if FileAccess.file_exists(path):
@@ -940,19 +944,68 @@ func _apply_rename(new_handle: String) -> void:
 	Signals.chat_model_changed.emit()
 
 
-## The interim launch (decision D9): the only place that emits the entry signal. The
-## shell still re-checks entry_allowed(). A later spec replaces this body with
-## "unlock the handler module" and leaves the funnel alone.
+## The end of the funnel (Spec #573 D9, replaced by Spec #575): the only place that
+## emits the entry signal. The player's colonist is assigned here, once, before the
+## signal; the shell re-checks entry_allowed() and opens the HANDLER module. The signal
+## keeps its name, and now means "entry to the module".
 func _launch_interim() -> void:
 	state = ChatroomScript.ST_LAUNCH
 	_profile["acceptance"]["launched"] = true
 	ProfileStore.save_profile(_profile)
+	ensure_colonist()
 	grant_ms = now_ms()
 	Signals.chatroom_entry_granted.emit()
-	if _shell != null and _shell.current_state_name() == "WORLD":
+	if _shell != null and _shell.current_state_name() in ["WORLD", "HANDLER"]:
 		_inside = false
 	funnel.mark_inert()
 	state = ChatroomScript.ST_ROOM
+
+
+## --- The HANDLER module (Spec #575) ----------------------------------------------------------
+
+## The module's data files: {ok, dir, tables, rules, ui, route}.
+func handler_data() -> Dictionary:
+	return _hdata
+
+
+## True once the funnel is finished: the player's file is open to them (the module unlocks).
+func handler_unlocked() -> bool:
+	return not _profile.is_empty() and bool(_profile["acceptance"]["launched"])
+
+
+## The assigned colonist (the first assignment), or {} when none is stored.
+func colonist() -> Dictionary:
+	var a: Array = _profile.get("assignments", [])
+	return a[0] if a.size() > 0 and typeof(a[0]) == TYPE_DICTIONARY else {}
+
+
+func colonist_id() -> String:
+	return String(colonist().get("fields", {}).get("colonist_id", ""))
+
+
+## Generates the colonist when the profile has none, replaces a stored one only if it fails
+## validation (an acceptance of the old one is cleared), and saves what changed. True when a
+## valid colonist is stored afterwards.
+func ensure_colonist() -> bool:
+	if not handler_unlocked() or not bool(_hdata.get("ok", false)):
+		return false
+	var res := ColonistGen.ensure(_profile, _hdata["tables"], _hdata["rules"])
+	if bool(res["regenerated"]):
+		_profile = res["profile"]
+		ProfileStore.save_profile(_profile)
+	return not colonist().is_empty()
+
+
+## The Launch press: records the acceptance of the mission before anything is entered. {ok,
+## assignment_id}. A colonist that no longer validates is not accepted.
+func accept_mission() -> Dictionary:
+	if not handler_unlocked() or not bool(_hdata.get("ok", false)) or colonist().is_empty():
+		return {"ok": false, "assignment_id": ""}
+	if not ColonistGen.validate(colonist(), _hdata["tables"], _hdata["rules"], false).is_empty():
+		return {"ok": false, "assignment_id": ""}
+	_profile["acceptance"]["mission_accepted"] = true
+	ProfileStore.save_profile(_profile)
+	return {"ok": true, "assignment_id": colonist_id()}
 
 
 ## --- The model turn ------------------------------------------------------------------------------------

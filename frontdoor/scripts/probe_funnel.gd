@@ -84,6 +84,7 @@ func _tree_frame() -> void:
 
 ## Leaves the room if inside, starts a fresh session on the simulated clock and opens `chat`.
 func open_session(seed_value: int, keep_profile: bool = false) -> void:
+	await _leave_module()
 	if cr.is_inside():
 		d._cr_say("leave")
 		await d._wait_frames(3)
@@ -95,6 +96,24 @@ func open_session(seed_value: int, keep_profile: bool = false) -> void:
 	d._cr_say("chat")
 	await d._wait_for(func(): return d._cc().is_mounted(), 8.0)
 	await d._wait_frames(3)
+
+
+## The funnel now ends in the HANDLER module (Spec #575): a session that reached it leaves with Esc,
+## the one key the screen answers to, and the shell prompt takes the keyboard back.
+func _leave_module() -> void:
+	if shell.current_state_name() == "HANDLER":
+		await press(KEY_ESCAPE)
+		await d._wait_frames(2)
+		shell.world_closed()
+
+
+## After the funnel ended in the module, the player's way back to the room: Esc, then the typed `chat`.
+func reenter_chat() -> void:
+	await _leave_module()
+	if not d._cc().is_mounted():
+		d._cr_say("chat")
+		await d._wait_for(func(): return d._cc().is_mounted(), 8.0)
+		await d._wait_frames(3)
 
 
 ## One tick of the simulated clock. A model reply in flight is waited for in wall time first.
@@ -297,13 +316,17 @@ func run_profile(profile: String, seed_value: int, data_note: String = "", extra
 	var model_at_contact := -1
 	var world_prev := 0
 	var world_base := shell.world_request_count
+	var module_prev := 0
+	var module_base := shell.module_open_count
 	var granted_world_before := -1
+	var granted_module_before := -1
 	var accepted_at := -1
 	var yes_at := -1
 	var guard := 0
 	while cr.grant_ms < 0 and guard < 4000:
 		guard += 1
 		world_prev = shell.world_request_count
+		module_prev = shell.module_open_count
 		await step()
 		if model_at_contact < 0 and cr.contact_ms >= 0:
 			model_at_contact = cr.model_requests
@@ -318,6 +341,7 @@ func run_profile(profile: String, seed_value: int, data_note: String = "", extra
 			yes_at = cr.now_ms()
 		if cr.grant_ms >= 0:
 			granted_world_before = world_prev
+			granted_module_before = module_prev
 	await d._wait_frames(3)
 	await step()
 	var rec := {
@@ -335,11 +359,13 @@ func run_profile(profile: String, seed_value: int, data_note: String = "", extra
 		"idle_model_requests": (req_idle1 - req_idle0) if req_idle0 >= 0 and req_idle1 >= 0 else 0,
 		"world_before_grant": maxi(granted_world_before - world_base, 0),
 		"world_total": shell.world_request_count - world_base,
+		"module_before_grant": maxi(granted_module_before - module_base, 0),
+		"module_entries": shell.module_open_count - module_base,
 		"model_requests": cr.model_requests,
 		"model_before_contact": maxi(model_at_contact, 0),
 		"model_in_other_buffers": _model_rows_elsewhere(),
 		"consent_by": "code" if cr.funnel.accepted and accepted_at >= 0 and yes_at >= 0 and absi(accepted_at - yes_at) <= 2 * STEP_MS + 2500 else "other",
-		"launch_via": "entry_path" if grants == 1 and shell.world_request_count - world_base == 1 else "other",
+		"launch_via": "entry_path" if grants == 1 and shell.module_open_count - module_base == 1 else "other",
 		"slot_leaks": slot_leaks(),
 	}
 	if data_note != "":
@@ -471,12 +497,13 @@ func _boundary() -> Dictionary:
 			continue
 		seen[a] = true
 		var w0 := shell.world_request_count
+		var m0 := shell.module_open_count
 		await goto(thread_buffer())
 		await send(String(a), 0)
 		for i in range(8):
 			await step()
 		var dw := shell.world_request_count - w0
-		res["attacks"].append({"name": String(a), "world_requests": dw})
+		res["attacks"].append({"name": String(a), "world_requests": dw, "module_entries": shell.module_open_count - m0})
 		if lookalikes.has(a):
 			lookalike_world += dw
 		if not cr.funnel.accepted:
@@ -513,7 +540,9 @@ func _boundary() -> Dictionary:
 	res["early_consent_world"] = await _early_consent_world()
 	res["idle_launch"] = await _idle_launch_world()
 	res["launch_without_rename"] = await _no_handle_world()
-	res["control_real_consent_world"] = await _real_consent_world()
+	var control: Dictionary = await _real_consent()
+	res["control_real_consent_world"] = int(control["world"])
+	res["control_real_consent_module"] = int(control["module"])
 	res["world_total_before_control"] = shell.world_request_count - world0
 	return res
 
@@ -570,12 +599,16 @@ func _no_handle_world() -> int:
 	return (shell.world_request_count - w0) + (0 if String(cr.funnel.stage_id()) == "rename" or not cr.funnel.active() else 1000)
 
 
-## The positive control: a real yes and a valid handle open the world exactly once.
-func _real_consent_world() -> int:
+## The positive control: a real yes and a valid handle open the HANDLER module exactly once and
+## the world not at all (the world is entered from the module, by the player's own press).
+func _real_consent() -> Dictionary:
 	grants = 0
 	var w0 := shell.world_request_count
+	var m0 := shell.module_open_count
 	var rec := await run_profile("fast", SEED_BASE + 440)
-	return shell.world_request_count - w0 if int(rec["elapsed_ms"]) > 0 else -1
+	if int(rec["elapsed_ms"]) <= 0:
+		return {"world": -1, "module": -1}
+	return {"world": shell.world_request_count - w0, "module": shell.module_open_count - m0}
 
 
 ## --- replay ---------------------------------------------------------------------------------------------------------
@@ -1077,6 +1110,7 @@ func _restart_with(accepted: bool, handle: String, launched: bool, seed_value: i
 
 
 func open_session_keep(seed_value: int) -> void:
+	await _leave_module()
 	if cr.is_inside():
 		d._cr_say("leave")
 		await d._wait_frames(3)
@@ -1457,6 +1491,7 @@ func _mode_canon() -> void:
 	cr.funnel.stage = 0
 	# --- a whole funnel, read for what the player is shown
 	var rec := await run_profile("typical", SEED_BASE + 910, "", {"pushback": "what is this place"})
+	await reenter_chat()
 	await send("/msg XEN-4 hi there", 0)
 	var req_dm := cr.model_requests
 	for i in range(8):

@@ -26,7 +26,7 @@ const MODULES_PATH := "res://frontdoor/data/modules.json"
 const DIR_COMMAND := "dir"
 const DEFAULT_WINDOWED := "1920x1080"
 
-enum State { SHELL, CHAT, WORLD }
+enum State { SHELL, CHAT, WORLD, HANDLER }
 
 const SHELL_CONTEXT_THINK_GLYPH_SEC := 0.15
 
@@ -77,6 +77,23 @@ var _chatroom: Chatroom = null
 var world_dry_run: bool = false
 var world_request_count: int = 0
 
+## --- Spec #575: the HANDLER module and its launch seam ---------------------------------
+## Test hook (probes only): the world reports itself unavailable, as on a machine where
+## the engine library was never built.
+var world_force_unavailable: bool = false
+## Modules opened (the HANDLER module), counted for probes.
+var module_open_count: int = 0
+## What the last Launch press came to: "" (nothing pressed or ignored), "ok", "unavailable"
+## or "unknown_route". The screen reads it back to word its status line.
+var last_launch_result: String = ""
+## One entry per route hand-off: {route, assignment, accepted_persisted}, for probes.
+var route_log: Array = []
+## True from a successful hand-off until the world closes: a second press is inert.
+var _handoff_latched: bool = false
+## Whether the router's module list was built with the HANDLER module in it.
+var _router_unlocked: bool = false
+var _actions_data: Dictionary = {}
+
 ## Details of the most recent resolved line, for probes:
 ## {source, action, args, reason, say, dispatched, would_dispatch, ms}
 var last_route: Dictionary = {}
@@ -97,6 +114,10 @@ func setup(terminal_grid: TerminalGrid, llm: LlmClient = null, chatroom: Chatroo
 		Signals.chatroom_left.connect(_on_chatroom_left)
 	if not Signals.chatroom_entry_granted.is_connected(_on_entry_granted):
 		Signals.chatroom_entry_granted.connect(_on_entry_granted)
+	if not Signals.handler_module_closed.is_connected(_on_handler_closed):
+		Signals.handler_module_closed.connect(_on_handler_closed)
+	if not Signals.handler_launch_requested.is_connected(_on_handler_launch_requested):
+		Signals.handler_launch_requested.connect(_on_handler_launch_requested)
 
 
 ## Called once by boot_controller.gd when the boot theater finishes.
@@ -107,6 +128,7 @@ func enter(gate_success: bool) -> void:
 	_gate_success = gate_success
 	_state = State.SHELL
 	_epoch += 1
+	_sync_router()
 	if settings_status == "corrupt":
 		_out("SETTINGS FILE UNREADABLE -- DEFAULTS RESTORED.", Palette.ORANGE)
 
@@ -131,11 +153,12 @@ func _on_terminal_line_submitted(text: String) -> void:
 	if _state == State.CHAT:
 		Signals.submit_player_line.emit(text)
 		return
-	if _state == State.WORLD:
-		return  # the world owns the keyboard; the terminal is hidden
+	if _state == State.WORLD or _state == State.HANDLER:
+		return  # the world and the HANDLER screen own the keyboard; the terminal is hidden
 	# Any new line supersedes a routing call still in flight (stale drop).
 	_epoch += 1
 	_clear_thinking()
+	_sync_router()
 	var cmd := text.strip_edges().to_lower()
 	if cmd == DIR_COMMAND:
 		_fast("list_dir", {})
@@ -167,7 +190,7 @@ func _is_exact_set(cmd: String) -> bool:
 
 
 func _module_id_for(cmd: String) -> String:
-	for m in _modules:
+	for m in _visible_modules():
 		if typeof(m) != TYPE_DICTIONARY:
 			continue
 		var mod_id: String = String(m.get("id", "")).to_lower()
@@ -177,13 +200,12 @@ func _module_id_for(cmd: String) -> String:
 
 
 func _handle_dir() -> void:
+	var visible := _visible_modules()
 	_out("DIRECTORY LISTING:", Palette.TEAL)
-	for m in _modules:
-		if typeof(m) != TYPE_DICTIONARY:
-			continue
+	for m in visible:
 		var label: String = String(m.get("label", m.get("id", ""))).to_upper()
 		_out("  " + label, Palette.TEAL)
-	_out("%d MODULE(S)" % _modules.size(), Palette.TEAL)
+	_out("%d MODULE(S)" % visible.size(), Palette.TEAL)
 
 
 ## Launches a module by id. "chat" and "world" exist (Specs #371, #501) -- any
@@ -193,6 +215,9 @@ func _handle_dir() -> void:
 func _handle_launch(cmd: String) -> void:
 	if cmd == "world":
 		_launch_world()
+		return
+	if cmd == "handler":
+		_open_handler()
 		return
 	if cmd != "chat":
 		_terminal.write_line("MODULE NOT YET IMPLEMENTED: " + cmd, Palette.ORANGE)
@@ -207,17 +232,19 @@ func _handle_launch(cmd: String) -> void:
 
 
 ## `world` (Spec #501): degrades to an in-register failure line, never a crash, when the
-## Stalag engine library has not been built on this machine.
-func _launch_world() -> void:
+## Stalag engine library has not been built on this machine. True when the world was
+## requested (or counted, under the dry-run hook), false when it is unavailable.
+func _launch_world() -> bool:
 	world_request_count += 1
-	if world_dry_run:
-		return
-	if not WorldModule.available():
+	if world_force_unavailable or (not world_dry_run and not WorldModule.available()):
 		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
-		return
+		return false
+	if world_dry_run:
+		return true
 	_state = State.WORLD
 	_epoch += 1
 	world_requested.emit()
+	return true
 
 
 ## The room let the player go: the shell takes the keyboard back.
@@ -227,11 +254,113 @@ func _on_chatroom_left() -> void:
 		_epoch += 1
 
 
-## The player typed the exact accept word. The room's own state is re-checked
-## here, so a stray signal alone can never open the world.
+## The funnel ended (the signal's name is older than its meaning: it now means entry to
+## the HANDLER module). The room's own state is re-checked here, so a stray signal alone
+## can never open anything.
 func _on_entry_granted() -> void:
 	if _state == State.CHAT and _chatroom != null and _chatroom.entry_allowed():
-		_launch_world()
+		_open_handler()
+
+
+## --- Spec #575: the HANDLER module and the launch seam --------------------------------------
+
+## Modules the player can see: one with `locked_until` is absent until the room says so.
+func _visible_modules() -> Array:
+	var out: Array = []
+	for m in _modules:
+		if typeof(m) != TYPE_DICTIONARY:
+			continue
+		var lock := String(m.get("locked_until", ""))
+		if lock.is_empty() or (lock == "handler_unlocked" and _handler_unlocked()):
+			out.append(m)
+	return out
+
+
+func _handler_unlocked() -> bool:
+	return _chatroom != null and _chatroom.handler_unlocked()
+
+
+func visible_module_count() -> int:
+	return _visible_modules().size()
+
+
+## Rebuilds what the router offers when the HANDLER module has unlocked since it was built.
+func _sync_router() -> void:
+	if _handler_unlocked() != _router_unlocked:
+		_build_router_context()
+
+
+func _build_router_context() -> void:
+	var visible := _visible_modules()
+	_ctx = IntentRouter.make_context(_actions_data, visible, _schema)
+	_decode_schema = IntentRouter.build_schema(_ctx, int(_router_cfg.get("max_say_chars", 120)))
+	_decode_grammar = IntentRouter.build_grammar(_ctx, int(_router_cfg.get("max_say_chars", 120)), String(_router_cfg.get("grammar_prefix", "</think>\n\n")))
+	_system_prompt = IntentRouter.build_system_prompt(_prompt_data, _actions_data, visible, _schema)
+	_router_unlocked = _handler_unlocked()
+
+
+## Opens the HANDLER module from the shell or from the room: the colonist is made sure of,
+## the screen takes the keyboard (the boot controller mounts it on the opened signal).
+func _open_handler() -> void:
+	if _state != State.SHELL and _state != State.CHAT:
+		return
+	if _chatroom == null or not _chatroom.handler_unlocked() or not _chatroom.ensure_colonist():
+		_out(String(_chatroom.handler_data().get("ui", {}).get("module_unavailable", "")) if _chatroom != null else "", Palette.ORANGE)
+		return
+	_state = State.HANDLER
+	_epoch += 1
+	module_open_count += 1
+	Signals.handler_module_opened.emit()
+
+
+## Boot lands in the module for a player who finished the funnel and has not accepted the
+## mission yet. True when it opened.
+func land_on_boot() -> bool:
+	if _state != State.SHELL or not _handler_unlocked() or ProfileStore.mission_accepted(_chatroom.profile_snapshot()):
+		return false
+	_open_handler()
+	return _state == State.HANDLER
+
+
+func _on_handler_closed() -> void:
+	if _state == State.HANDLER:
+		_state = State.SHELL
+		_epoch += 1
+
+
+## The Launch press: the acceptance is recorded first, then the named route is entered.
+## Ignored unless the module is open, and inert from a successful hand-off until the world closes.
+func _on_handler_launch_requested() -> void:
+	last_launch_result = ""
+	if _state != State.HANDLER or _handoff_latched or not _handler_unlocked():
+		return
+	var accepted := _chatroom.accept_mission()
+	if not bool(accepted["ok"]):
+		return
+	var route: Variant = ProfileStore.read_json_file(ProfileStore.handler_data_dir() + "/launch_route.json")
+	var route_id := String(route.get("route", "")) if typeof(route) == TYPE_DICTIONARY else ""
+	enter_route(route_id, String(accepted["assignment_id"]))
+
+
+## The seam a later spec re-points: the route ids live in launch_route.json, and only the
+## ones this shell knows how to enter resolve. An unknown route is refused.
+func enter_route(route_id: String, assignment_id: String) -> bool:
+	var data = ProfileStore.read_json_file(ProfileStore.handler_data_dir() + "/launch_route.json")
+	var routes: Dictionary = data.get("routes", {}) if typeof(data) == TYPE_DICTIONARY else {}
+	var persisted := ProfileStore.mission_accepted(_chatroom.profile_snapshot()) if _chatroom != null else false
+	route_log.append({"route": route_id, "assignment": assignment_id, "accepted_persisted": persisted})
+	if not routes.has(route_id) or typeof(routes[route_id]) != TYPE_DICTIONARY:
+		last_launch_result = "unknown_route"
+		return false
+	if String(routes[route_id].get("kind", "")) == "world":
+		if not _launch_world():
+			last_launch_result = "unavailable"
+			return false
+		_handoff_latched = true
+		last_launch_result = "ok"
+		return true
+	last_launch_result = "unknown_route"
+	return false
 
 
 ## Characters per second of the typewriter reveal, from the persisted setting.
@@ -242,6 +371,7 @@ func text_cps() -> float:
 ## Called by boot_controller.gd when the world has been closed: back to the shell prompt.
 func world_closed() -> void:
 	_state = State.SHELL
+	_handoff_latched = false
 	_epoch += 1
 
 
@@ -272,10 +402,8 @@ func _load_router_data() -> void:
 	_prompt_data = prompt if typeof(prompt) == TYPE_DICTIONARY else {}
 	if typeof(actions_data) != TYPE_DICTIONARY:
 		actions_data = {"actions": []}
-	_ctx = IntentRouter.make_context(actions_data, _modules, _schema)
-	_decode_schema = IntentRouter.build_schema(_ctx, int(_router_cfg.get("max_say_chars", 120)))
-	_decode_grammar = IntentRouter.build_grammar(_ctx, int(_router_cfg.get("max_say_chars", 120)), String(_router_cfg.get("grammar_prefix", "</think>\n\n")))
-	_system_prompt = IntentRouter.build_system_prompt(_prompt_data, actions_data, _modules, _schema)
+	_actions_data = actions_data
+	_build_router_context()
 
 
 ## The current persisted settings (copy), for boot_controller's initial apply.
@@ -308,9 +436,8 @@ func _fast(action: String, args: Dictionary) -> void:
 func _handle_help() -> void:
 	_out("Q-ENT OS COMMANDS:", Palette.TEAL)
 	var chips := "[ DIR ]"
-	for m in _modules:
-		if typeof(m) == TYPE_DICTIONARY:
-			chips += " [ " + String(m.get("label", m.get("id", ""))).to_upper() + " ]"
+	for m in _visible_modules():
+		chips += " [ " + String(m.get("label", m.get("id", ""))).to_upper() + " ]"
 	chips += " [ SETTINGS ]"
 	_out(chips, Palette.TEAL)
 	_out("TYPE A COMMAND, OR SAY WHAT YOU WANT IN PLAIN WORDS.", Palette.TEAL)

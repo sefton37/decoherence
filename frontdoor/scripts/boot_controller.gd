@@ -60,6 +60,7 @@ const _GALLERY_SAMPLES := [
 @onready var _crt_overlay: ColorRect = $CRTLayer/CRTOverlay
 @onready var _panels: BootPanels = $PanelsLayer/BootPanels
 @onready var _chat: ChatClient = $ChatLayer/ChatClient
+@onready var _handler_screen: HandlerScreen = $HandlerLayer/HandlerScreen
 
 var _stages: Array = []
 
@@ -117,6 +118,8 @@ func _ready() -> void:
 	_shell.world_requested.connect(_on_world_requested)
 	Signals.chat_opened.connect(_on_chat_mount)
 	Signals.chatroom_left.connect(_on_chat_unmount)
+	Signals.handler_module_opened.connect(_on_handler_mount)
+	Signals.handler_module_closed.connect(_on_handler_unmount)
 	Signals.setting_changed.connect(_apply_setting)
 	_apply_all_settings(_shell.get_settings())
 	_setup_panels()
@@ -132,7 +135,7 @@ func _setup_panels() -> void:
 	if preset == "":
 		preset = BootPanels.selected_preset_from_data()
 	_panels.setup(preset, Vector2i(get_viewport_rect().size))
-	_panels.set_module_count(_module_count())
+	_panels.set_module_count(_shell.visible_module_count())
 	get_viewport().size_changed.connect(_on_viewport_resized)
 
 
@@ -165,11 +168,6 @@ func _input(event: InputEvent) -> void:
 	if is_f11 or is_alt_enter:
 		_shell.toggle_display()
 		get_viewport().set_input_as_handled()
-
-
-func _module_count() -> int:
-	var parsed = IntentRouter.load_json(IntentRouter.MODULES_PATH)
-	return parsed.size() if typeof(parsed) == TYPE_ARRAY else 0
 
 
 ## --- Settings (Spec #519) --------------------------------------------------
@@ -412,6 +410,8 @@ func _enter_shell() -> void:
 	_shell.enter(_gate_success)
 	Signals.shell_ready.emit()
 	_panels.enter_shell_mode()
+	# A player who finished the funnel and has not accepted the mission lands in the module.
+	_shell.land_on_boot()
 
 
 func _on_first_handler_reply(_text: String) -> void:
@@ -440,8 +440,11 @@ func _on_world_requested() -> void:
 	if _world == null:
 		_terminal.write_line("WORLD ENGINE NOT BUILT -- RUN tools/build_engine.sh.", Palette.ORANGE)
 		_shell.world_closed()
+		_close_handler_view()
 		return
 	_unmount_chat()
+	_handler_screen.unmount()
+	$HandlerLayer.visible = false
 	_terminal.set_input_line_active(false)
 	_terminal.get_parent().visible = false
 	_panels.get_parent().visible = false
@@ -487,3 +490,29 @@ func _on_chat_unmount() -> void:
 func _unmount_chat() -> void:
 	_chat.unmount()
 	$ChatLayer.visible = false
+
+
+## The HANDLER module opened (Spec #575): the screen takes the display the way the chat and the
+## world do. The terminal and the panels hide, the chat client unmounts, the CRT overlay stays on top.
+func _on_handler_mount() -> void:
+	_unmount_chat()
+	_terminal.set_input_line_active(false)
+	_terminal.get_parent().visible = false
+	_panels.get_parent().visible = false
+	$HandlerLayer.visible = true
+	_handler_screen.mount(_chatroom, _shell)
+
+
+func _on_handler_unmount() -> void:
+	if _handler_screen.is_mounted():
+		_close_handler_view()
+
+
+## Back to the shell prompt: the screen unmounts and the terminal and the panels return.
+func _close_handler_view() -> void:
+	_handler_screen.unmount()
+	$HandlerLayer.visible = false
+	if _world == null:
+		_terminal.get_parent().visible = true
+		_panels.get_parent().visible = true
+		_terminal.set_input_line_active(true)

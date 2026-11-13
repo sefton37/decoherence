@@ -169,3 +169,47 @@ static func set_field(dossier: Dictionary, field: String, value: String, cfg: Di
 		v = v.substr(0, v.length() / 2)
 		dossier["fields"][field] = v
 	return true
+
+
+## --- HANDLER module helpers (Spec #575) -----------------------------------------------------
+
+## A directory of handler data files that replaces the shipped one (probes only).
+const ENV_HANDLER_DIR := "DECOHERENCE_HANDLER_DIR"
+const HANDLER_DATA_DIR := "res://frontdoor/data/handler"
+
+
+static func handler_data_dir() -> String:
+	var env := OS.get_environment(ENV_HANDLER_DIR)
+	return env if not env.is_empty() else HANDLER_DATA_DIR
+
+
+static func read_json_file(path: String) -> Variant:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return null
+	var text := f.get_as_text()
+	f.close()
+	var parser := JSON.new()
+	return parser.data if parser.parse(text) == OK else null
+
+
+## {ok, dir, tables, rules, ui, route}: the four data files of the module. `ok` is false when any is missing or damaged.
+static func load_handler_data() -> Dictionary:
+	var dir := handler_data_dir()
+	var out := {"ok": false, "dir": dir, "tables": {}, "rules": {}, "ui": {}, "route": {}}
+	var names := {"tables": "colonist_tables.json", "rules": "colonist_rules.json", "ui": "handler_ui.json", "route": "launch_route.json"}
+	var good := true
+	for k in names:
+		var data = read_json_file(dir + "/" + String(names[k]))
+		if typeof(data) == TYPE_DICTIONARY:
+			out[k] = data
+		else:
+			good = false
+	out["ok"] = good
+	return out
+
+
+## True once the player has accepted the mission (the Launch press). The key is absent until then.
+static func mission_accepted(p: Dictionary) -> bool:
+	var acc = p.get("acceptance", null)
+	return typeof(acc) == TYPE_DICTIONARY and bool(acc.get("mission_accepted", false))

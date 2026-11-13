@@ -107,3 +107,17 @@ signal chatroom_left
 ## The chat model changed (a row arrived, a buffer opened or closed, the unread
 ## state moved): the chat client redraws.
 signal chat_model_changed
+
+## --- Additive contract, Spec #575 (HANDLER module). Everything above stays
+## byte-identical; this is new surface only.
+
+## The shell opened the HANDLER module (after the funnel, on a restart before the
+## mission was accepted, or by the typed command): the boot controller mounts the screen.
+signal handler_module_opened
+
+## The player left the module with Esc, or the shell closed it: the screen unmounts.
+signal handler_module_closed
+
+## The Launch control was pressed on the HANDLER screen. The shell records the
+## acceptance and hands off through the named route; the screen knows no destination.
+signal handler_launch_requested

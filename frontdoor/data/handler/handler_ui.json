@@ -1,0 +1,84 @@
+{
+ "draft": true,
+ "schema": 1,
+ "_note": "PLACEHOLDER words for the author's pen. Every word the HANDLER screen draws itself is here; the keys table names the key for each control. Values the screen shows about the colonist come from colonist_tables.json, and about the player from the saved profile.",
+ "title": "HANDLER",
+ "pane_titles": {
+  "dossier": "ASSIGNED COLONIST",
+  "profile": "YOUR FILE"
+ },
+ "section_labels": {
+  "identity": "IDENTITY",
+  "placement": "PLACEMENT",
+  "service": "SERVICE",
+  "personal": "PERSONAL",
+  "bio": "BIOGRAPHY",
+  "intimate": "INTIMATE DETAILS"
+ },
+ "field_labels": {
+  "colonist_id": "File number",
+  "given_name": "Given name",
+  "family_name": "Family name",
+  "age": "Age",
+  "gender": "Gender",
+  "hub": "Hub",
+  "years_resident": "Years on the planet",
+  "profession": "Prior service work",
+  "education": "Education",
+  "service_status": "Service status",
+  "specialization": "Homestead specialization",
+  "handler_of_record": "Handler of record",
+  "assisted_by": "Assisted by",
+  "trait_1": "Trait",
+  "trait_2": "Trait",
+  "trait_3": "Trait",
+  "family": "Family",
+  "bio": "Summary",
+  "relationship_status": "Relationship status",
+  "orientation": "Orientation",
+  "history_band": "History",
+  "private_line": "Private note"
+ },
+ "profile_labels": {
+  "handle": "Handle",
+  "former_designation": "Former designation",
+  "status": "Status",
+  "handler_name": "Handler",
+  "handler_kind": "Handler kind",
+  "former_handlers": "Former handlers",
+  "origin": "You said you were from",
+  "doing": "You said you were doing",
+  "colonist": "Assigned colonist"
+ },
+ "profile_values": {
+  "status_pending": "MISSION PENDING",
+  "status_accepted": "MISSION ACCEPTED",
+  "kind_empire": "EMPIRE",
+  "none": "NONE"
+ },
+ "value_labels": {
+  "volunteer": "VOLUNTEER",
+  "unassigned": "UNASSIGNED"
+ },
+ "launch_label": "ACCEPT MISSION",
+ "launch_unavailable": "THE WORLD IS NOT AVAILABLE ON THIS MACHINE.",
+ "accepted_status": "MISSION ACCEPTED. PRESS TO ENTER AGAIN.",
+ "pending_status": "READ THE FILE. THE MISSION IS YOURS TO ACCEPT.",
+ "unknown_route": "NO ROUTE FOR THIS MISSION.",
+ "module_unavailable": "THE FILE COULD NOT BE OPENED.",
+ "not_on_file": "NOT ON FILE",
+ "focus_marker": ">",
+ "keys": {
+  "focus_next": "Tab",
+  "focus_prev": "Shift+Tab",
+  "scroll_up": "Up",
+  "scroll_down": "Down",
+  "page_up": "PageUp",
+  "page_down": "PageDown",
+  "top": "Home",
+  "bottom": "End",
+  "accept": "Enter",
+  "accept_alt": "Space",
+  "back": "Esc"
+ }
+}

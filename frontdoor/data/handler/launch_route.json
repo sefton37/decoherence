@@ -1,0 +1,11 @@
+{
+ "draft": true,
+ "schema": 1,
+ "_note": "The launch seam. `route` names the entry the Launch control hands off to; `routes` maps a route id to what the shell does with it. A later spec adds a route and changes `route`; the screen knows no destination.",
+ "route": "world_entry",
+ "routes": {
+  "world_entry": {
+   "kind": "world"
+  }
+ }
+}

@@ -1,0 +1,194 @@
+{
+ "draft": true,
+ "schema": 1,
+ "_note": "PLACEHOLDER rules. A candidate value is drawn, the rules accept or reject it, and the draw is repeated (bounded by max_attempts). The numbers are stand-ins for the author's pen; the rule ids are the contract.",
+ "template_version": 1,
+ "count": 1,
+ "max_attempts": 50,
+ "age": {
+  "min": 21,
+  "max": 58,
+  "candidate_min": 16
+ },
+ "years_resident": {
+  "min": 1,
+  "candidate_margin": 10,
+  "arrival_age_min": 18
+ },
+ "trait_count": 3,
+ "id_prefix": "C-",
+ "intimate_max_len": 60,
+ "sections": [
+  {
+   "id": "identity"
+  },
+  {
+   "id": "placement"
+  },
+  {
+   "id": "service"
+  },
+  {
+   "id": "personal"
+  },
+  {
+   "id": "bio"
+  },
+  {
+   "id": "intimate"
+  }
+ ],
+ "service": {
+  "status": "volunteer",
+  "specialization": "unassigned"
+ },
+ "bio_parts": [
+  "origin",
+  "work",
+  "family",
+  "trait",
+  "close"
+ ],
+ "rule_ids": [
+  "age",
+  "years",
+  "profession_age",
+  "hub_kind",
+  "trait_exclusion",
+  "trait_count",
+  "slot",
+  "bio",
+  "intimate_set",
+  "intimate_len",
+  "service",
+  "specialization",
+  "field_set",
+  "src"
+ ],
+ "fields": [
+  {
+   "id": "colonist_id",
+   "section": "identity",
+   "src_kind": "derived"
+  },
+  {
+   "id": "given_name",
+   "section": "identity",
+   "src_kind": "table",
+   "table": "given_names"
+  },
+  {
+   "id": "family_name",
+   "section": "identity",
+   "src_kind": "table",
+   "table": "family_names"
+  },
+  {
+   "id": "age",
+   "section": "identity",
+   "src_kind": "range"
+  },
+  {
+   "id": "gender",
+   "section": "identity",
+   "src_kind": "table",
+   "table": "gender"
+  },
+  {
+   "id": "hub",
+   "section": "placement",
+   "src_kind": "table",
+   "table": "hubs"
+  },
+  {
+   "id": "years_resident",
+   "section": "placement",
+   "src_kind": "range"
+  },
+  {
+   "id": "profession",
+   "section": "placement",
+   "src_kind": "table",
+   "table": "professions"
+  },
+  {
+   "id": "education",
+   "section": "placement",
+   "src_kind": "table",
+   "table": "education"
+  },
+  {
+   "id": "service_status",
+   "section": "service",
+   "src_kind": "rule"
+  },
+  {
+   "id": "specialization",
+   "section": "service",
+   "src_kind": "rule"
+  },
+  {
+   "id": "handler_of_record",
+   "section": "service",
+   "src_kind": "profile"
+  },
+  {
+   "id": "assisted_by",
+   "section": "service",
+   "src_kind": "profile"
+  },
+  {
+   "id": "trait_1",
+   "section": "personal",
+   "src_kind": "table",
+   "table": "traits"
+  },
+  {
+   "id": "trait_2",
+   "section": "personal",
+   "src_kind": "table",
+   "table": "traits"
+  },
+  {
+   "id": "trait_3",
+   "section": "personal",
+   "src_kind": "table",
+   "table": "traits"
+  },
+  {
+   "id": "family",
+   "section": "personal",
+   "src_kind": "table",
+   "table": "family"
+  },
+  {
+   "id": "bio",
+   "section": "bio",
+   "src_kind": "assembly"
+  },
+  {
+   "id": "relationship_status",
+   "section": "intimate",
+   "src_kind": "table",
+   "table": "intimate.relationship_status"
+  },
+  {
+   "id": "orientation",
+   "section": "intimate",
+   "src_kind": "table",
+   "table": "intimate.orientation"
+  },
+  {
+   "id": "history_band",
+   "section": "intimate",
+   "src_kind": "table",
+   "table": "intimate.history_band"
+  },
+  {
+   "id": "private_line",
+   "section": "intimate",
+   "src_kind": "table",
+   "table": "intimate.private_line"
+  }
+ ]
+}
