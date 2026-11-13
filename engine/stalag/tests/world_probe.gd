@@ -860,11 +860,19 @@ func _hole_view(name: String) -> void:
 		if punched != null:
 			punched.visible = false
 	var frame: Image = await _grab()
+	# Spec 576: the homestead is world content outside the streamer; hide it too, or its pixels match the
+	# sky-only render and read as sky (no-op when the world has none).
+	var homestead: Node3D = _world.get_node_or_null("Homestead")
+	var homestead_was := homestead != null and homestead.visible
+	if homestead != null:
+		homestead.visible = false
 	_streamer.visible = false
 	_walker.body_node().visible = false
 	var sky_img: Image = await _grab()
 	_streamer.visible = true
 	_walker.body_node().visible = true
+	if homestead != null:
+		homestead.visible = homestead_was
 	if punched != null:
 		punched.visible = true
 	var cam3: Camera3D = get_viewport().get_camera_3d()

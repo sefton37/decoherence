@@ -107,6 +107,10 @@ bool get_flow_dir(const WaterPlan &p, int32_t gx, int32_t gz, double &fx, double
 int32_t course_fall_top_at(const WaterPlan &p, int32_t gx, int32_t gz);
 bool is_river_column(const WaterPlan &p, int32_t gx, int32_t gz);
 int32_t get_strahler_order(const WaterPlan &p, int32_t gx, int32_t gz);
+// Spec 576: the homestead pad's half-width and blend width in metres (the game passes the template's).
+void set_pad_params(double half_m, double blend_m);
+double pad_half_m();
+double pad_blend_m();
 void set_flood_disabled(bool off); // test hook (mutation flood_off): water_level_at -> dry
 bool flood_disabled();
 

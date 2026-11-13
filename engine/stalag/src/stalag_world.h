@@ -27,6 +27,10 @@ public:
 	static double get_half_extent_m();
 	static double surface_height_base(int64_t p_cx, int64_t p_cz);
 	static double spawn_feet_y();
+	// Spec 576: the homestead's flat pad (half-width and blend width, metres). Set before the world is built.
+	static void set_pad(double p_half_m, double p_blend_m);
+	static double pad_half_m();
+	static double pad_blend_m();
 	static bool is_solid_world(int64_t p_cx, int64_t p_cy, int64_t p_cz);
 	static double ground_envelope_at(double p_fx, double p_fz, double p_max_surface);
 	static double ground_floor(double p_fx, double p_fz, double p_max_surface);

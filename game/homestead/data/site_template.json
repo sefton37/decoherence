@@ -1,0 +1,71 @@
+{
+  "draft": true,
+  "template_version": 1,
+  "faction_livery": "empire",
+  "note": "Design-owner data for the first homestead (Spec 576 S1). Metres, slab-local frame: x and z are measured from the slab centre, which sits on the engine's flat pad at the world origin. Every number here is a draft default; edit and relaunch, the generator re-places everything.",
+  "clear_radius_m": 8,
+  "default_site_seed": 2339153372,
+  "slab": {
+    "half_x_m": 5.0,
+    "half_z_m": 5.0,
+    "thickness_m": 0.4,
+    "lift_m": 0.02
+  },
+  "pad_margin_m": 0.5,
+  "pad_blend_m": 6.0,
+  "scorch_rings": [
+    {
+      "radius_m": 1.7,
+      "width_m": 0.35
+    },
+    {
+      "radius_m": 2.05,
+      "width_m": 0.3
+    },
+    {
+      "radius_m": 2.25,
+      "width_m": 0.2
+    }
+  ],
+  "ring_center_jitter_m": 0.25,
+  "edge_margin_m": 0.05,
+  "pod": {
+    "footprint_r_m": 1.3,
+    "height_m": 2.8,
+    "door_height_m": 2.0,
+    "wall_panels": 8,
+    "roof_height_m": 0.55,
+    "door_open_deg": 165,
+    "door_base_deg": 45,
+    "yaw_jitter_deg": 12,
+    "offset_range_m": 0.8
+  },
+  "handoff": {
+    "distance_m": 2.2
+  },
+  "view_cone_deg": 40,
+  "walker_shadow_deg": 8,
+  "door_path_clear_m": 0.6,
+  "min_gap_m": 0.4,
+  "colors": {
+    "hull": "#e9e7e2",
+    "hull_shade": "#b4b1a9",
+    "underside": "#26262b",
+    "emblem": "#b3262e",
+    "slab": "#8d8b87",
+    "scorch": "#1c1a19",
+    "metal": "#6c7278",
+    "solar": "#23395f",
+    "accent": "#d8a21c",
+    "dark": "#16181c",
+    "droid": "#c7cacf"
+  },
+  "taste_defaults": [
+    "colors.scorch: how dark the burn rings read against the slab",
+    "scorch_rings[].width_m: how heavy each ring is",
+    "colors.hull and colors.emblem: the Empire livery of the pod",
+    "slab.half_x_m and slab.half_z_m: pad size against the clearing (4 to 5 m)",
+    "pod.door_open_deg: how far the door stands open",
+    "pod.door_base_deg and pod.yaw_jitter_deg: where the pod faces and how much it varies per colonist"
+  ]
+}

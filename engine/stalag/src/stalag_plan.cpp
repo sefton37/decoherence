@@ -29,6 +29,7 @@
 #include <stdexcept>
 #include <thread>
 #include <unordered_set>
+#include <vector>
 
 namespace stalag {
 
@@ -2364,8 +2365,135 @@ double carve_depth(double cx, double cz, int32_t seed, const WaterPlan *plan) {
 	return base - std::max(std::min(base, plan->bed_target_lat[c]), plan->bank_target_lat[c]);
 }
 
-double surface_height(double cx, double cz, int32_t seed, const WaterPlan *plan) {
+static double natural_height(double cx, double cz, int32_t seed, const WaterPlan *plan) {
 	return surface_height_base(cx, cz, seed) - carve_depth(cx, cz, seed, plan);
+}
+
+// Spec 576 A1: the homestead's flat pad. The world's terrain is terraced with metres of relief near the
+// origin, so a slab could not sit flush on it. The height function levels a square pad centred on the
+// origin (columns of 0.5 m: PAD_LO..PAD_HI, a half-width of 5.5 m, inside the 8 m tree and water clear
+// zone) to the terrace of the origin column, and blends it into the surrounding terraces over PAD_BLEND-1
+// columns so that no two neighbouring columns differ by more than one terrace (0.5 m). Columns of the
+// water plan that are flooded or river are left natural (water is never buried), as is everything
+// beyond the blend. Only the world seed is touched: other seeds keep the prototype's heights.
+namespace {
+// Pad half-width and blend width in 0.5 m columns. Defaults match game/homestead/data/site_template.json
+// (slab half 5.0 m + margin 0.5 m; pad_blend_m 6.0); the game hands the template's numbers in through
+// set_pad_params before the world is built, so the template is the one statement of the blend width.
+std::atomic<int> g_pad_cols{ 11 };
+std::atomic<int> g_blend_cols{ 12 };
+
+struct PadTable {
+	const WaterPlan *plan = nullptr;
+	bool carve_off = false, flood_off = false;
+	int cols = 0, blend = 0, lo = 0, hi = 0, wlo = 0, whi = 0, n = 0;
+	std::vector<int32_t> h;
+	std::vector<uint8_t> controlled;
+};
+std::mutex g_pad_mu;
+std::shared_ptr<const PadTable> g_pad;
+
+std::shared_ptr<const PadTable> build_pad_table(const WaterPlan *plan, int cols, int blend) {
+	auto t = std::make_shared<PadTable>();
+	t->plan = plan;
+	t->carve_off = g_carve_off.load();
+	t->flood_off = g_flood_off.load();
+	t->cols = cols;
+	t->blend = blend;
+	// The engine reads BCC centres at 4k and 4k+2, so the +x and +z sides need one more column.
+	t->lo = -cols;
+	t->hi = cols;
+	t->wlo = t->lo - blend;
+	t->whi = t->hi + blend;
+	t->n = t->whi - t->wlo + 1;
+	const int N = t->n, WLO = t->wlo;
+	t->h.assign((size_t)N * N, 0);
+	t->controlled.assign((size_t)N * N, 0);
+	std::vector<int32_t> nat((size_t)N * N);
+	std::vector<uint8_t> fixed((size_t)N * N, 0);
+	auto at = [N, WLO](int gx, int gz) { return (size_t)((gz - WLO) * N + (gx - WLO)); };
+	const int32_t h0 = (int32_t)(std::floor(natural_height(0, 0, WORLD_SEED, plan) / T) * T);
+	for (int gz = t->wlo; gz <= t->whi; gz++) {
+		for (int gx = t->wlo; gx <= t->whi; gx++) {
+			const size_t i = at(gx, gz);
+			nat[i] = (int32_t)(std::floor(natural_height(4 * gx + 2, 4 * gz + 2, WORLD_SEED, plan) / T) * T);
+			t->h[i] = nat[i];
+			const bool in_pad = gx >= t->lo && gx <= t->hi && gz >= t->lo && gz <= t->hi;
+			const bool edge = gx == t->wlo || gx == t->whi || gz == t->wlo || gz == t->whi;
+			bool wet = false;
+			if (plan && !in_pad) wet = water_level_at(*plan, gx, gz) != WATER_DRY || is_river_column(*plan, gx, gz);
+			if (in_pad) {
+				t->h[i] = h0;
+				fixed[i] = 1;
+			} else if (edge || wet) {
+				fixed[i] = 1;
+			}
+		}
+	}
+	// Relax: move each free column toward its neighbours until no column differs from a neighbour by more
+	// than one terrace, and none from the column two away by more than one terrace (a slope of at most half
+	// a terrace per column, which keeps the mesher's cap cells from doubling a step).
+	for (int sweep = 0; sweep < 2000; sweep++) {
+		bool changed = false;
+		for (int gz = t->wlo; gz <= t->whi; gz++) {
+			for (int gx = t->wlo; gx <= t->whi; gx++) {
+				const size_t i = at(gx, gz);
+				if (fixed[i]) continue;
+				int32_t v = t->h[i];
+				const int nb[12][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 }, { 1, 1 }, { 1, -1 }, { -1, 1 }, { -1, -1 }, { 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 } };
+				for (const auto &o : nb) {
+					const int nx = gx + o[0], nz = gz + o[1];
+					if (nx < t->wlo || nx > t->whi || nz < t->wlo || nz > t->whi) continue;
+					const int32_t hn = t->h[at(nx, nz)];
+					v = std::min(std::max(v, hn - T), hn + T);
+				}
+				if (v != t->h[i]) {
+					t->h[i] = v;
+					changed = true;
+				}
+			}
+		}
+		if (!changed) break;
+	}
+	for (int gz = t->wlo; gz <= t->whi; gz++) {
+		for (int gx = t->wlo; gx <= t->whi; gx++) {
+			const size_t i = at(gx, gz);
+			const bool in_pad = gx >= t->lo && gx <= t->hi && gz >= t->lo && gz <= t->hi;
+			t->controlled[i] = (in_pad || (!fixed[i] && t->h[i] != nat[i])) ? 1 : 0;
+		}
+	}
+	return t;
+}
+
+std::shared_ptr<const PadTable> pad_table(const WaterPlan *plan) {
+	std::lock_guard<std::mutex> lk(g_pad_mu);
+	const int cols = g_pad_cols.load(), blend = g_blend_cols.load();
+	if (!g_pad || g_pad->plan != plan || g_pad->carve_off != g_carve_off.load() || g_pad->flood_off != g_flood_off.load() || g_pad->cols != cols || g_pad->blend != blend)
+		g_pad = build_pad_table(plan, cols, blend);
+	return g_pad;
+}
+} // namespace
+
+void set_pad_params(double half_m, double blend_m) {
+	g_pad_cols = std::max(1, (int)std::lround(half_m / 0.5));
+	g_blend_cols = std::max(1, (int)std::lround(blend_m / 0.5));
+}
+double pad_half_m() { return g_pad_cols.load() * 0.5; }
+double pad_blend_m() { return g_blend_cols.load() * 0.5; }
+
+double surface_height(double cx, double cz, int32_t seed, const WaterPlan *plan) {
+	if (seed == WORLD_SEED) {
+		const int cols = g_pad_cols.load(), reach = cols + g_blend_cols.load();
+		const int gx = (int)std::floor(cx / 4), gz = (int)std::floor(cz / 4);
+		if (gx >= -reach && gx <= reach && gz >= -reach && gz <= reach) {
+			const std::shared_ptr<const PadTable> t = pad_table(plan);
+			if (gx >= t->wlo && gx <= t->whi && gz >= t->wlo && gz <= t->whi) {
+				const size_t i = (size_t)((gz - t->wlo) * t->n + (gx - t->wlo));
+				if (t->controlled[i]) return (double)t->h[i];
+			}
+		}
+	}
+	return natural_height(cx, cz, seed, plan);
 }
 
 int32_t water_level_at(const WaterPlan &p, int32_t gx, int32_t gz) {

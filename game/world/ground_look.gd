@@ -58,7 +58,9 @@ static func apply(mat: ShaderMaterial, bucket: int, sun_position: Vector3) -> vo
 
 ## The blocked-column bit array the engine's flora filter reads: 1 where the column's top material is
 ## one of rules.json "flora_blocked" (mud and sand), read from the SAME ids the shader draws.
-static func flora_mask() -> PackedByteArray:
+## Spec 576: `extra_rects` are further blocked footprints, each {x0, x1, z0, z1} in metres (margin
+## already included): every 0.5 m column the rectangle touches is blocked too (the homestead's pad).
+static func flora_mask(extra_rects: Array = []) -> PackedByteArray:
 	var rules := _rules()
 	var ids: Dictionary = rules["ids"]
 	var blocked := {}
@@ -72,11 +74,21 @@ static func flora_mask() -> PackedByteArray:
 	mask.resize(n)
 	for i in range(n):
 		mask[i] = 1 if blocked.has(int(data[i * 4])) else 0
+	var dim: int = int(rules["columns"])
+	var g0: int = int(rules["half"])
+	for rc in extra_rects:
+		var gx0: int = clampi(int(floor(float(rc["x0"]) / 0.5)) + g0, 0, dim - 1)
+		var gx1: int = clampi(int(floor(float(rc["x1"]) / 0.5)) + g0, 0, dim - 1)
+		var gz0: int = clampi(int(floor(float(rc["z0"]) / 0.5)) + g0, 0, dim - 1)
+		var gz1: int = clampi(int(floor(float(rc["z1"]) / 0.5)) + g0, 0, dim - 1)
+		for gz in range(gz0, gz1 + 1):
+			for gx in range(gx0, gx1 + 1):
+				mask[gz * dim + gx] = 1
 	return mask
 
 
 ## Gives the engine the mask before any chunk is built (the meadow and the understory are filtered
 ## after their placement, so the placement itself stays bit-equal to the prototype's).
-static func install_flora_mask() -> void:
+static func install_flora_mask(extra_rects: Array = []) -> void:
 	var rules := _rules()
-	StalagFlora.set_ground_mask(flora_mask(), int(rules["columns"]), int(rules["half"]))
+	StalagFlora.set_ground_mask(flora_mask(extra_rects), int(rules["columns"]), int(rules["half"]))

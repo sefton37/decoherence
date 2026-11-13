@@ -10,6 +10,12 @@ signal exited
 signal declined(message: String)
 
 const SPAWN_YAW := -PI / 2.0  ## look along +x, toward the demo mesa in front of spawn
+## Spec 576: the follow camera cannot come closer than 2.5 m (its own minimum boom), and straight behind the
+## colonist at the hand-off pose that would put it inside the pod. So it starts swung this many degrees to
+## one side of the facing line: the same 2.5 m boom, but standing in the open beside the pod, still looking
+## across the colonist at the equipment (the mouse still turns it freely).
+const HANDOFF_CAM_YAW_DEG := 50.0
+const HANDOFF_BOOM_M := 2.5
 
 # Untyped on purpose: these nodes carry engine scripts (stalag_*.gd) with their own API.
 @onready var streamer = $Streamer
@@ -28,6 +34,10 @@ const TreeAssets := preload("res://game/world/tree_assets.gd")
 const UnderstoryAssets := preload("res://game/world/understory_assets.gd")
 const GrassLook := preload("res://game/world/grass_look.gd")
 const GroundLook := preload("res://game/world/ground_look.gd")
+const HomesteadSite := preload("res://game/homestead/homestead_site.gd")
+const HomesteadView := preload("res://game/homestead/homestead_view.gd")
+const SITE_TEMPLATE := "res://game/homestead/data/site_template.json"
+const SITE_EQUIPMENT := "res://game/homestead/data/starter_equipment.json"
 const GRASS_TILE := "res://game/world/assets/grass_top.png"
 const DIRT_TILE := "res://game/world/assets/dirt_side.png"
 const FLIP_TEX := "res://game/world/assets/water_flip.png"
@@ -52,6 +62,14 @@ var flora_clock_frozen: bool = false
 var scripted_input: bool = false
 var _exit_emitted: bool = false
 
+## Spec 576: the homestead belongs to the assigned colonist. The id (set before the scene enters the
+## tree; S2 wires the Launch seam to it) is hashed to the site seed; empty means the default site.
+var colonist_id: String = ""
+var homestead_layout: Dictionary = {}
+var homestead_template: Dictionary = {}
+var homestead_equipment: Dictionary = {}
+var homestead: Node3D
+
 
 func _make_material(shader_path: String) -> ShaderMaterial:
 	var m := ShaderMaterial.new()
@@ -71,7 +89,7 @@ func _build_look() -> void:
 	dirt_mat.set_shader_parameter("flat_color", Color(0.42, 0.28, 0.15))
 	GrassLook.apply(dirt_mat)
 	GroundLook.apply(dirt_mat, 1, SUN_POSITION)
-	GroundLook.install_flora_mask()  # before the streamer builds a chunk: mud and sand keep the meadow off
+	GroundLook.install_flora_mask(_pad_flora_rects())  # before the streamer builds a chunk: mud, sand and the pad keep the meadow off
 	water_mat = _make_material(WATER_SHADER)
 	water_mat.set_shader_parameter("flip_tex", load(FLIP_TEX))
 	water_mat.set_shader_parameter("flow_map", load(FLOW_TEX))
@@ -105,19 +123,59 @@ func _warm_shaders() -> void:
 		get_tree().create_timer(0.5).timeout.connect(mi.queue_free)
 
 
+## Ground height under (x, z) as the walker sees it: the highest surface up to a metre above the spawn.
+func _ground_at(x: float, z: float) -> float:
+	return StalagWorld.ground_envelope_at(x, z, StalagWorld.spawn_feet_y() + 1.0)
+
+
+## Spec 576: generates this colonist's site (a pure function of the id and the two data files).
+func _plan_homestead() -> void:
+	homestead_template = HomesteadSite.load_json(SITE_TEMPLATE)
+	homestead_equipment = HomesteadSite.load_json(SITE_EQUIPMENT)
+	# The engine's flat pad takes its size and blend width from the template (one statement of each).
+	var pad_half := maxf(float(homestead_template["slab"]["half_x_m"]), float(homestead_template["slab"]["half_z_m"])) + float(homestead_template["pad_margin_m"])
+	StalagWorld.set_pad(pad_half, float(homestead_template["pad_blend_m"]))
+	var site_seed: int = int(homestead_template["default_site_seed"])
+	if not colonist_id.is_empty():
+		site_seed = HomesteadSite.site_seed_for(colonist_id)
+	homestead_layout = HomesteadSite.generate(site_seed, homestead_template, homestead_equipment, _ground_at)
+
+
+## The pad's footprint (slab plus margin) as a blocked rectangle for the meadow and understory filter.
+func _pad_flora_rects() -> Array:
+	if homestead_layout.is_empty():
+		return []
+	var m := float(homestead_template["pad_margin_m"])
+	var hx := float(homestead_layout["slab"]["half_x_m"]) + m
+	var hz := float(homestead_layout["slab"]["half_z_m"]) + m
+	return [{"x0": -hx, "x1": hx, "z0": -hz, "z1": hz}]
+
+
 func _ready() -> void:
 	add_to_group("stalag_world")
+	_plan_homestead()
 	_build_look()
 	streamer.plan_failed.connect(_on_plan_failed)
-	walker.teleport(Vector3(0.0, StalagWorld.spawn_feet_y(), 0.0), true)
+	var start := Vector3(0.0, StalagWorld.spawn_feet_y(), 0.0)
+	var facing := Vector2.ZERO
 	cam.yaw = SPAWN_YAW
+	if not homestead_layout.is_empty():
+		homestead = HomesteadView.build(homestead_layout, homestead_template, homestead_equipment)
+		add_child(homestead)
+		var hand: Dictionary = homestead_layout["handoff"]
+		start = Vector3(float(hand["x"]), _ground_at(float(hand["x"]), float(hand["z"])), float(hand["z"]))
+		cam.yaw = float(hand["yaw"]) + deg_to_rad(HANDOFF_CAM_YAW_DEG)
+		cam.dist = HANDOFF_BOOM_M
+		facing = Vector2(cos(float(hand["dir_angle"])), sin(float(hand["dir_angle"])))
+	walker.teleport(start, true)
 	var fwd: Vector3 = cam.forward_xz()
-	walker.face_direction(Vector2(fwd.x, fwd.z))
+	walker.face_direction(facing if facing != Vector2.ZERO else Vector2(fwd.x, fwd.z))
 	cam.target = walker
 	cam.look_active = true
 	streamer.set_focus(walker.pos)
 	cam.follow(walker.pos)
-	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	if not scripted_input:  # a probe drives the walker itself and has no pointer to capture
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 
 func _exit_tree() -> void:

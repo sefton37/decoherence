@@ -16,6 +16,9 @@ void StalagWorld::_bind_methods() {
 	ClassDB::bind_static_method("StalagWorld", D_METHOD("get_half_extent_m"), &StalagWorld::get_half_extent_m);
 	ClassDB::bind_static_method("StalagWorld", D_METHOD("surface_height_base", "cx", "cz"), &StalagWorld::surface_height_base);
 	ClassDB::bind_static_method("StalagWorld", D_METHOD("spawn_feet_y"), &StalagWorld::spawn_feet_y);
+	ClassDB::bind_static_method("StalagWorld", D_METHOD("set_pad", "half_m", "blend_m"), &StalagWorld::set_pad);
+	ClassDB::bind_static_method("StalagWorld", D_METHOD("pad_half_m"), &StalagWorld::pad_half_m);
+	ClassDB::bind_static_method("StalagWorld", D_METHOD("pad_blend_m"), &StalagWorld::pad_blend_m);
 	ClassDB::bind_static_method("StalagWorld", D_METHOD("is_solid_world", "cx", "cy", "cz"), &StalagWorld::is_solid_world);
 	ClassDB::bind_static_method("StalagWorld", D_METHOD("ground_envelope_at", "fx", "fz", "max_surface"), &StalagWorld::ground_envelope_at);
 	ClassDB::bind_static_method("StalagWorld", D_METHOD("ground_floor", "fx", "fz", "max_surface"), &StalagWorld::ground_floor);
@@ -210,6 +213,9 @@ Dictionary StalagWorld::compare_plan_array(const String &p_name, const PackedByt
 	return d;
 }
 
+void StalagWorld::set_pad(double p_half_m, double p_blend_m) { stalag::set_pad_params(p_half_m, p_blend_m); }
+double StalagWorld::pad_half_m() { return stalag::pad_half_m(); }
+double StalagWorld::pad_blend_m() { return stalag::pad_blend_m(); }
 double StalagWorld::surface_height(double p_cx, double p_cz) { return stalag::surface_height(p_cx, p_cz, stalag::WORLD_SEED, stalag::shared_plan()); }
 double StalagWorld::carve_depth(double p_cx, double p_cz) { return stalag::carve_depth(p_cx, p_cz, stalag::WORLD_SEED, stalag::shared_plan()); }
 int64_t StalagWorld::water_level_at(int64_t p_gx, int64_t p_gz) {
