@@ -9,7 +9,7 @@
 ##
 ## Env: WATERBANK_OUT (required)   output JSON path
 ##      WATERBANK_MUTATE           none | drop_all | punch | sink | lift | far_nudge | zone_nudge | flow_leak
-##                                 | wall_sheet | tile_break | drop_new | lift_new (negative controls) | ideal | naive_base (positive controls)
+##                                 | wall_sheet | tile_break | drop_new | lift_new | max_pick | coplanar (negative controls) | ideal | naive_base (positive controls)
 ##      GODOT (default ~/.local/bin/godot)
 
 set -uo pipefail
@@ -18,7 +18,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GODOT="${GODOT:-$HOME/.local/bin/godot}"
 : "${WATERBANK_OUT:?verify_water_bank: WATERBANK_OUT is required}"
 MUTATE="${WATERBANK_MUTATE:-none}"
-case "$MUTATE" in none|drop_all|punch|sink|lift|far_nudge|zone_nudge|flow_leak|wall_sheet|tile_break|drop_new|lift_new|ideal|naive_base) ;; *) echo "verify_water_bank: bad WATERBANK_MUTATE '$MUTATE'" >&2; exit 2 ;; esac
+case "$MUTATE" in none|drop_all|punch|sink|lift|far_nudge|zone_nudge|flow_leak|wall_sheet|tile_break|drop_new|lift_new|max_pick|coplanar|ideal|naive_base) ;; *) echo "verify_water_bank: bad WATERBANK_MUTATE '$MUTATE'" >&2; exit 2 ;; esac
 
 [ -f "$REPO_ROOT/engine/stalag/bin/libstalag.linux.template_release.x86_64.so" ] \
     || { echo "verify_water_bank: engine library missing; run tools/build_engine.sh" >&2; exit 1; }

@@ -28,6 +28,7 @@ constexpr int MARGIN = 8; // cell-enumeration margin ring (lattice units)
 constexpr int LAT_Y_MIN = -8, LAT_Y_MAX = 64;
 constexpr int SHELF_FOOT_COLS = 224; // shelf columns exist only where |column index| < this (the 112 m walkable footprint, 0.5 m columns)
 constexpr int FALL_GUARD_COLS = 2; // new course bank water keeps this many columns clear of a fall column (Spec #561)
+constexpr int SHELF_WINDOW_COLS = 3; // course bank water takes the one level of the wet columns within this many columns (Spec #561 A2)
 
 enum Src : uint8_t { SRC_POND = 0, SRC_COURSE = 1, SRC_FALL = 2 };
 
@@ -220,9 +221,17 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 	// pond's), up to that pond's surface. Where a cell's own ground stands exactly one terrace
 	// higher, the water rides that terrace as a flat film (see BANK CARPET). Pure function of the
 	// plan (columns are looked up by address, not from the cell box), so chunk seams stay safe.
-	// River and fall water is a source too (Spec #561): each bank column takes the highest level among
-	// the water columns that reach it, ring by ring, and a tie goes to still water. Course banks stay
+	// River and fall water is a source too (Spec #561): a bank column is reached ring by ring, each ring
+	// taking the highest level among its neighbours, and a tie goes to still water. Course banks stay
 	// FALL_GUARD_COLS clear of any fall column, so no sheet grows on a fall face.
+	//
+	// River edge (Spec #561 amendment A2). A river's surface steps down by whole terraces, so the highest
+	// level that reaches a bank column used to lift its film a terrace above the river beside it. A course
+	// bank column now takes water only where every wet column within SHELF_WINDOW_COLS of it has ONE level:
+	// that level, the minimum of the window, is the shelf's level, and where the window spans two levels
+	// there is no shelf. A course shelf never carries the bank carpet (the film a terrace up), so no bank
+	// water stands above the river's own surface. Pond shelves keep the Spec #558 rule exactly (the pond
+	// carpet is trimmed against pond shelves only, so the Spec #558 water is reproduced triangle for triangle).
 	{
 		// A shelf column is a plan-dry column the rim reaches: ring 1 touches water (8-neighbour),
 		// ring 2 touches ring 1, each only if its centre terrace is at or below the level that
@@ -269,12 +278,13 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 			}
 			return false;
 		};
-		auto shelf_level = [&](int32_t gx, int32_t gz) -> int {
+		// The rim (ring 1, else ring 2) that reaches a dry column: level, and whether still water gave it.
+		auto shelf_rim = [&](int32_t gx, int32_t gz) -> Rim {
 			const Rim a = rim1(gx, gz);
-			if (a.level != SHELF_NONE) return (a.still || !near_fall(gx, gz)) ? a.level : SHELF_NONE;
+			if (a.level != SHELF_NONE) return (a.still || !near_fall(gx, gz)) ? a : Rim{ SHELF_NONE, false };
 			const int64_t k = (int64_t)gx * 100003 + gz;
 			auto it = rim2_cache.find(k);
-			if (it != rim2_cache.end()) return it->second.level;
+			if (it != rim2_cache.end()) return it->second;
 			Rim r{ SHELF_NONE, false };
 			if (in_foot(gx, gz) && !O.flood_src(gx, gz).wet) {
 				bool have = false;
@@ -288,7 +298,36 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 				if (have && terrace_ok(gx, gz, best.level) && (best.still || !near_fall(gx, gz))) r = best;
 			}
 			rim2_cache.emplace(k, r);
-			return r.level;
+			return r;
+		};
+		// A2: the one level of the wet columns within SHELF_WINDOW_COLS of a column, or SHELF_NONE where there are two.
+		std::unordered_map<int64_t, int> window_cache;
+		auto window_level = [&](int32_t gx, int32_t gz) -> int {
+			const int64_t k = (int64_t)gx * 100003 + gz;
+			auto it = window_cache.find(k);
+			if (it != window_cache.end()) return it->second;
+			int lo = 1 << 20, hi = -(1 << 20);
+			for (int dz = -SHELF_WINDOW_COLS; dz <= SHELF_WINDOW_COLS; dz++) {
+				for (int dx = -SHELF_WINDOW_COLS; dx <= SHELF_WINDOW_COLS; dx++) {
+					const Occupancy::Flood &nf = O.flood_src(gx + dx, gz + dz);
+					if (!nf.wet) continue;
+					lo = std::min(lo, nf.tw);
+					hi = std::max(hi, nf.tw);
+				}
+			}
+			const int r = (lo == hi) ? lo : SHELF_NONE;
+			window_cache.emplace(k, r);
+			return r;
+		};
+		// shelf_level(): the level of the water a dry column carries, or SHELF_NONE. *still tells which rule gave it.
+		auto shelf_level = [&](int32_t gx, int32_t gz, bool *still) -> int {
+			const Rim r = shelf_rim(gx, gz);
+			if (still) *still = r.still;
+			if (r.level == SHELF_NONE) return SHELF_NONE;
+			if (r.still) return r.level;
+			const int wl = window_level(gx, gz);
+			if (wl == SHELF_NONE || wl != r.level) return SHELF_NONE; // the bank sits beside a step in the river
+			return wl;
 		};
 		std::vector<std::array<int, 4>> shelfAdds; // cx, cy, cz, tw
 		for (int k = (int)std::floor(O.latZMin / 2.0); k <= (int)std::ceil(O.latZMax / 2.0); k++) {
@@ -300,16 +339,19 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 				int32_t gx, gz;
 				Occupancy::col_of(cx, cz, gx, gz);
 				if (O.flood_src(gx, gz).wet) continue; // OPEN water owns wet columns
-				int lvl = shelf_level(gx, gz);
+				bool ownStill = false;
+				int lvl = shelf_level(gx, gz, &ownStill);
 				const bool own = lvl != SHELF_NONE;
+				const bool courseOnly = own && !ownStill; // A2: the course rule (no bank carpet)
 				if (!own && par == 0) {
 					// A low-coset cell sits on a column corner and its footprint reaches into the three
 					// columns to its low side; a shelf column there is what the carpet has to meet.
 					for (int dz = -1; dz <= 0; dz++) {
 						for (int dx = -1; dx <= 0; dx++) {
 							if (dx == 0 && dz == 0) continue;
-							const int l2 = shelf_level(gx + dx, gz + dz);
-							if (l2 != SHELF_NONE && (lvl == SHELF_NONE || l2 > lvl)) lvl = l2;
+							bool st = false;
+							const int l2 = shelf_level(gx + dx, gz + dz, &st);
+							if (l2 != SHELF_NONE && st && (lvl == SHELF_NONE || l2 > lvl)) lvl = l2;
 						}
 					}
 				}
@@ -317,7 +359,12 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 				const int trueTop = O.terrain_top(cx, cz) - 2; // the terrain mesher's solid limit
 				int cy = std::max(LAT_Y_MIN, trueTop + 1);
 				cy = cy + pos_mod4(par - cy);
-				if (trueTop == 4 * (lvl + 1)) {
+				if (courseOnly) {
+					// A2: the course rule. Water up to the river's own surface and no higher: no bank carpet.
+					for (; cy <= 4 * lvl + 2 && cy <= LAT_Y_MAX; cy += 4) {
+						if (!O.water.count(cell_key(cx, cy, cz))) shelfAdds.push_back({ cx, cy, cz, lvl });
+					}
+				} else if (trueTop == 4 * (lvl + 1)) {
 					// BANK CARPET: this cell's ground stands exactly one terrace above the pond. The
 					// ground rises over a column or so and its slope reaches back over the rim, so the
 					// water that meets it must ride that terrace too. A cell whose lowest vertex is at
@@ -331,7 +378,9 @@ void build_occupancy_water(const WaterPlan &plan, int32_t seed, double x_min, do
 						int nServed = 0;
 						for (int dz = -1; dz <= 0; dz++) {
 							for (int dx = -1; dx <= 0; dx++) {
-								if (O.flood_src(gx + dx, gz + dz).wet || shelf_level(gx + dx, gz + dz) != SHELF_NONE) {
+								bool st = false;
+								const bool shelf = shelf_level(gx + dx, gz + dz, &st) != SHELF_NONE;
+								if (O.flood_src(gx + dx, gz + dz).wet || (shelf && st)) { // pond shelves only, as in Spec #558
 									served[dz + 1][dx + 1] = true;
 									nServed++;
 								}

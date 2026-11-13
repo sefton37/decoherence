@@ -36,11 +36,27 @@ extends SceneTree
 ##     triangles of the inner window must be the same set (a fix that depends on the chunk box fails).
 ## The water is measured over the eight 28 m chunk regions that tile the +-112 m footprint.
 ##
+## Spec #561 amendment A2 (issue #947) adds three measurements of what the player sees at a river edge:
+##   * STEP: a SHELF triangle is an up-facing, flow-less water triangle in a plan-dry column next to a river or fall
+##     (a course wet column lies within WINDOW_COLS columns, Chebyshev). Its bank level is the MINIMUM wet level within
+##     that window; a shelf triangle standing above that level is a terrace step (water climbing the bank). The
+##     record counts the scored triangles and those above the minimum (record "step").
+##   * COPLANAR: over every course bank column the water covers (plan-dry, source 1), a terrain top within
+##     COPLANAR_TOL_LAT lattice units of the water surface at the same point (above or below) fights the water for
+##     the pixel; those are the dirt diamonds (record "coplanar", counted in columns; the river's own wet columns and
+##     the other dry columns, which DOD-11/13 pin, are reported under "ungated").
+##   * SLOPE: shelf-column water that is more up than sideways must be level; tilted ones are counted (record "slope").
+## Controls (mesh-level, like the others): max_pick adds, over every course bank column whose window spans more than one
+## level, a flat shelf at the HIGHEST level (what the old highest-wins rule drew); coplanar forces the terrain tops of
+## the covered course bank columns up to the water surface.
+##
 ## Env: WATERBANK_OUT         output JSON path (required)
 ##      WATERBANK_MUTATE      none | drop_all | punch | sink | lift | far_nudge | zone_nudge | flow_leak | wall_sheet
 ##                            | tile_break | drop_new | lift_new (negative controls, applied to the built mesh; drop_new removes
 ##                              every new triangle, i.e. rebuilds the Spec #558 water out of the candidate build; lift_new raises
-##                              every new up-facing triangle one terrace)
+##                              every new up-facing triangle one terrace plus one lattice unit, i.e. past the OVER tolerance, which
+##                              a bank film riding exactly one terrace would sit on)
+##                            | max_pick | coplanar (A2 negative controls: see above)
 ##                            | ideal | naive_base (positive controls: pretend water is laid over every course candidate
 ##                              at its level + 4 lattice units (ideal), or on top of the Spec #558 water at its level
 ##                              (naive_base, a fill coplanar with the mud))
@@ -72,6 +88,8 @@ const FALL_GUARD_COLS := 2         # new water keeps this many columns clear of 
 const FAR_MARGIN_COLS := 3         # TASTE: columns of clearance around a course candidate that the unchanged-water fingerprints skip (1.5 m)
 const FIXTURE_PATH := "res://engine/stalag/tests/fixtures/water_bank_baseline.json"
 const SAMPLES := 4                 # sample points per column side
+const WINDOW_COLS := 3             # A2: radius, in columns, of the window whose lowest wet level is a shelf triangle's bank level
+const COPLANAR_TOL_LAT := 1.0      # A2: lattice units within which a terrain top counts as coplanar with the water over it
 const BUILD_MS_MAX := 250          # TASTE: the slowest single 28 m water build the probe may see, milliseconds
 const HASH_BITS := 40              # inclusion hashes keep this many low bits
 
@@ -165,6 +183,27 @@ func _covered_fraction(cov: Dictionary, gx: int, gz: int, level: int, sf: float,
 
 
 
+# A2: the lowest and highest wet level within WINDOW_COLS columns of (gx, gz) and whether a course column is among them.
+func _window(wet: Dictionary, cache: Dictionary, gx: int, gz: int) -> Array:
+	var key := Vector2i(gx, gz)
+	if cache.has(key):
+		return cache[key]
+	var lo := 100000
+	var hi := -100000
+	var course := false
+	for dz in range(-WINDOW_COLS, WINDOW_COLS + 1):
+		for dx in range(-WINDOW_COLS, WINDOW_COLS + 1):
+			var w = wet.get(Vector2i(gx + dx, gz + dz))
+			if w != null:
+				lo = mini(lo, int(w[0]))
+				hi = maxi(hi, int(w[0]))
+				if int(w[1]) == 1:
+					course = true
+	var r := [lo, hi, course]
+	cache[key] = r
+	return r
+
+
 func _tri_hash(cen: Vector3, d: float, fl: Vector2) -> int:
 	var x := int(round(cen.x * 10000.0))
 	var y := int(round(cen.y * 10000.0))
@@ -196,7 +235,7 @@ func _initialize() -> void:
 	if out_path.is_empty() or not ClassDB.class_exists("StalagWorld") or not ClassDB.class_exists("StalagChunkMesher"):
 		_fail("WATERBANK_OUT is required and the Stalag classes must be loaded")
 		return
-	if not (_mutation in ["none", "drop_all", "punch", "sink", "lift", "far_nudge", "zone_nudge", "flow_leak", "wall_sheet", "tile_break", "drop_new", "lift_new", "ideal", "naive_base"]):
+	if not (_mutation in ["none", "drop_all", "punch", "sink", "lift", "far_nudge", "zone_nudge", "flow_leak", "wall_sheet", "tile_break", "drop_new", "lift_new", "max_pick", "coplanar", "ideal", "naive_base"]):
 		_fail("bad WATERBANK_MUTATE " + _mutation)
 		return
 	StalagWorld.start_plan()
@@ -339,6 +378,11 @@ func _initialize() -> void:
 	var chunks := int(round(2.0 * half * 0.5 / CHUNK_M))
 	var win_lo := -half * 0.5 + CHUNK_M * 0.5 + 1.0  # the inner window both tilings cover (tiling B starts half a region in)
 	var win_hi := -win_lo
+	var win_cache := {}
+	var step_scored := 0
+	var step_above := 0
+	var slope_scored := 0
+	var slope_tilted := 0
 	var keep := PackedVector3Array()  # drop_new and naive_base: the build as it was before the fix (every new triangle removed)
 	var cand_list: Array = []
 	for c in cand.keys():
@@ -367,6 +411,25 @@ func _initialize() -> void:
 					for r in range(3):
 						dp.append(1.0)
 						fl.append(Vector2(0.0, 0.0))
+			if _mutation == "max_pick":
+				# the old highest-wins rule: a flat shelf at the HIGHEST wet level over every course bank column
+				# of this region whose window spans more than one level
+				for c: Vector2i in cand_list:
+					var cx0: float = (c.x + 0.5) * 0.5
+					var cz0: float = (c.y + 0.5) * 0.5
+					if cx0 < xa or cx0 >= xa + CHUNK_M or cz0 < za or cz0 >= za + CHUNK_M:
+						continue
+					var wr := _window(wet, win_cache, c.x, c.y)
+					if int(wr[1]) == int(wr[0]):
+						continue
+					var yy := (4.0 * int(wr[1]) + 2.0) * sf
+					var x1: float = c.x * 0.5
+					var z1: float = c.y * 0.5
+					for tri in [[Vector3(x1, yy, z1), Vector3(x1, yy, z1 + 0.5), Vector3(x1 + 0.5, yy, z1 + 0.5)], [Vector3(x1, yy, z1), Vector3(x1 + 0.5, yy, z1 + 0.5), Vector3(x1 + 0.5, yy, z1)]]:
+						for pt in tri:
+							v.append(pt)
+							dp.append(1.0)
+							fl.append(Vector2(0.0, 0.0))
 			var nv := v.size()
 			var t := 0
 			while t + 2 < nv:
@@ -405,6 +468,18 @@ func _initialize() -> void:
 				elif _mutation == "flow_leak" and in_zone and not is_wet and ny > 0.9 and f0.length() < 0.001:
 					f0 = Vector2(1.0, 0.0)
 				var h := _tri_hash(cen, d0, f0)
+				if not is_wet and f0.length() < 0.001 and ny > 0.5 and cand.has(col) and int(cand[col][2]) == 1 and absi(col.x) < half - WINDOW_COLS and absi(col.y) < half - WINDOW_COLS:
+					var ylo := minf(a.y, minf(b.y, c3.y))
+					var yhi := maxf(a.y, maxf(b.y, c3.y))
+					var wr2 := _window(wet, win_cache, col.x, col.y)
+					if bool(wr2[2]):
+						slope_scored += 1
+						if yhi - ylo > 0.002:
+							slope_tilted += 1
+						if ny > 0.9:
+							step_scored += 1
+							if yhi > (4.0 * int(wr2[0]) + 2.0) * sf + 0.001:
+								step_above += 1
 				var is_flow := f0.length() > 0.001
 				t += 3
 				if _mutation == "tile_break" and absf(fposmod(cen.x + half * 0.5, CHUNK_M) - CHUNK_M * 0.5) > CHUNK_M * 0.5 - 0.3:
@@ -438,10 +513,10 @@ func _initialize() -> void:
 						is_new = true
 						new_n += 1
 						if _mutation == "lift_new" and ny > 0.9:
-							a.y += 4.0 * sf
-							b.y += 4.0 * sf
-							c3.y += 4.0 * sf
-							cen.y += 4.0 * sf
+							a.y += (OVER_TOL_LAT + 1.0) * sf
+							b.y += (OVER_TOL_LAT + 1.0) * sf
+							c3.y += (OVER_TOL_LAT + 1.0) * sf
+							cen.y += (OVER_TOL_LAT + 1.0) * sf
 							v[t0i] = a
 							v[t0i + 1] = b
 							v[t0i + 2] = c3
@@ -517,6 +592,39 @@ func _initialize() -> void:
 					var key := Vector2i(c.x * SAMPLES + i, c.y * SAMPLES + j)
 					if not cov.has(key) or float(cov[key]) < yy:
 						cov[key] = yy
+
+	# ---- A2 coplanar: terrain tops fighting the water over the same point (the dirt diamonds)
+	if _mutation == "coplanar":
+		for c: Vector2i in cand_list:
+			var ys: float = (4.0 * int(cand[c][0]) + 2.0) * sf
+			for i in range(SAMPLES):
+				for j in range(SAMPLES):
+					var key := Vector2i(c.x * SAMPLES + i, c.y * SAMPLES + j)
+					if cov.has(key) and tmap.has(key):
+						tmap[key] = ys
+	# The gated footprint is the course bank shelf: plan-dry course bank columns the water covers. The river's own wet
+	# columns (their bed meets the surface at the plan's edge) and the pond shelves are pinned byte-identical by
+	# DOD-11/13, so they are reported apart and not gated.
+	var cop_cols := {}
+	var cop_hit := {}
+	var cop_other := {"wet_cols": {}, "wet_hit": {}, "pond_cols": {}, "pond_hit": {}}
+	for key in cov.keys():
+		var col3 := Vector2i(int(floor(float(key.x) / SAMPLES)), int(floor(float(key.y) / SAMPLES)))
+		if absi(col3.x) >= half or absi(col3.y) >= half:
+			continue
+		var hit: bool = tmap.has(key) and absf(float(tmap[key]) - float(cov[key])) <= COPLANAR_TOL_LAT * sf + 1e-6
+		if wet.has(col3):
+			cop_other["wet_cols"][col3] = true
+			if hit:
+				cop_other["wet_hit"][col3] = true
+		elif cand.has(col3) and int(cand[col3][2]) == 1:
+			cop_cols[col3] = true
+			if hit:
+				cop_hit[col3] = true
+		else:
+			cop_other["pond_cols"][col3] = true
+			if hit:
+				cop_other["pond_hit"][col3] = true
 
 	# ---- score the candidates (course = source 1 is the gated set; still water reported apart)
 	var gap_area := [0.0, 0.0]
@@ -634,6 +742,7 @@ func _initialize() -> void:
 			"NEW_STRAY_MAX_TRIS": NEW_STRAY_MAX_TRIS, "NEW_STRAY_UP_MAX_TRIS": NEW_STRAY_UP_MAX_TRIS, "NEW_UP_HIGH_MAX_TRIS": NEW_UP_HIGH_MAX_TRIS, "NEW_OFF_LEVEL_MAX_TRIS": NEW_OFF_LEVEL_MAX_TRIS,
 			"NEW_WALL_AREA_MAX_M2": NEW_WALL_AREA_MAX_M2, "TRIS_GROWTH_MAX_FRAC": TRIS_GROWTH_MAX_FRAC,
 			"FALL_GUARD_COLS": FALL_GUARD_COLS, "FAR_MARGIN_COLS": FAR_MARGIN_COLS, "BUILD_MS_MAX": BUILD_MS_MAX, "SAMPLES": SAMPLES,
+			"WINDOW_COLS": WINDOW_COLS, "COPLANAR_TOL_LAT": COPLANAR_TOL_LAT,
 		},
 		"water_tris": tris,
 		"water_build_ms_max": snappedf(build_ms_max, 0.1),
@@ -665,6 +774,11 @@ func _initialize() -> void:
 		"bleed_area_cols": snappedf(bleed / float(SAMPLES * SAMPLES), 0.01),
 		"over_area_cols": snappedf(over / float(SAMPLES * SAMPLES), 0.01),
 		"witness": {"total": witness.size(), "valid": w_valid, "uncovered_area_cols": snappedf(w_area, 0.01)},
+		"step": {"shelf_tris_scored": step_scored, "shelf_tris_above_min": step_above, "window_cols": WINDOW_COLS},
+		"coplanar": {"footprint_cols": cop_cols.size(), "terrain_tops_at_surface": cop_hit.size(), "tolerance_lattice": COPLANAR_TOL_LAT,
+			"ungated": {"river_wet_cols": cop_other["wet_cols"].size(), "river_wet_cols_coplanar": cop_other["wet_hit"].size(),
+				"other_dry_cols": cop_other["pond_cols"].size(), "other_dry_cols_coplanar": cop_other["pond_hit"].size()}},
+		"slope": {"bank_tris_scored": slope_scored, "bank_tris_tilted": slope_tilted},
 	}
 	if not cut_path.is_empty():
 		var cut := {
