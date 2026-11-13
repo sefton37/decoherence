@@ -415,11 +415,16 @@ func _world_shoot(w: Node) -> void:
 	var path := shots_dir + "/entry_world.png"
 	with_terrain.save_png(path)
 	streamer.visible = false
+	var homestead: Node3D = w.get_node_or_null("Homestead")   # Spec 576: the site is world, not background
+	if homestead != null:
+		homestead.visible = false
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var without := get_viewport().get_texture().get_image()
 	without.convert(Image.FORMAT_RGB8)
 	streamer.visible = true
+	if homestead != null:
+		homestead.visible = true
 	var a := with_terrain.get_data()
 	var b := without.get_data()
 	var width := with_terrain.get_width()
