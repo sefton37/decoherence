@@ -7,8 +7,9 @@
 ## and all), exits the world, proves the shell still answers, and proves an unknown module
 ## is still rejected. The probe prints these marker lines, in this order:
 ##   PROBE_WORLD_LISTED
-##   PROBE_WORLD_ENTERED chunks=<n> grounded=1
+##   PROBE_WORLD_ENTERED chunks=<n> grounded=1 view=<level>
 ##   PROBE_WORLD_SHOT lower_nonbg=<f> file=<path>
+##   PROBE_WORLD_VIEW_LIVE from=<level> to=<level> radius=<chunks>   (Spec 582: a live view change reached the streamer)
 ##   PROBE_WORLD_EXITED shell_alive=1
 ##   PROBE_WORLD_UNKNOWN_REJECTED
 ## This wrapper copies ONLY those marker lines to STALAG_LOG and exits 0 only if all five
@@ -58,7 +59,7 @@ fi
 
 order_ok=1
 prev=0
-for pat in '^PROBE_WORLD_LISTED$' '^PROBE_WORLD_ENTERED chunks=[0-9]+ grounded=1$' '^PROBE_WORLD_SHOT ' '^PROBE_WORLD_EXITED shell_alive=1$' '^PROBE_WORLD_UNKNOWN_REJECTED$'; do
+for pat in '^PROBE_WORLD_LISTED$' '^PROBE_WORLD_ENTERED chunks=[0-9]+ grounded=1( view=[a-z]+)?$' '^PROBE_WORLD_SHOT ' '^PROBE_WORLD_EXITED shell_alive=1$' '^PROBE_WORLD_UNKNOWN_REJECTED$'; do
     ln="$(grep -nE "$pat" "$STALAG_LOG" | head -1 | cut -d: -f1)"
     if [ -z "$ln" ] || [ "$ln" -le "$prev" ]; then
         echo "verify_world_entry: marker missing or out of order: $pat (godot exit $ec)" >&2

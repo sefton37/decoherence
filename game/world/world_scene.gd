@@ -32,6 +32,8 @@ const WATER_SHADER := "res://engine/stalag/shaders/stalag_water.gdshader"
 const FloraAssets := preload("res://game/world/flora_assets.gd")
 const TreeAssets := preload("res://game/world/tree_assets.gd")
 const BackdropRing := preload("res://game/world/backdrop_ring.gd")
+const FarTerrain := preload("res://game/world/far_terrain.gd")
+const Atmosphere := preload("res://game/world/atmosphere.gd")
 const UnderstoryAssets := preload("res://game/world/understory_assets.gd")
 const GrassLook := preload("res://game/world/grass_look.gd")
 const GroundLook := preload("res://game/world/ground_look.gd")
@@ -56,15 +58,35 @@ const VIEW_LEVELS := {
 	"near": {"load_radius": 2, "fog_density": 0.012, "cull_m": 0.0, "backdrop": false},
 	"far": {"load_radius": 4, "fog_density": 0.008, "cull_m": SMALL_FLORA_CULL_M, "backdrop": true},
 	"vista": {"load_radius": 8, "fog_density": 0.005, "cull_m": SMALL_FLORA_CULL_M, "backdrop": true},
+	"horizon": {"load_radius": 3, "fog_density": 0.0014, "cull_m": SMALL_FLORA_CULL_M, "backdrop": false, "far_terrain": true, "atmosphere": "clear"},
 }
 ## Spec 580 S4: at `far` and `vista` a visual-only backdrop ring (terrain, sea and tree impostors) continues the
 ## world past its edge out to about 300 m (backdrop_ring.gd). `near` never builds it. A probe may switch it off
 ## (the negative control) by clearing this before the scene enters the tree.
 var backdrop_enabled: bool = true
 var backdrop: Node3D
+## Spec 582 S1: `horizon` is the level the player's own setting selects by default (the scene's own default stays
+## `near`, so every probe and Spec 580's baselines read what they always read). It loads 49 chunks, draws real
+## terrain and trees out to about 840 m with the camera-centred far terrain (far_terrain.gd) instead of the ring,
+## and wears the `clear` atmosphere. Probes switch the far terrain off or flatten it as negative controls.
+var far_terrain_enabled: bool = true
+var far_terrain_flat: bool = false
+var far_terrain: Node3D
 ## One of VIEW_LEVELS' keys. Set it before the scene enters the tree or at any time after; a level this
 ## table does not name is refused and the current one stays.
 @export var view_distance: String = "near": set = set_view_distance
+## Spec 582 S1: the atmosphere preset (atmosphere.json: classic, clear, amber). `classic` with
+## atmosphere_from_level true means "the look the view level asks for" (horizon asks for `clear`, every other
+## level for the classic look); any other value is a deliberate choice and always wins. Probes that need the
+## classic look at `horizon` clear atmosphere_from_level.
+@export var atmosphere: String = "classic": set = set_atmosphere
+var atmosphere_from_level: bool = true
+## The probes' controls: skip the atmosphere code altogether, or force one fog density (negative value = off).
+var atmosphere_enabled: bool = true
+var fog_override: float = -1.0
+var _haze := Color(0.6667, 0.8, 0.8784)  ## the classic preset's own haze colours until a preset is applied
+var _ground_haze := Color(0.6, 0.72, 0.7906)
+var _cam_far_default := 600.0
 
 var grass_mat: ShaderMaterial
 var dirt_mat: ShaderMaterial
@@ -109,13 +131,47 @@ func set_view_distance(level: String) -> void:
 		_apply_view()
 
 
-## Pushes the current level to the streamer (ring, flora limit) and to every shader that carries haze.
+func set_atmosphere(name: String) -> void:
+	if not Atmosphere.has_preset(name):
+		push_warning("world_scene: unknown atmosphere '%s'; keeping '%s'" % [name, atmosphere])
+		return
+	atmosphere = name
+	if streamer != null and flora != null:
+		_apply_view()
+
+
+## The preset that is really applied: see `atmosphere`.
+func effective_atmosphere() -> String:
+	var lv: Dictionary = VIEW_LEVELS[view_distance]
+	if atmosphere_from_level and atmosphere == Atmosphere.default_name() and lv.has("atmosphere"):
+		return str(lv["atmosphere"])
+	return atmosphere
+
+
+## Pushes the current level to the streamer (ring, flora limit), applies the atmosphere and pushes the fog to
+## every shader that carries haze.
 func _apply_view() -> void:
 	var lv: Dictionary = VIEW_LEVELS[view_distance]
 	streamer.load_radius = int(lv["load_radius"])
 	streamer.small_flora_range_m = float(lv["cull_m"])
 	var fog := float(lv["fog_density"])
+	var atmo_name := effective_atmosphere()
+	if atmosphere_enabled:
+		var res: Dictionary = Atmosphere.apply(self, atmo_name, flora_clock)
+		_haze = res["haze"]
+		_ground_haze = res["ground_haze"]
+		if float(res["density"]) >= 0.0:
+			fog = float(res["density"])
+		if not bool(res["sun_moved"]):
+			sun.look_at_from_position(SUN_POSITION, Vector3.ZERO)
+		var sd: Vector3 = res["sun_dir"]
+		var sun_xz := Vector2(sd.x, sd.z) if bool(res["sun_moved"]) else Vector2(SUN_POSITION.x, SUN_POSITION.z)
+		grass_mat.set_shader_parameter("sun_xz", sun_xz)  # the moss and rock shading faces this sun
+		dirt_mat.set_shader_parameter("sun_xz", sun_xz)
+	if fog_override >= 0.0:
+		fog = fog_override
 	_sync_backdrop(bool(lv["backdrop"]) and backdrop_enabled)
+	_sync_far_terrain(bool(lv.get("far_terrain", false)) and far_terrain_enabled, fog)
 	var mats: Array = [grass_mat, dirt_mat, water_mat, trees.trunk_material()]
 	if backdrop != null:
 		mats.append_array(backdrop.materials())
@@ -124,6 +180,37 @@ func _apply_view() -> void:
 	mats.append_array(understory.materials())
 	for m in mats:
 		(m as ShaderMaterial).set_shader_parameter("fog_density", fog)
+		if atmosphere_enabled and _has_haze(m as ShaderMaterial):
+			(m as ShaderMaterial).set_shader_parameter("haze_color", _haze)
+
+
+func _has_haze(m: ShaderMaterial) -> bool:
+	for u in m.shader.get_shader_uniform_list():
+		if str(u["name"]) == "haze_color":
+			return true
+	return false
+
+
+## Creates or frees the far terrain to match the view level (and raises or restores the camera's far plane).
+func _sync_far_terrain(want: bool, fog: float) -> void:
+	if want and far_terrain == null:
+		far_terrain = FarTerrain.new()
+		far_terrain.name = "FarTerrain"
+		far_terrain.flat_mutation = far_terrain_flat
+		far_terrain.setup(trees, streamer)
+		add_child(far_terrain)
+		far_terrain.set_focus(walker.pos)
+	elif not want and far_terrain != null:
+		far_terrain.queue_free()
+		far_terrain = null
+	cam.far = FarTerrain.CAMERA_FAR_M if far_terrain != null else _cam_far_default
+	if far_terrain != null:
+		far_terrain.set_fog(fog, _ground_haze)
+
+
+## True when the far terrain is not wanted at this level, or it has built everything for the current focus.
+func far_terrain_ready() -> bool:
+	return far_terrain == null or far_terrain.is_done()
 
 
 ## Creates or frees the backdrop ring to match the view level. `near` holds no ring node at all.
@@ -140,7 +227,7 @@ func _sync_backdrop(want: bool) -> void:
 
 ## True when no backdrop ring is wanted at this level, or the ring has finished building (probes wait on this).
 func backdrop_ready() -> bool:
-	return backdrop == null or backdrop.is_done()
+	return (backdrop == null or backdrop.is_done()) and far_terrain_ready()
 
 
 ## Builds the three materials and hands them to the streamer before it loads anything.
@@ -221,6 +308,10 @@ func _pad_flora_rects() -> Array:
 func _ready() -> void:
 	add_to_group("stalag_world")
 	add_to_group("quit_flush")
+	_cam_far_default = cam.far
+	# a private copy of the scene's Environment (sky, ambient): the atmosphere presets write into it, and two
+	# worlds in one process (a probe loads several) must not share what one of them wrote
+	cam.environment = cam.environment.duplicate(true)
 	_plan_homestead()
 	_build_look()
 	streamer.plan_failed.connect(_on_plan_failed)
@@ -283,8 +374,12 @@ func flush_for_exit() -> void:
 
 func _process(delta: float) -> void:
 	streamer.set_focus(walker.pos)
+	if far_terrain != null:
+		far_terrain.set_focus(walker.pos)
 	if not flora_clock_frozen:
 		flora_clock += delta
+		if atmosphere_enabled:
+			Atmosphere.set_time(self, effective_atmosphere(), flora_clock)
 	flora.set_time(flora_clock)  # one clock and the weather front for the whole meadow
 	trees.set_time(flora_clock)  # ... and the crowns and the understory read the same clock and front
 	understory.set_time(flora_clock)

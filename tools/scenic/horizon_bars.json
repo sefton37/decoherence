@@ -1,0 +1,519 @@
+{
+  "note": "Spec 582 S1 bars. Each bar judges one measured value of tools/measure_horizon.sh. source: pose (a value on each pose), lod (a value on the far terrain record), fog, derived (computed in tools/scenic/post.py). agg: min, max, count_ge:<n> (how many poses have the value at least n), cloud_min (the smallest cloud_frac over gated poses whose sky_frac is at least 0.25; 0 when fewer than three such poses exist), lod_err (the largest excess of a level's error over its bound, taken with the mean bound). gated_only restricts a pose bar to the four gated poses. applies lists the views and atmospheres a bar is judged for (a missing key means every one); `mutate_skip` lists controls for which the bar is not judged. D9: the distance, detail, contrast, seam and cloud thresholds were inferred from geometry before the first GPU run and are amended here with measured values, never lowered silently (see the spec's amendment log: amendments 1 and 2 moved the distance floors and the far pixel share after the first GPU run; amendment 6 split each main-thread timing bar into a 99th percentile at most 5 ms and a maximum at most 15 ms).",
+  "bars": [
+    {
+      "name": "hole_px_frac_max",
+      "source": "pose",
+      "key": "hole_px_frac",
+      "agg": "max",
+      "op": "<=",
+      "limit": 0.002,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      }
+    },
+    {
+      "name": "depth_p90_min",
+      "source": "pose",
+      "key": "depth_p90_nonsky_m",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 270,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "depth_p90_350_poses",
+      "source": "pose",
+      "key": "depth_p90_nonsky_m",
+      "agg": "count_ge:350",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 3,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "tree_far_450_poses",
+      "source": "pose",
+      "key": "tree_far_p95_m",
+      "agg": "count_ge:450",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 3,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "far_detail_min",
+      "source": "pose",
+      "key": "far_detail",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 0.25,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "far_contrast_min",
+      "source": "pose",
+      "key": "far_contrast",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 18,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "far_px_frac_min",
+      "source": "pose",
+      "key": "far_px_frac",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 0.06,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "sky_frac_min",
+      "source": "pose",
+      "key": "sky_frac",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 0.12,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "sky_frac_max",
+      "source": "pose",
+      "key": "sky_frac",
+      "agg": "max",
+      "gated_only": true,
+      "op": "<=",
+      "limit": 0.65,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "cloud_frac_min",
+      "source": "pose",
+      "key": "cloud_frac",
+      "agg": "cloud_min",
+      "op": ">=",
+      "limit": 0.08,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "seam_max",
+      "source": "pose",
+      "key": "seam_de",
+      "agg": "max",
+      "gated_only": true,
+      "op": "<=",
+      "limit": 0.08,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      }
+    },
+    {
+      "name": "fog_density_min",
+      "source": "fog",
+      "key": "density",
+      "agg": "value",
+      "op": ">=",
+      "limit": 0.001,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      },
+      "mutate_skip": [
+        "fogwall"
+      ]
+    },
+    {
+      "name": "fog_density_max",
+      "source": "fog",
+      "key": "density",
+      "agg": "value",
+      "op": "<=",
+      "limit": 0.0018,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      },
+      "mutate_skip": [
+        "fogwall"
+      ]
+    },
+    {
+      "name": "lod_height_err",
+      "source": "lod",
+      "key": "levels",
+      "agg": "lod_err",
+      "op": "<=",
+      "limit": 0.0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_levels_min",
+      "source": "lod",
+      "key": "levels",
+      "agg": "len",
+      "op": ">=",
+      "limit": 3,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_tris_max",
+      "source": "lod",
+      "key": "tris",
+      "agg": "value",
+      "op": "<=",
+      "limit": 1500000,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_step_ms_p99",
+      "source": "lod",
+      "key": "step_ms_p99",
+      "agg": "value",
+      "op": "<=",
+      "limit": 5,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_step_ms_max",
+      "source": "lod",
+      "key": "step_ms_max",
+      "agg": "value",
+      "op": "<=",
+      "limit": 15,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_gaps_zero",
+      "source": "lod",
+      "key": "coverage_gaps",
+      "agg": "value",
+      "op": "==",
+      "limit": 0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_overlap_max",
+      "source": "lod",
+      "key": "overlap_frac",
+      "agg": "value",
+      "op": "<=",
+      "limit": 0.02,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_collision_zero",
+      "source": "lod",
+      "key": "collision_nodes",
+      "agg": "value",
+      "op": "==",
+      "limit": 0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_real_match",
+      "source": "lod",
+      "key": "trees.real_match",
+      "agg": "value",
+      "op": "==",
+      "limit": 1.0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_trees_total_min",
+      "source": "lod",
+      "key": "trees.instances_total",
+      "agg": "value",
+      "op": ">=",
+      "limit": 10000,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "traverse_step_ms_p99",
+      "source": "lod",
+      "key": "traverse.step_ms_p99",
+      "agg": "value",
+      "op": "<=",
+      "limit": 5,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "traverse_step_ms_max",
+      "source": "lod",
+      "key": "traverse.step_ms_max",
+      "agg": "value",
+      "op": "<=",
+      "limit": 15,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "traverse_adopt_ms_p99",
+      "source": "lod",
+      "key": "traverse.adopt_ms_p99",
+      "agg": "value",
+      "op": "<=",
+      "limit": 5,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "traverse_adopt_ms_max",
+      "source": "lod",
+      "key": "traverse.adopt_ms_max",
+      "agg": "value",
+      "op": "<=",
+      "limit": 15,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "traverse_gap_max",
+      "source": "lod",
+      "key": "traverse.gap_max",
+      "agg": "value",
+      "op": "==",
+      "limit": 0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "prims_max",
+      "source": "pose",
+      "key": "prims",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "near": 12000000,
+        "horizon": 18000000
+      }
+    },
+    {
+      "name": "draw_calls_max",
+      "source": "pose",
+      "key": "draw_calls",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "near": 900,
+        "horizon": 900
+      }
+    },
+    {
+      "name": "vram_max",
+      "source": "pose",
+      "key": "vram_mb",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "near": 1250,
+        "horizon": 1250
+      }
+    },
+    {
+      "name": "chunks_max",
+      "source": "pose",
+      "key": "chunks",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "near": 32,
+        "horizon": 64
+      }
+    },
+    {
+      "name": "chunks_min",
+      "source": "pose",
+      "key": "chunks",
+      "agg": "min",
+      "op": ">=",
+      "limit": {
+        "near": 9,
+        "horizon": 9
+      }
+    },
+    {
+      "name": "depth_roundtrip_max_m",
+      "source": "pose",
+      "key": "depth_check_err_m",
+      "agg": "max",
+      "op": "<=",
+      "limit": 3.0,
+      "applies": {
+        "view": [
+          "near",
+          "far",
+          "vista",
+          "horizon"
+        ]
+      }
+    },
+    {
+      "name": "depth_over_frac_max",
+      "source": "pose",
+      "key": "depth_over_frac",
+      "agg": "max",
+      "op": "<=",
+      "limit": 0.05,
+      "applies": {
+        "view": [
+          "near",
+          "far",
+          "vista",
+          "horizon"
+        ]
+      }
+    }
+  ]
+}

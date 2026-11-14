@@ -23,6 +23,12 @@
       "values": ["1920x1080", "1280x720", "fullscreen"],
       "default": "1920x1080",
       "description": "Window size or fullscreen mode."
+    },
+    {
+      "key": "view_distance",
+      "values": ["near", "far", "vista", "horizon"],
+      "default": "horizon",
+      "description": "How far the world draws: near is the closest and cheapest, horizon shows real terrain several hundred metres out."
     }
   ]
 }

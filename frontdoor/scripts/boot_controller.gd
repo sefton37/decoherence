@@ -214,6 +214,9 @@ func _apply_setting(key: String, value: String) -> void:
 				material.set_shader_parameter("vignette_strength", params[1])
 		"flicker":
 			_flicker_factor = SettingsStore.flicker_factor(value)
+		"view_distance":
+			if _world != null:  # Spec 582 S1: a change made inside the world reaches the streamer at once
+				_world.set_view_distance(value)
 		"display":
 			var req := SettingsStore.display_request(value)
 			var win := get_window()
@@ -453,6 +456,9 @@ func _on_world_requested() -> void:
 		_shell.world_closed()
 		_close_handler_view()
 		return
+	# Spec 582 S1: the world enters at the player's own view distance (schema default `horizon`); the setter
+	# refuses a level the scene does not know and the settings store never holds one, so this cannot fail open.
+	_world.view_distance = String(_shell.get_settings().get("view_distance", SettingsStore.defaults(SettingsStore.load_schema()).get("view_distance", "horizon")))
 	_unmount_chat()
 	_handler_screen.unmount()
 	$HandlerLayer.visible = false

@@ -175,6 +175,9 @@ func _unit_settings(schema) -> void:
 	_ok("settings_crt_normal_is_scene_value", crt[0] == 0.15 and crt[1] == 0.28 and SettingsStore.crt_params("off")[0] == 0.0, "crt params drifted")
 	_ok("settings_flicker_factors", SettingsStore.flicker_factor("full") == 1.0 and SettingsStore.flicker_factor("half") == 0.5 and SettingsStore.flicker_factor("off") == 0.0, "factors drifted")
 	_ok("settings_display_request", SettingsStore.display_request("1280x720")["size"] == Vector2i(1280, 720) and SettingsStore.display_request("fullscreen")["fullscreen"], "display parse")
+	# Spec 582 S1: a player starts at the far view, can turn it down, and a bogus stored value falls back to it
+	var vloaded := SettingsStore.sanitize_loaded(schema, {"view_distance": "bogus"})
+	_ok("settings_view_distance_default", d.get("view_distance", "") == "horizon" and SettingsStore.is_valid(schema, "view_distance", "near") and SettingsStore.is_valid(schema, "view_distance", "horizon") and not SettingsStore.is_valid(schema, "view_distance", "bogus") and vloaded.get("view_distance", "") == "horizon" and SettingsStore.sanitize_loaded(schema, {"view_distance": "near"}).get("view_distance", "") == "near", "view_distance defaults=" + str(d))
 
 
 func _unit_input_sanitize() -> void:

@@ -384,8 +384,8 @@ func _process(_delta: float) -> void:
 		if w == null:
 			return
 		var streamer: Node = w.get_node("Streamer")
-		if not (streamer.ring_ready() and streamer.pending_count() == 0 and streamer.settled() and w.is_grounded() and w.chunks_loaded() >= WORLD_MIN_CHUNKS):
-			return
+		if not (streamer.ring_ready() and streamer.pending_count() == 0 and streamer.settled() and w.is_grounded() and w.chunks_loaded() >= WORLD_MIN_CHUNKS and w.backdrop_ready()):
+			return  # Spec 582: backdrop_ready also waits for the far terrain, so the shot shows the whole view
 		_world_settle_frames += 1
 		if _world_settle_frames < 30:
 			return
@@ -398,7 +398,7 @@ func _process(_delta: float) -> void:
 ## own scanline/vignette darkening cannot be mistaken for the sky or for terrain.
 func _world_shoot(w: Node) -> void:
 	var streamer: Node3D = w.get_node("Streamer")
-	print("PROBE_WORLD_ENTERED chunks=%d grounded=%d" % [w.chunks_loaded(), 1 if w.is_grounded() else 0])
+	print("PROBE_WORLD_ENTERED chunks=%d grounded=%d view=%s" % [w.chunks_loaded(), 1 if w.is_grounded() else 0, w.view_distance])
 	# Spec #549: the forest's own measurement runs inside this same real entry; its negative controls
 	# act before the shot is saved, so the saved frame is the one the data and the pixels disagree on.
 	var trees_mutation := OS.get_environment("ENTRY_TREES_MUTATE")
@@ -442,6 +442,12 @@ func _world_shoot(w: Node) -> void:
 	var grass_out := OS.get_environment("GRASS_OUT")
 	if not grass_out.is_empty():
 		await GrassProbe.run(w, path, shots_dir, grass_out)
+	# Spec 582 S1: a view-distance change made through the settings path reaches the running world's streamer
+	var live_from: String = w.view_distance
+	var live_to := "far" if live_from != "far" else "near"
+	Signals.setting_changed.emit("view_distance", live_to)
+	await get_tree().process_frame
+	print("PROBE_WORLD_VIEW_LIVE from=%s to=%s radius=%d" % [live_from, w.view_distance, int(streamer.load_radius)])
 	_world_step = "exit_dir"
 	w.request_exit()
 	await get_tree().process_frame

@@ -1,0 +1,27 @@
+{
+  "default": "classic",
+  "note": "Spec 582 S1 atmosphere presets, data only. classic is the world's own look (the values the scene and the engine sky shader carry, so applying it changes nothing); clear is daylight with a clear sky, clouds and a light haze; amber is a frozen copy of the low-sun look picked on the 2026-11-14 contact sheet. Colours are sRGB 0..1. fog.density null means 'use the view level's own density'; fog.haze is the colour the near world fades to, fog.ground_haze the (about a tenth darker) colour the far terrain fades to, so far ground never matches the sky exactly and a hole in it is measurable. sun.elev_deg null keeps the scene's own sun direction. azimuth_deg is the compass direction of the sun, 0 toward +z and 90 toward +x.",
+  "presets": {
+    "classic": {
+      "sun": {"elev_deg": null, "azimuth_deg": null, "color": [1, 0.957, 0.816], "energy": 1.1},
+      "ambient": {"color": [0.62, 0.74, 0.84], "energy": 0.9},
+      "sky": {"horizon": [0.6667, 0.8, 0.8784], "zenith": [0.3529, 0.5882, 0.8157], "sun_size": 0.0, "glow_strength": 0.0, "glow_power": 14},
+      "fog": {"density": null, "haze": [0.6667, 0.8, 0.8784], "ground_haze": [0.6, 0.72, 0.7906]},
+      "clouds": {"enabled": false, "cover": 0.0, "scale": 1.0, "speed": 0.0}
+    },
+    "clear": {
+      "sun": {"elev_deg": 50, "azimuth_deg": 300, "color": [1, 0.96, 0.86], "energy": 1.25},
+      "ambient": {"color": [0.6, 0.72, 0.86], "energy": 0.95},
+      "sky": {"horizon": [0.72, 0.83, 0.94], "zenith": [0.2, 0.44, 0.84], "sun_size": 0.012, "glow_strength": 0.12, "glow_power": 18},
+      "fog": {"density": 0.0014, "haze": [0.72, 0.83, 0.94], "ground_haze": [0.648, 0.747, 0.846]},
+      "clouds": {"enabled": true, "cover": 0.55, "scale": 1.6, "speed": 0.004}
+    },
+    "amber": {
+      "sun": {"elev_deg": 16, "azimuth_deg": 305, "color": [1, 0.68, 0.34], "energy": 2.6},
+      "ambient": {"color": [0.4, 0.48, 0.75], "energy": 0.5},
+      "sky": {"horizon": [0.97, 0.7, 0.42], "zenith": [0.3, 0.38, 0.66], "sun_size": 0.02, "glow_strength": 0.9, "glow_power": 9},
+      "fog": {"density": 0.005, "haze": [0.97, 0.7, 0.42], "ground_haze": [0.873, 0.63, 0.378]},
+      "clouds": {"enabled": false, "cover": 0.0, "scale": 1.0, "speed": 0.0}
+    }
+  }
+}

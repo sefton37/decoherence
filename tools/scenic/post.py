@@ -10,6 +10,11 @@ Two modes, both read-only with respect to the game frames:
   post.py richness OUT_DIR reads OUT_DIR/raw.json (written by richness_probe.gd), measures the pixel richness of
                            the three bench frames, judges the bars in richness_bars.json and writes
                            OUT_DIR/richness.json (Spec 580). Exits 1 when any bar fails.
+  post.py horizon OUT_DIR  reads OUT_DIR/raw.json (written by horizon_probe.gd), decodes the depth frames and
+                           measures every pixel metric of Spec 582 in the observer's frame, judges the bars in
+                           horizon_bars.json and writes OUT_DIR/horizon.json. Exits 1 when any bar that applies fails.
+  post.py sheet OUT_DIR    reads OUT_DIR/raw.json of the horizon probe's sheet mode and writes sheet.json and
+                           contact.png (three presets at four poses, 1920x1080). Exits 1 when a sheet bar fails.
   post.py compare A B      A and B are render directories or single image files. Prints one line:
                            SCENIC_DET manifest_equal=<0|1|na> rms=<float>
                            (manifest_equal ignores generated_epoch; rms is RMS of 0..255 over RGB).
@@ -410,14 +415,277 @@ def compare(a, b):
     return 0
 
 
+# ---------------------------------------------------------------- Spec 582 horizon
+DEPTH_RANGE_M = 4000.0  # tools/scenic/depth_pass.gdshader range_m
+SKY_CODE = 16777215  # the white background of the depth frame: no surface
+FAR_M = 300.0  # the far-field metrics read pixels at least this far away
+DETAIL_BLOCK, DETAIL_STD = 8, 3.0
+CLOUD_BLOCK, CLOUD_STD = 16, 2.5
+SEAM_PX, SEAM_MIN_M = 6, 600.0
+HOLE_SKY_TOL = 4  # a pixel within this (max channel) of the world-hidden frame is a hole
+MAX_FOG = 0.8
+
+
+def _luma(rgb):
+    return 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
+
+
+def _blocks(a, b):
+    """a (H, W) array cut into b x b blocks: (H//b, W//b, b*b)."""
+    h, w = (a.shape[0] // b) * b, (a.shape[1] // b) * b
+    return a[:h, :w].reshape(h // b, b, w // b, b).transpose(0, 2, 1, 3).reshape(h // b, w // b, b * b)
+
+
+def decode_depth(png_path):
+    """(distance in metres, sky mask) from a depth frame: 24 bits of R, G, B, white = no surface."""
+    a = np.asarray(Image.open(png_path).convert("RGB"), dtype=np.int64)
+    code = a[..., 0] * 65536 + a[..., 1] * 256 + a[..., 2]
+    return code.astype(np.float64) / float(SKY_CODE) * DEPTH_RANGE_M, code == SKY_CODE
+
+
+def horizon_stats(rec, density):
+    """The pixel metrics of one pose (definitions: the spec's probe record contract, all in the observer's frame)."""
+    img = np.asarray(Image.open(rec["png"]).convert("RGB"), dtype=np.float64)
+    dist, sky = decode_depth(rec["depth_png"])
+    luma = _luma(img)
+    h, w = sky.shape
+    fog_op = 1.0 - np.exp(-((dist * density) ** 2))
+    vis = (~sky) & (fog_op <= MAX_FOG)
+    p90 = float(np.percentile(dist[vis], 90)) if vis.any() else 0.0
+    # legible detail at distance: 8x8 blocks wholly on surfaces whose median distance is at least FAR_M
+    sky8 = _blocks(sky.astype(np.uint8), DETAIL_BLOCK).max(axis=2) > 0
+    med8 = np.median(_blocks(dist, DETAIL_BLOCK), axis=2)
+    std8 = _blocks(luma, DETAIL_BLOCK).std(axis=2)
+    pick = (~sky8) & (med8 >= FAR_M)
+    far_detail = float((std8[pick] >= DETAIL_STD).mean()) if pick.any() else 0.0
+    far = (~sky) & (dist >= FAR_M)
+    far_contrast = float(np.percentile(luma[far], 95) - np.percentile(luma[far], 5)) if far.any() else 0.0
+    # clouds: all-sky 16x16 blocks that are not a flat gradient
+    sky16 = _blocks(sky.astype(np.uint8), CLOUD_BLOCK).min(axis=2) > 0
+    std16 = _blocks(luma, CLOUD_BLOCK).std(axis=2)
+    cloud_frac = float((std16[sky16] >= CLOUD_STD).mean()) if sky16.any() else 0.0
+    # the seam: where terrain beyond SEAM_MIN_M meets the sky, pixels SEAM_PX below against SEAM_PX above
+    seams = []
+    for x in range(w):
+        col = sky[:, x]
+        if not col[0]:
+            continue
+        below = np.nonzero(~col)[0]
+        if below.size == 0:
+            continue
+        y = int(below[0])
+        if y < SEAM_PX or y + SEAM_PX >= h or dist[y, x] <= SEAM_MIN_M:
+            continue
+        seams.append(float(np.abs(img[y + SEAM_PX, x] - img[y - SEAM_PX, x]).mean()) / 255.0)
+    seam_de = float(np.mean(seams)) if seams else 0.0
+    # holes: below the horizon line, pixels that are the world-hidden (pure sky) frame
+    skyimg = np.asarray(Image.open(rec["sky_png"]).convert("RGB"), dtype=np.int16)
+    row0 = int(max(0, np.ceil(float(rec["horizon_row_px"]))))
+    hole = 0.0
+    if row0 < h:
+        same = np.abs(img.astype(np.int16) - skyimg).max(axis=2) <= HOLE_SKY_TOL
+        hole = float(same[row0:].mean())
+    # instrument check: where the depth frame sees bare ground it must match the engine's ground distance
+    errs, over = [], 0
+    for c in rec.get("depth_check") or []:
+        d = float(dist[int(c["y"]), int(c["x"])]) - float(c["ground_m"])
+        errs.append(abs(d))
+        if d > 2.0:
+            over += 1
+    # no pixel's ray meets ground inside the drawn ring (the 24 m poses at `near`): nothing to check on this pose
+    err = min(errs) if errs else 0.0
+    over_frac = over / len(errs) if errs else 0.0
+    return {
+        "depth_p90_nonsky_m": round(p90, 2),
+        "sky_frac": round(float(sky.mean()), 4),
+        "far_detail": round(far_detail, 4),
+        "far_contrast": round(far_contrast, 2),
+        "far_px_frac": round(float(far.mean()), 4),
+        "cloud_frac": round(cloud_frac, 4),
+        "seam_de": round(seam_de, 4),
+        "seam_columns": len(seams),
+        "hole_px_frac": round(hole, 5),
+        "depth_check_err_m": round(err, 3),
+        "depth_over_frac": round(over_frac, 4),
+    }
+
+
+def _dig(d, key):
+    for k in key.split("."):
+        d = d[k]
+    return d
+
+
+def horizon_bar(bar, ctx):
+    """One bar's record, or None when it does not apply to this configuration."""
+    ap = bar.get("applies")
+    if ap:
+        if "view" in ap and ctx["view"] not in ap["view"]:
+            return None
+        if "atmosphere" in ap and ctx["atmosphere"] not in ap["atmosphere"]:
+            return None
+    if ctx["mutate"] in bar.get("mutate_skip", []):
+        return None
+    if bar.get("needs_lod") and not ctx["lod"].get("present"):
+        return None
+    lim = bar["limit"]
+    if isinstance(lim, dict):
+        if ctx["view"] not in lim:
+            return None
+        lim = lim[ctx["view"]]
+    agg = bar["agg"]
+    if bar["source"] == "pose":
+        poses = [p for p in ctx["poses"] if p["gated"]] if bar.get("gated_only") else ctx["poses"]
+        vals = [float(p[bar["key"]]) for p in poses]
+        if agg == "min":
+            v = min(vals)
+        elif agg == "max":
+            v = max(vals)
+        elif agg.startswith("count_ge:"):
+            v = sum(1 for x in vals if x >= float(agg.split(":")[1]))
+        elif agg == "cloud_min":
+            sel = [float(p["cloud_frac"]) for p in ctx["poses"] if p["gated"] and float(p["sky_frac"]) >= 0.25]
+            v = min(sel) if len(sel) >= 3 else 0.0
+        else:
+            raise ValueError("bad agg " + agg)
+    elif bar["source"] == "fog":
+        v = float(ctx["fog"][bar["key"]])
+    else:
+        lod = ctx["lod"]
+        if agg == "lod_err":
+            worst = float(lod["height_err_mean_m"]) - 0.8
+            for lv in lod["levels"]:
+                worst = max(worst, float(lv["err_p95_m"]) - (0.9 + 0.07 * float(lv["cell_m"])), float(lv["err_mean_m"]) - 0.8)
+            v = worst
+        elif agg == "len":
+            v = len(lod[bar["key"]])
+        else:
+            v = float(_dig(lod, bar["key"]))
+    ok = {">=": v >= lim, "<=": v <= lim, "==": v == lim}[bar["op"]]
+    return {"name": bar["name"], "pass": bool(ok), "value": round(float(v), 5), "limit": lim, "op": bar["op"]}
+
+
+def horizon(out_dir):
+    raw = load_json(os.path.join(out_dir, "raw.json"))
+    bars_doc = load_json(os.path.join(HERE, "horizon_bars.json"))
+    density = float(raw["fog"]["density"])
+    poses = []
+    for p in raw["poses"]:
+        rec = dict(p)
+        rec.update(horizon_stats(p, density))
+        rec.pop("gpu_ms", None)
+        poses.append(rec)
+    ctx = {"view": raw["view"], "atmosphere": raw["atmosphere"], "mutate": raw["mutate"], "poses": poses, "fog": raw["fog"], "lod": raw["lod"]}
+    bars = [b for b in (horizon_bar(bar, ctx) for bar in bars_doc["bars"]) if b is not None]
+    doc = {
+        "generated_epoch": int(time.time()),
+        "display": raw["display"],
+        "headless": raw["headless"],
+        "adapter": raw["adapter"],
+        "godot_version": raw["godot_version"],
+        "repo_commit": git_commit(),
+        "xdg_data_home": raw.get("xdg_data_home") or os.environ.get("XDG_DATA_HOME", ""),
+        "view": raw["view"],
+        "atmosphere": raw["atmosphere"],
+        "mutate": raw["mutate"],
+        "pass": all(b["pass"] for b in bars),
+        "gpu_ms_median": raw["gpu_ms_median"],
+        "fog": raw["fog"],
+        "lod": raw["lod"],
+        "bars": bars,
+        "poses": poses,
+    }
+    with open(os.path.join(out_dir, "horizon.json"), "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2)
+        f.write("\n")
+    for b in bars:
+        print("  %-26s %s value=%s %s %s" % (b["name"], "ok  " if b["pass"] else "FAIL", b["value"], b["op"], b["limit"]))
+    print("horizon post: view=%s atmosphere=%s mutate=%s bars passing %d/%d" % (raw["view"], raw["atmosphere"], raw["mutate"], sum(1 for b in bars if b["pass"]), len(bars)))
+    return 0 if doc["pass"] else 1
+
+
+def _sha8(path):
+    import hashlib
+
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()[:8]
+
+
+def sheet(out_dir):
+    raw = load_json(os.path.join(out_dir, "raw.json"))
+    names = ["classic", "clear", "amber"]
+    pose_ids = []
+    for c in raw["cells"]:
+        if c["pose_id"] not in pose_ids:
+            pose_ids.append(c["pose_id"])
+    img = {(c["preset"], c["pose_id"]): np.asarray(Image.open(c["png"]).convert("RGB"), dtype=np.float64) for c in raw["cells"]}
+    noatmo = {c["pose_id"]: np.asarray(Image.open(c["png"]).convert("RGB"), dtype=np.float64) for c in raw["noatmo_cells"]}
+    pair_min = 1e9
+    for pid in pose_ids:
+        for i in range(3):
+            for j in range(i + 1, 3):
+                pair_min = min(pair_min, float(np.abs(img[(names[i], pid)] - img[(names[j], pid)]).mean()))
+    rms = max(float(np.sqrt(((img[("classic", pid)] - noatmo[pid]) ** 2).mean())) for pid in pose_ids)
+    presets = []
+    for n in names:
+        warm = []
+        for pid in pose_ids:
+            a = img[(n, pid)]
+            r, b = float(a[..., 0].mean()), float(a[..., 2].mean())
+            warm.append((r - b) / (r + b + 1e-6))
+        presets.append({"name": n, "warm_index": round(float(np.mean(warm)), 4)})
+    cells = []
+    for c in raw["cells"]:
+        cells.append({"preset": c["preset"], "pose_id": c["pose_id"], "sha8": _sha8(c["png"]), "png": c["png"]})
+    # the contact sheet: 3 presets (columns) x 4 poses (rows), 1920x1080
+    cw, ch, lw = 640, 270, 160
+    sheet_img = Image.new("RGB", (cw * 3, ch * len(pose_ids)), (16, 18, 22))
+    font = load_font(15)
+    draw = ImageDraw.Draw(sheet_img)
+    for ci, n in enumerate(names):
+        for ri, pid in enumerate(pose_ids):
+            cell = Image.open(next(c["png"] for c in raw["cells"] if c["preset"] == n and c["pose_id"] == pid)).convert("RGB")
+            cell = cell.resize((cw - lw, ch), Image.LANCZOS)
+            x0, y0 = ci * cw, ri * ch
+            sheet_img.paste(cell, (x0 + lw, y0))
+            draw.text((x0 + 8, y0 + 8), n, fill=(235, 235, 235), font=font)
+            draw.text((x0 + 8, y0 + 30), pid, fill=(170, 175, 185), font=font)
+    sheet_img.save(os.path.join(out_dir, "contact.png"))
+    doc = {
+        "generated_epoch": int(time.time()),
+        "display": raw["display"],
+        "headless": raw["headless"],
+        "adapter": raw["adapter"],
+        "godot_version": raw["godot_version"],
+        "repo_commit": git_commit(),
+        "presets": presets,
+        "cells": cells,
+        "pair_diff_min": round(pair_min, 3),
+        "classic_vs_noatmo_rms": round(rms, 4),
+    }
+    amber = next(p["warm_index"] for p in presets if p["name"] == "amber")
+    clear = next(p["warm_index"] for p in presets if p["name"] == "clear")
+    ok = pair_min >= 6.0 and rms <= 0.5 and (amber - clear) >= 0.08 and len({c["sha8"] for c in cells}) == len(cells)
+    doc["pass"] = bool(ok)
+    with open(os.path.join(out_dir, "sheet.json"), "w", encoding="utf-8") as f:
+        json.dump(doc, f, indent=2)
+        f.write("\n")
+    print("sheet post: pair_diff_min=%.2f classic_vs_noatmo_rms=%.4f warm amber-clear=%.3f pass=%s" % (pair_min, rms, amber - clear, ok))
+    return 0 if ok else 1
+
+
 def main(argv):
     if len(argv) == 3 and argv[1] == "finish":
         return finish(argv[2])
     if len(argv) == 3 and argv[1] == "richness":
         return richness(argv[2])
+    if len(argv) == 3 and argv[1] == "horizon":
+        return horizon(argv[2])
+    if len(argv) == 3 and argv[1] == "sheet":
+        return sheet(argv[2])
     if len(argv) == 4 and argv[1] == "compare":
         return compare(argv[2], argv[3])
-    sys.stderr.write("usage: post.py finish OUT_DIR | post.py richness OUT_DIR | post.py compare A B\n")
+    sys.stderr.write("usage: post.py finish OUT_DIR | post.py richness OUT_DIR | post.py horizon OUT_DIR | post.py sheet OUT_DIR | post.py compare A B\n")
     return 2
 
 

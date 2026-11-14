@@ -33,6 +33,7 @@ var _mutation := "none"
 var _raw_path := ""
 var _shots_dir := ""
 var _world: Node3D
+var _view_ran := "near"
 var _streamer: Node3D
 var _walker: Node3D
 var _cam: Camera3D
@@ -98,6 +99,7 @@ func _run() -> void:
 	if _mutation == "sync_build":
 		_streamer.sync_build = true
 	add_child(_world)
+	_view_ran = str(_world.view_distance)
 	if _mutation == "float":
 		_walker.body_offset_y = 0.8
 	elif _mutation == "sink":
@@ -796,6 +798,7 @@ func _finish() -> void:
 	_rec["streaming"] = st
 	_rec["generated_epoch"] = Time.get_unix_time_from_system()
 	_rec["mutation"] = _mutation
+	_rec["view"] = _view_ran  # Spec 582: the level the walk ran at (read before the scene was freed)
 	_rec["headless"] = DisplayServer.get_name() == "headless"
 	_rec["adapter"] = RenderingServer.get_video_adapter_name()
 	_rec["project_name"] = str(ProjectSettings.get_setting("application/config/name"))

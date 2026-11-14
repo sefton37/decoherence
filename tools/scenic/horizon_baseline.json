@@ -1,0 +1,74 @@
+{
+  "note": "Spec 582 S1 reference of DOD-19: the five horizon poses measured at the vista level with the classic look, from the world as it stood before the far terrain (the vista path is untouched by Spec 582: no far terrain, the backdrop ring, fog 0.005; applying the classic preset writes back the values the scene already carries, checked by the contact sheet's classic_vs_noatmo_rms). Taken with tools/measure_horizon.sh HZ_VIEW=vista HZ_ATMO=classic; the pixel metrics are tools/scenic/post.py's. Frames are not committed.",
+  "generated_epoch": 1794678594,
+  "display": ":99",
+  "headless": false,
+  "adapter": "NVIDIA GeForce RTX 4070 Ti SUPER",
+  "godot_version": "4.5-stable (custom_build)",
+  "repo_commit": "529293f03510bd0f835891951c2d870ef1a7b40b",
+  "view": "vista",
+  "atmosphere": "classic",
+  "mutate": "none",
+  "fog": {
+    "density": 0.005,
+    "f50_m": 166.51,
+    "visible_limit_m": 253.73
+  },
+  "poses": [
+    {
+      "id": "hz-edge-east",
+      "gated": true,
+      "chunks": 81,
+      "prims": 102250,
+      "draw_calls": 16,
+      "vram_mb": 1090.47,
+      "depth_p90_nonsky_m": 120.59,
+      "tree_far_p95_m": 0.0,
+      "sky_frac": 0.4832
+    },
+    {
+      "id": "hz-edge-south",
+      "gated": true,
+      "chunks": 81,
+      "prims": 83118,
+      "draw_calls": 18,
+      "vram_mb": 1090.47,
+      "depth_p90_nonsky_m": 136.99,
+      "tree_far_p95_m": 0.0,
+      "sky_frac": 0.4883
+    },
+    {
+      "id": "hz-edge-west-lake",
+      "gated": true,
+      "chunks": 81,
+      "prims": 9634,
+      "draw_calls": 12,
+      "vram_mb": 1090.47,
+      "depth_p90_nonsky_m": 162.29,
+      "tree_far_p95_m": 0.0,
+      "sky_frac": 0.5118
+    },
+    {
+      "id": "hz-pad-high",
+      "gated": true,
+      "chunks": 81,
+      "prims": 10585246,
+      "draw_calls": 559,
+      "vram_mb": 1091.28,
+      "depth_p90_nonsky_m": 145.73,
+      "tree_far_p95_m": 0.0,
+      "sky_frac": 0.4452
+    },
+    {
+      "id": "hz-ground-east",
+      "gated": false,
+      "chunks": 81,
+      "prims": 4115594,
+      "draw_calls": 159,
+      "vram_mb": 1091.28,
+      "depth_p90_nonsky_m": 4.39,
+      "tree_far_p95_m": 0.0,
+      "sky_frac": 0.0
+    }
+  ]
+}

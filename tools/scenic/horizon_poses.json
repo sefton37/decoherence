@@ -1,0 +1,11 @@
+{
+  "note": "Spec 582 S1: five fixed poses for tools/measure_horizon.sh. Four stand 24 m up (a tower or ridge, as the existing bench and edge poses do) and are gated; the fifth stands at eye height and is recorded without a gate, so the report says plainly what a walker at ground level sees. cam is [x, z] in metres; the camera stands at the engine's ground height there plus height_m; heading_deg is compass-style (0 toward +z, 90 toward +x); horizon_frac is where the horizon line sits in the frame (0 top, 1 bottom).",
+  "size": [1600, 900],
+  "poses": [
+    {"id": "hz-edge-east", "gated": true, "cam": [86, 6], "height_m": 24, "heading_deg": 90, "horizon_frac": 0.42, "fov_deg": 40},
+    {"id": "hz-edge-south", "gated": true, "cam": [-30, 86], "height_m": 24, "heading_deg": 10, "horizon_frac": 0.42, "fov_deg": 40},
+    {"id": "hz-edge-west-lake", "gated": true, "cam": [-82, 48], "height_m": 24, "heading_deg": 270, "horizon_frac": 0.45, "fov_deg": 40},
+    {"id": "hz-pad-high", "gated": true, "cam": [0, 0], "height_m": 24, "heading_deg": 200, "horizon_frac": 0.42, "fov_deg": 50},
+    {"id": "hz-ground-east", "gated": false, "cam": [86, 6], "height_m": 2, "heading_deg": 90, "horizon_frac": 0.5, "fov_deg": 60}
+  ]
+}
