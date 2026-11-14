@@ -1,0 +1,809 @@
+{
+ "size": [
+  1600,
+  900
+ ],
+ "shots": [
+  {
+   "id": "lake-dusk-west",
+   "subject": "water",
+   "river_bank_in_frame": false,
+   "note": "over the western lake, sun low in the frame, dark far bank",
+   "cam": [
+    -104,
+    48
+   ],
+   "height_m": 3.0,
+   "heading_deg": 40,
+   "horizon_frac": 0.6,
+   "fov_deg": 40,
+   "sun": {
+    "elev_deg": 7,
+    "rel_azimuth_deg": 25,
+    "color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.4,
+     0.48,
+     0.75
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.97,
+     0.7,
+     0.42
+    ],
+    "zenith": [
+     0.3,
+     0.38,
+     0.66
+    ],
+    "sun_color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.97,
+     0.7,
+     0.42
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "lake-rose-spire",
+   "subject": "water",
+   "river_bank_in_frame": false,
+   "note": "over the south-west lake, a bare trunk against a rose sky",
+   "cam": [
+    -96,
+    88
+   ],
+   "height_m": 4.0,
+   "heading_deg": 50,
+   "horizon_frac": 0.6,
+   "fov_deg": 36,
+   "sun": {
+    "elev_deg": 13,
+    "rel_azimuth_deg": 200,
+    "color": [
+     1.0,
+     0.6,
+     0.4
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.42,
+     0.44,
+     0.72
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.95,
+     0.6,
+     0.52
+    ],
+    "zenith": [
+     0.34,
+     0.34,
+     0.62
+    ],
+    "sun_color": [
+     1.0,
+     0.6,
+     0.4
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.95,
+     0.6,
+     0.52
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "south-shore-long",
+   "subject": "horizon",
+   "river_bank_in_frame": false,
+   "note": "along the south edge, sunlit crowns in rose haze",
+   "cam": [
+    8,
+    104
+   ],
+   "height_m": 8.0,
+   "heading_deg": 270,
+   "horizon_frac": 0.62,
+   "fov_deg": 34,
+   "sun": {
+    "elev_deg": 8,
+    "rel_azimuth_deg": 150,
+    "color": [
+     1.0,
+     0.6,
+     0.4
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.42,
+     0.44,
+     0.72
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.95,
+     0.6,
+     0.52
+    ],
+    "zenith": [
+     0.34,
+     0.34,
+     0.62
+    ],
+    "sun_color": [
+     1.0,
+     0.6,
+     0.4
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.95,
+     0.6,
+     0.52
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "mesa-sidelight",
+   "subject": "meadow",
+   "river_bank_in_frame": false,
+   "note": "side light across the mesa and its meadow",
+   "cam": [
+    -56,
+    48
+   ],
+   "height_m": 12.0,
+   "heading_deg": 350,
+   "horizon_frac": 0.4,
+   "fov_deg": 36,
+   "sun": {
+    "elev_deg": 16,
+    "rel_azimuth_deg": 110,
+    "color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.4,
+     0.48,
+     0.75
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.97,
+     0.7,
+     0.42
+    ],
+    "zenith": [
+     0.3,
+     0.38,
+     0.66
+    ],
+    "sun_color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.97,
+     0.7,
+     0.42
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "mesa-backlit",
+   "subject": "horizon",
+   "river_bank_in_frame": false,
+   "note": "ember sun behind dark crowns, long lens",
+   "cam": [
+    -8,
+    40
+   ],
+   "height_m": 14.0,
+   "heading_deg": 310,
+   "horizon_frac": 0.62,
+   "fov_deg": 30,
+   "sun": {
+    "elev_deg": 7,
+    "rel_azimuth_deg": 20,
+    "color": [
+     1.0,
+     0.5,
+     0.22
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.36,
+     0.4,
+     0.68
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.95,
+     0.55,
+     0.3
+    ],
+    "zenith": [
+     0.26,
+     0.26,
+     0.52
+    ],
+    "sun_color": [
+     1.0,
+     0.5,
+     0.22
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.95,
+     0.55,
+     0.3
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "canopy-long-shadow",
+   "subject": "trees",
+   "river_bank_in_frame": false,
+   "note": "looking down on the canopy, shadows laid across it",
+   "cam": [
+    16,
+    -80
+   ],
+   "height_m": 20.0,
+   "heading_deg": 115,
+   "horizon_frac": -0.15,
+   "fov_deg": 30,
+   "sun": {
+    "elev_deg": 6,
+    "rel_azimuth_deg": 85,
+    "color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.4,
+     0.48,
+     0.75
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.97,
+     0.7,
+     0.42
+    ],
+    "zenith": [
+     0.3,
+     0.38,
+     0.66
+    ],
+    "sun_color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.97,
+     0.7,
+     0.42
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "ridge-shadows",
+   "subject": "trees",
+   "river_bank_in_frame": false,
+   "note": "crowns raked by an ember sun from the left",
+   "cam": [
+    64,
+    -56
+   ],
+   "height_m": 20.0,
+   "heading_deg": 150,
+   "horizon_frac": -0.4,
+   "fov_deg": 28,
+   "sun": {
+    "elev_deg": 9,
+    "rel_azimuth_deg": -80,
+    "color": [
+     1.0,
+     0.5,
+     0.22
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.36,
+     0.4,
+     0.68
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.95,
+     0.55,
+     0.3
+    ],
+    "zenith": [
+     0.26,
+     0.26,
+     0.52
+    ],
+    "sun_color": [
+     1.0,
+     0.5,
+     0.22
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.95,
+     0.55,
+     0.3
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "sunstar-meadow",
+   "subject": "horizon",
+   "river_bank_in_frame": false,
+   "note": "pale gold sun over layered forest haze",
+   "cam": [
+    80,
+    16
+   ],
+   "height_m": 20.0,
+   "heading_deg": 30,
+   "horizon_frac": 0.32,
+   "fov_deg": 28,
+   "sun": {
+    "elev_deg": 11,
+    "rel_azimuth_deg": 15,
+    "color": [
+     1.0,
+     0.8,
+     0.56
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.45,
+     0.54,
+     0.8
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.96,
+     0.78,
+     0.6
+    ],
+    "zenith": [
+     0.26,
+     0.42,
+     0.72
+    ],
+    "sun_color": [
+     1.0,
+     0.8,
+     0.56
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.96,
+     0.78,
+     0.6
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "grove-silhouette",
+   "subject": "trees",
+   "river_bank_in_frame": false,
+   "note": "grove silhouettes under an ember sun",
+   "cam": [
+    64,
+    64
+   ],
+   "height_m": 16.0,
+   "heading_deg": 50,
+   "horizon_frac": 0.4,
+   "fov_deg": 26,
+   "sun": {
+    "elev_deg": 8,
+    "rel_azimuth_deg": 15,
+    "color": [
+     1.0,
+     0.5,
+     0.22
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.36,
+     0.4,
+     0.68
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.95,
+     0.55,
+     0.3
+    ],
+    "zenith": [
+     0.26,
+     0.26,
+     0.52
+    ],
+    "sun_color": [
+     1.0,
+     0.5,
+     0.22
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.01,
+    "haze": [
+     0.95,
+     0.55,
+     0.3
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "river-valley-west",
+   "subject": "horizon",
+   "river_bank_in_frame": true,
+   "note": "the river valley in evening haze, river in frame",
+   "cam": [
+    -95,
+    -60
+   ],
+   "height_m": 20.0,
+   "heading_deg": 90,
+   "horizon_frac": 0.33,
+   "fov_deg": 32,
+   "sun": {
+    "elev_deg": 8,
+    "rel_azimuth_deg": 20,
+    "color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.4,
+     0.48,
+     0.75
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.97,
+     0.7,
+     0.42
+    ],
+    "zenith": [
+     0.3,
+     0.38,
+     0.66
+    ],
+    "sun_color": [
+     1.0,
+     0.68,
+     0.34
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.006,
+    "haze": [
+     0.97,
+     0.7,
+     0.42
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "river-valley-ridge",
+   "subject": "horizon",
+   "river_bank_in_frame": true,
+   "note": "the river winding between ridges, river in frame",
+   "cam": [
+    100,
+    -20
+   ],
+   "height_m": 24.0,
+   "heading_deg": 250,
+   "horizon_frac": 0.33,
+   "fov_deg": 28,
+   "sun": {
+    "elev_deg": 6,
+    "rel_azimuth_deg": 10,
+    "color": [
+     1.0,
+     0.6,
+     0.4
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.42,
+     0.44,
+     0.72
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.95,
+     0.6,
+     0.52
+    ],
+    "zenith": [
+     0.34,
+     0.34,
+     0.62
+    ],
+    "sun_color": [
+     1.0,
+     0.6,
+     0.4
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.006,
+    "haze": [
+     0.95,
+     0.6,
+     0.52
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "river-bend-north",
+   "subject": "trees",
+   "river_bank_in_frame": true,
+   "note": "down onto a river bend and the crowns beside it",
+   "cam": [
+    -20,
+    -100
+   ],
+   "height_m": 18.0,
+   "heading_deg": 60,
+   "horizon_frac": -0.2,
+   "fov_deg": 34,
+   "sun": {
+    "elev_deg": 8,
+    "rel_azimuth_deg": 160,
+    "color": [
+     1.0,
+     0.8,
+     0.56
+    ],
+    "energy": 2.6
+   },
+   "ambient": {
+    "color": [
+     0.45,
+     0.54,
+     0.8
+    ],
+    "energy": 0.5
+   },
+   "sky": {
+    "horizon": [
+     0.96,
+     0.78,
+     0.6
+    ],
+    "zenith": [
+     0.26,
+     0.42,
+     0.72
+    ],
+    "sun_color": [
+     1.0,
+     0.8,
+     0.56
+    ],
+    "sun_size": 0.02,
+    "glow_strength": 0.9,
+    "glow_power": 9.0
+   },
+   "fog": {
+    "density": 0.006,
+    "haze": [
+     0.96,
+     0.78,
+     0.6
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  },
+  {
+   "id": "control-flat-noon",
+   "control": true,
+   "subject": "meadow",
+   "river_bank_in_frame": false,
+   "note": "flat control: must FAIL the floors",
+   "cam": [
+    -20,
+    70
+   ],
+   "height_m": 1.7,
+   "heading_deg": 0,
+   "horizon_frac": 0.5,
+   "fov_deg": 90,
+   "sun": {
+    "elev_deg": 75,
+    "rel_azimuth_deg": 0,
+    "color": [
+     1.0,
+     0.957,
+     0.816
+    ],
+    "energy": 1.1
+   },
+   "ambient": {
+    "color": [
+     0.62,
+     0.74,
+     0.84
+    ],
+    "energy": 0.9
+   },
+   "sky": null,
+   "fog": {
+    "density": 0.0,
+    "haze": [
+     0.6667,
+     0.8,
+     0.8784
+    ]
+   },
+   "tonemap": 0,
+   "exposure": 1.0,
+   "glow": 0.0
+  }
+ ]
+}
