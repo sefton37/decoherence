@@ -1,0 +1,171 @@
+{
+  "generated_epoch": 1794616857,
+  "display": ":99",
+  "headless": false,
+  "adapter": "NVIDIA GeForce RTX 4070 Ti SUPER",
+  "godot_version": "4.5-stable (custom_build)",
+  "repo_commit": "4c2aa0bab7b06b855406c7e8b20ad0a20653b9c2",
+  "xdg_data_home": "/tmp/decoh-richness-xdg-1000",
+  "view": "near",
+  "mutate": "none",
+  "pass": false,
+  "fog": {
+    "density": 0.012,
+    "visible_limit_m": 105.72
+  },
+  "tint": {
+    "hue_families": 2,
+    "hue_spread_deg": 16.0,
+    "living_species": 10,
+    "sat_min": 0.3
+  },
+  "bars": [
+    {
+      "name": "species_ge10_min",
+      "pass": true,
+      "value": 23,
+      "limit": 14,
+      "op": ">="
+    },
+    {
+      "name": "bare_near_frac_max",
+      "pass": true,
+      "value": 0.1976,
+      "limit": 0.3,
+      "op": "<="
+    },
+    {
+      "name": "detail_min",
+      "pass": true,
+      "value": 0.1351,
+      "limit": 0.1,
+      "op": ">="
+    },
+    {
+      "name": "hue_bins_min",
+      "pass": false,
+      "value": 3,
+      "limit": 5,
+      "op": ">="
+    },
+    {
+      "name": "tree_far_p95_river",
+      "pass": true,
+      "value": 102.9,
+      "limit": 90,
+      "op": ">="
+    },
+    {
+      "name": "far_ground_p90_river",
+      "pass": true,
+      "value": 86.0,
+      "limit": 75,
+      "op": ">="
+    },
+    {
+      "name": "tint_living_species",
+      "pass": true,
+      "value": 10,
+      "limit": 10,
+      "op": "=="
+    },
+    {
+      "name": "tint_hue_spread_deg",
+      "pass": false,
+      "value": 16.0,
+      "limit": 40,
+      "op": ">="
+    },
+    {
+      "name": "tint_hue_families",
+      "pass": false,
+      "value": 2,
+      "limit": 4,
+      "op": ">="
+    },
+    {
+      "name": "tint_sat_min",
+      "pass": true,
+      "value": 0.3,
+      "limit": 0.3,
+      "op": ">="
+    }
+  ],
+  "poses": [
+    {
+      "bare_near_frac": 0.0468,
+      "chunks": 26,
+      "draw_calls": 170,
+      "far_ground_max_m": 76.0,
+      "far_ground_p90_m": 60.0,
+      "flora": 41581,
+      "gpu_ab_ratio": null,
+      "gpu_ms_median": 33.532,
+      "ground_hit_rays": 833,
+      "ground_past_fog_rays": 0,
+      "id": "bench-meadow",
+      "png": "bench-meadow.png",
+      "prims": 3447631,
+      "species_ge10": 23,
+      "tree_far_p95_m": 65.49,
+      "trees": 1051,
+      "understory": 8399,
+      "unloaded_visible_hit": 0,
+      "vram_mb": 469.9,
+      "sky_frac": 0.5368,
+      "detail": 0.4338,
+      "hue_bins": 6,
+      "sat_mean": 0.2672
+    },
+    {
+      "bare_near_frac": 0.1976,
+      "chunks": 20,
+      "draw_calls": 518,
+      "far_ground_max_m": 105.0,
+      "far_ground_p90_m": 86.0,
+      "flora": 44801,
+      "gpu_ab_ratio": null,
+      "gpu_ms_median": 35.347,
+      "ground_hit_rays": 1889,
+      "ground_past_fog_rays": 415,
+      "id": "bench-river",
+      "png": "bench-river.png",
+      "prims": 7987590,
+      "species_ge10": 31,
+      "tree_far_p95_m": 102.9,
+      "trees": 1346,
+      "understory": 8152,
+      "unloaded_visible_hit": 0,
+      "vram_mb": 433.07,
+      "sky_frac": 0.1009,
+      "detail": 0.6746,
+      "hue_bins": 5,
+      "sat_mean": 0.2811
+    },
+    {
+      "bare_near_frac": 0.0769,
+      "chunks": 32,
+      "draw_calls": 404,
+      "far_ground_max_m": 105.0,
+      "far_ground_p90_m": 102.0,
+      "flora": 64801,
+      "gpu_ab_ratio": null,
+      "gpu_ms_median": 4.493,
+      "ground_hit_rays": 427,
+      "ground_past_fog_rays": 1877,
+      "id": "bench-ridge",
+      "png": "bench-ridge.png",
+      "prims": 6705952,
+      "species_ge10": 32,
+      "tree_far_p95_m": 105.45,
+      "trees": 1875,
+      "understory": 10065,
+      "unloaded_visible_hit": 0,
+      "vram_mb": 533.39,
+      "sky_frac": 0.6729,
+      "detail": 0.1351,
+      "hue_bins": 3,
+      "sat_mean": 0.2371
+    }
+  ]
+}

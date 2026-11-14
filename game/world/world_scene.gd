@@ -31,6 +31,7 @@ const GRASS_SHADER := "res://engine/stalag/shaders/stalag_grass.gdshader"
 const WATER_SHADER := "res://engine/stalag/shaders/stalag_water.gdshader"
 const FloraAssets := preload("res://game/world/flora_assets.gd")
 const TreeAssets := preload("res://game/world/tree_assets.gd")
+const BackdropRing := preload("res://game/world/backdrop_ring.gd")
 const UnderstoryAssets := preload("res://game/world/understory_assets.gd")
 const GrassLook := preload("res://game/world/grass_look.gd")
 const GroundLook := preload("res://game/world/ground_look.gd")
@@ -44,6 +45,26 @@ const FLIP_TEX := "res://game/world/assets/water_flip.png"
 const FLOW_TEX := "res://game/world/assets/river_noise.png"
 ## The prototype's sun sits at (80, 120, 50) and looks at the origin.
 const SUN_POSITION := Vector3(80.0, 120.0, 50.0)
+
+## Spec 580: view-distance levels, game policy. `near` is the world as it always was and stays the default.
+## `far` and `vista` load a wider ring of chunks, thin the haze to match (so the ring's edge is not a fog
+## wall) and draw the meadow and understory only out to `cull_m` metres, which is what keeps the cost bounded.
+## load_radius is in chunks (the engine's streamer unloads one chunk further out); fog_density is the
+## exp-squared density the shaders read (fog is 80 percent opaque at sqrt(-ln 0.2) / density metres).
+const SMALL_FLORA_CULL_M := 90.0
+const VIEW_LEVELS := {
+	"near": {"load_radius": 2, "fog_density": 0.012, "cull_m": 0.0, "backdrop": false},
+	"far": {"load_radius": 4, "fog_density": 0.008, "cull_m": SMALL_FLORA_CULL_M, "backdrop": true},
+	"vista": {"load_radius": 8, "fog_density": 0.005, "cull_m": SMALL_FLORA_CULL_M, "backdrop": true},
+}
+## Spec 580 S4: at `far` and `vista` a visual-only backdrop ring (terrain, sea and tree impostors) continues the
+## world past its edge out to about 300 m (backdrop_ring.gd). `near` never builds it. A probe may switch it off
+## (the negative control) by clearing this before the scene enters the tree.
+var backdrop_enabled: bool = true
+var backdrop: Node3D
+## One of VIEW_LEVELS' keys. Set it before the scene enters the tree or at any time after; a level this
+## table does not name is refused and the current one stays.
+@export var view_distance: String = "near": set = set_view_distance
 
 var grass_mat: ShaderMaterial
 var dirt_mat: ShaderMaterial
@@ -79,6 +100,49 @@ func _make_material(shader_path: String) -> ShaderMaterial:
 	return m
 
 
+func set_view_distance(level: String) -> void:
+	if not VIEW_LEVELS.has(level):
+		push_warning("world_scene: unknown view distance '%s'; keeping '%s'" % [level, view_distance])
+		return
+	view_distance = level
+	if streamer != null and flora != null:  # before _ready the level is applied by _build_look
+		_apply_view()
+
+
+## Pushes the current level to the streamer (ring, flora limit) and to every shader that carries haze.
+func _apply_view() -> void:
+	var lv: Dictionary = VIEW_LEVELS[view_distance]
+	streamer.load_radius = int(lv["load_radius"])
+	streamer.small_flora_range_m = float(lv["cull_m"])
+	var fog := float(lv["fog_density"])
+	_sync_backdrop(bool(lv["backdrop"]) and backdrop_enabled)
+	var mats: Array = [grass_mat, dirt_mat, water_mat, trees.trunk_material()]
+	if backdrop != null:
+		mats.append_array(backdrop.materials())
+	mats.append_array(flora.materials())
+	mats.append_array(trees.materials())
+	mats.append_array(understory.materials())
+	for m in mats:
+		(m as ShaderMaterial).set_shader_parameter("fog_density", fog)
+
+
+## Creates or frees the backdrop ring to match the view level. `near` holds no ring node at all.
+func _sync_backdrop(want: bool) -> void:
+	if want and backdrop == null:
+		backdrop = BackdropRing.new()
+		backdrop.name = "Backdrop"
+		backdrop.setup(trees)
+		add_child(backdrop)
+	elif not want and backdrop != null:
+		backdrop.queue_free()
+		backdrop = null
+
+
+## True when no backdrop ring is wanted at this level, or the ring has finished building (probes wait on this).
+func backdrop_ready() -> bool:
+	return backdrop == null or backdrop.is_done()
+
+
 ## Builds the three materials and hands them to the streamer before it loads anything.
 func _build_look() -> void:
 	grass_mat = _make_material(GRASS_SHADER)
@@ -108,6 +172,7 @@ func _build_look() -> void:
 	streamer.understory_assets = understory.forms
 	understory.set_time(flora_clock)
 	sun.look_at_from_position(SUN_POSITION, Vector3.ZERO)
+	_apply_view()
 	_warm_shaders()
 
 

@@ -16,11 +16,17 @@ extends Node
 ##
 ## Env: SCENIC_OUT (required) output dir; SCENIC_ONLY (optional) a shot id, a comma list of ids, @first or
 ##      @control; SCENIC_SHOTS (optional) a shots.json path (default: the one next to this script).
+##
+## Spec 580: every shot names a `view_distance` (near, far or vista: the game's own levels, set on the world scene
+## before it loads), and a shot with "mutate": "thin" turns the streamer's trees, meadow and understory off (a
+## control that must FAIL the richness floors). The far and species metrics are read with
+## tools/scenic/richness_metrics.gd against the shot's own fog.
 
 const WORLD_SCENE := "res://game/world/world.tscn"
 const SKY_SHADER := "res://tools/scenic/scenic_sky.gdshader"
 const DEFAULT_SHOTS := "res://tools/scenic/shots.json"
 const HomesteadView := preload("res://game/homestead/homestead_view.gd")
+const RichnessMetrics := preload("res://tools/scenic/richness_metrics.gd")
 
 const WATER_TIME := 40.0  ## the fixed value the water shader reads instead of TIME
 const WIND_CLOCK := 3.0  ## the fixed wind clock of every shot
@@ -34,6 +40,9 @@ const RIVER_MIN_RAYS := 8
 const RIVER_MAX_FOG := 0.8  ## rays that land where fog already hides 80 percent do not count as "in frame"
 const WORLD_HALF_M := 112.0
 const FOCUS_AHEAD_M := 30.0
+## Spec 580: a shot may not clear the haze below the game's own farthest view level (its `vista` fog), so a
+## picture is never "farther" than the game can draw. A flat control is exempt (it is meant to look wrong).
+const MIN_FOG_DENSITY := 0.005
 
 var _out := ""
 var _size := Vector2i(1600, 900)
@@ -90,7 +99,7 @@ func _run() -> void:
 
 	var records: Array = []
 	for s in chosen:
-		await _load_world()
+		await _load_world(s)
 		records.append(await _shoot(s))
 		await _unload_world()
 
@@ -134,11 +143,18 @@ func _select(all: Array, only: String) -> Array:
 
 
 # ---------------------------------------------------------------- the world
-func _load_world() -> void:
+func _load_world(s: Dictionary) -> void:
 	_world = (load(WORLD_SCENE) as PackedScene).instantiate()
 	_world.scripted_input = true
 	_world.flora_clock = WIND_CLOCK
 	_world.flora_clock_frozen = true
+	_world.view_distance = str(s.get("view_distance", "near"))
+	if str(s.get("mutate", "none")) == "thin":
+		# the streamer's own switches: no trees, no meadow, no understory (the negative control)
+		var st = _world.get_node("Streamer")
+		st.flora_enabled = false
+		st.trees_enabled = false
+		st.understory_enabled = false
 	add_child(_world)
 	_streamer = _world.streamer
 	_walker = _world.walker
@@ -149,6 +165,10 @@ func _load_world() -> void:
 	if not _streamer.ring_ready():
 		_fail("the world never became ready")
 		return
+	guard = 0
+	while _world.has_method("backdrop_ready") and not _world.backdrop_ready() and guard < 3000:
+		await get_tree().process_frame  # the backdrop ring builds a few columns per frame
+		guard += 1
 	_freeze_water_time()
 	await _settle()
 
@@ -208,6 +228,9 @@ func _teleport(x: float, z: float) -> void:
 # ---------------------------------------------------------------- one shot
 func _shoot(s: Dictionary) -> Dictionary:
 	var cam_xz: Array = s["cam"]
+	if not bool(s.get("control", false)) and float(s["fog"]["density"]) < MIN_FOG_DENSITY:
+		_fail("shot %s clears the haze below the game's own vista fog (%s)" % [str(s["id"]), str(MIN_FOG_DENSITY)])
+		return {}
 	# the pose is authored as a heading (0 = +z, 90 = +x) and where the horizon should sit in the frame
 	# (0 = top edge, 1 = bottom edge, negative = above the frame); the pitch follows from the lens
 	var hd := deg_to_rad(float(s["heading_deg"]))
@@ -237,6 +260,7 @@ func _shoot(s: Dictionary) -> Dictionary:
 	# the frame as the viewer sees it, and again with the water hidden (water_frac is measured, not claimed)
 	var with_img: Image = await _grab()
 	var nodes: Array = _streamer.water_nodes()
+	nodes.append_array(get_tree().get_nodes_in_group("backdrop_water"))
 	var prev := []
 	for w in nodes:
 		prev.append(w.visible)
@@ -245,9 +269,16 @@ func _shoot(s: Dictionary) -> Dictionary:
 	for i in range(nodes.size()):
 		nodes[i].visible = prev[i]
 	var water_frac := _changed_frac(with_img, without_img)
+	# Spec 580 S4: the frame with the whole world hidden is pure sky; post.py counts the gap below the horizon and
+	# the floating water pixels from these three frames (saved as aux-*, which the shot-* globs never see).
+	_world.visible = false
+	var sky_img: Image = await _grab()
+	_world.visible = true
 
 	var id := str(s["id"])
 	with_img.save_png(_out.path_join("shot-%s.png" % id))
+	without_img.save_png(_out.path_join("aux-%s-nowater.png" % id))
+	sky_img.save_png(_out.path_join("aux-%s-sky.png" % id))
 
 	var d_sun: Vector3 = _sun().global_basis.z  # points toward the sun
 	var rec := {
@@ -264,7 +295,14 @@ func _shoot(s: Dictionary) -> Dictionary:
 		"water_frac": snappedf(water_frac, 0.0001),
 		"horizon_y_frac": _horizon_y_frac(fwd_flat),
 		"fog_density": snappedf(float(s["fog"]["density"]), 0.0001),
+		"view_distance": str(s.get("view_distance", "near")),
+		"horizon_row_px": snappedf(_pc.unproject_position(_pc.global_position + fwd_flat.normalized() * 100000.0).y, 0.1),
 	}
+	var dens := float(s["fog"]["density"])
+	if dens > 0.0:  # fog off (density 0) is only the flat control; its far content is bounded by the world
+		rec.merge(RichnessMetrics.new(_pc, _streamer, _size).measure(dens))
+	else:
+		rec.merge(RichnessMetrics.new(_pc, _streamer, _size).measure(MIN_FOG_DENSITY))
 	rec.merge(_river_rays(float(s["fog"]["density"])))
 	rec["homestead_in_frame"] = _homestead_in_frame()
 	return rec

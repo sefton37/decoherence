@@ -48,7 +48,7 @@ export SCENIC_OUT
     || { echo "render_scenic: engine library missing; run tools/build_engine.sh" >&2; exit 1; }
 
 # A stale frame or record must never be read as a fresh one: empty the output first.
-rm -f "$SCENIC_OUT"/shot-*.png "$SCENIC_OUT"/shot-*.webp "$SCENIC_OUT/contact.png" "$SCENIC_OUT/manifest.json" \
+rm -f "$SCENIC_OUT"/shot-*.png "$SCENIC_OUT"/shot-*.webp "$SCENIC_OUT"/aux-*.png "$SCENIC_OUT/contact.png" "$SCENIC_OUT/manifest.json" \
     "$SCENIC_OUT/raw.json" "$SCENIC_OUT/godot.log"
 
 with_lock() {  # with_lock <lockfile-or-empty> <flock-mode> cmd...

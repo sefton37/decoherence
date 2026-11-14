@@ -13,6 +13,7 @@
 ## Env: STALAG_OUT (required)         output JSON path
 ##      STALAG_SHOTS_DIR              screenshot directory (default: a temp dir)
 ##      STALAG_MUTATE                 none | sync_build | float | sink (negative controls)
+##      STALAG_VIEW                   near | far | vista (Spec 580; default: the game's own level)
 ##      DISPLAY (must be :99), GODOT (default ~/.local/bin/godot)
 
 set -uo pipefail

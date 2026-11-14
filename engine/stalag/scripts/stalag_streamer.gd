@@ -20,10 +20,13 @@ signal flora_attached(coord: Vector2i)
 signal trees_attached(coord: Vector2i)
 signal understory_attached(coord: Vector2i)
 
-## Load every chunk within LOAD_RADIUS (Chebyshev, in chunks) of the focus chunk; free
-## those beyond UNLOAD_RADIUS. The gap is hysteresis so the boundary does not thrash.
-const LOAD_RADIUS := 2
-const UNLOAD_RADIUS := 3
+## Load every chunk within `load_radius` (Chebyshev, in chunks) of the focus chunk; free
+## those beyond `unload_radius()`. The gap of one chunk is hysteresis so the boundary does not thrash.
+## Spec 580: the radius is game policy (the world scene's view levels set it before the first chunk).
+var load_radius: int = 2
+## Spec 580: how far (metres from the camera) the meadow and the understory are drawn; 0 = no limit. A
+## chunk's multimesh is culled by the engine's visibility range, so this costs no per-instance work.
+var small_flora_range_m: float = 0.0: set = set_small_flora_range
 ## Tasks in flight at once; the rest wait their turn nearest-first.
 const MAX_IN_FLIGHT := 4
 const ADOPT_PER_FRAME := 1
@@ -125,8 +128,27 @@ func water_nodes() -> Array:
 
 ## The most chunks this streamer will ever hold (the unload ring, clipped to the world).
 func cap() -> int:
-	var side := mini(2 * UNLOAD_RADIUS + 1, _grid_max - _grid_min + 1)
+	var side := mini(2 * unload_radius() + 1, _grid_max - _grid_min + 1)
 	return side * side
+
+
+## Chunks beyond this (Chebyshev, from the focus chunk) are freed.
+func unload_radius() -> int:
+	return load_radius + 1
+
+
+## Applies the distance limit to the chunks already loaded (new chunks read `small_flora_range_m` as they attach).
+func set_small_flora_range(m: float) -> void:
+	small_flora_range_m = maxf(m, 0.0)
+	for c in _chunks.keys():
+		for group in ["Flora", "Understory"]:
+			var root: Node = (_chunks[c] as MeshInstance3D).get_node_or_null(group)
+			if root == null:
+				continue
+			for n in root.get_children():
+				var m3 := n as MultiMeshInstance3D
+				if m3 != null:
+					m3.visibility_range_end = small_flora_range_m
 
 
 ## True when the focus ring is adopted, nothing is being built, and every water mesh is attached.
@@ -162,7 +184,7 @@ func chunk_of(p: Vector3) -> Vector2i:
 func ring_ready() -> bool:
 	if _focus_chunk.x == (1 << 30):
 		return false
-	for c in _wanted(_focus_chunk, LOAD_RADIUS):
+	for c in _wanted(_focus_chunk, load_radius):
 		if not _chunks.has(c):
 			return false
 	return true
@@ -210,7 +232,7 @@ func _process(_delta: float) -> void:
 
 
 func _request_missing() -> void:
-	var want := _wanted(_focus_chunk, LOAD_RADIUS)
+	var want := _wanted(_focus_chunk, load_radius)
 	want.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
 		return _cheb_dist2(a) < _cheb_dist2(b))
 	for c in want:
@@ -293,6 +315,7 @@ func _attach_flora() -> bool:
 		mmi.multimesh = mm
 		mmi.material_override = a["material"]
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON if a["casts"] else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = small_flora_range_m
 		root.add_child(mmi)
 		total += int(e["count"])
 	mi.add_child(root)
@@ -304,8 +327,9 @@ func _attach_flora() -> bool:
 
 
 ## One MultiMeshInstance3D per part under `root`. `buffer` is the transform buffer; the part with
-## `colors` takes the 16-float crown buffer instead (transform plus instance colour).
-func _add_part(root: Node3D, name: String, part: Dictionary, count: int, buffer: PackedFloat32Array) -> void:
+## `colors` takes the 16-float crown buffer instead (transform plus instance colour). `range_fallback` is the
+## draw distance used when the part carries none (the understory takes the view level's limit).
+func _add_part(root: Node3D, name: String, part: Dictionary, count: int, buffer: PackedFloat32Array, range_fallback: float = 0.0) -> void:
 	if int(part["cast"]) == GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY and not shadows_enabled:
 		return  # a shadow-only proxy draws nothing but shadows: with shadows off it is not built
 	var mm := MultiMesh.new()
@@ -325,6 +349,8 @@ func _add_part(root: Node3D, name: String, part: Dictionary, count: int, buffer:
 	mmi.cast_shadow = cast
 	mmi.set_meta("cast", int(part["cast"]))
 	var rng: float = part["range_end"]
+	if rng <= 0.0:
+		rng = range_fallback  # the part names no limit of its own: the view level's limit applies
 	if rng > 0.0:
 		mmi.visibility_range_end = rng
 	root.add_child(mmi)
@@ -404,7 +430,7 @@ func _attach_understory() -> bool:
 		var buf: PackedFloat32Array = e["buffer"]
 		if understory_y_offset != 0.0:
 			_lift(buf, 12, understory_y_offset)
-		_add_part(root, str(key).replace("/", "_"), a, int(e["count"]), buf)
+		_add_part(root, str(key).replace("/", "_"), a, int(e["count"]), buf, small_flora_range_m)
 		total += int(e["count"])
 	mi.add_child(root)
 	_understory_counts[coord] = total
@@ -445,7 +471,7 @@ func _adopt_finished() -> void:
 			WorkerThreadPool.wait_for_task_completion(tid)  # already finished; reaps the task
 			_in_flight.erase(c)
 		# Focus may have moved on while it built: do not adopt a chunk nobody wants now.
-		if _chebyshev(c, _focus_chunk) > UNLOAD_RADIUS or _chunks.has(c):
+		if _chebyshev(c, _focus_chunk) > unload_radius() or _chunks.has(c):
 			continue
 		_adopt(c, item[1])
 
@@ -489,7 +515,7 @@ func _adopt(c: Vector2i, res: Dictionary) -> void:
 
 func _unload_far() -> void:
 	for c in _chunks.keys():
-		if _chebyshev(c, _focus_chunk) > UNLOAD_RADIUS:
+		if _chebyshev(c, _focus_chunk) > unload_radius():
 			var mi: MeshInstance3D = _chunks[c]
 			_chunks.erase(c)
 			flora_instances -= int(_flora_counts.get(c, 0))

@@ -1,0 +1,9 @@
+{
+  "note": "Spec 580 S4: three poses that stand near the edge of the playable footprint and look out past it, for the backdrop ring's edge-gap and floating-water measurements. Rendered with the game's own default look.",
+  "size": [1600, 900],
+  "poses": [
+    {"id": "edge-east", "cam": [86, 6], "height_m": 12.0, "heading_deg": 90, "horizon_frac": 0.42, "fov_deg": 40},
+    {"id": "edge-south", "cam": [-30, 86], "height_m": 12.0, "heading_deg": 10, "horizon_frac": 0.42, "fov_deg": 40},
+    {"id": "edge-west-lake", "cam": [-82, 48], "height_m": 8.0, "heading_deg": 270, "horizon_frac": 0.45, "fov_deg": 40}
+  ]
+}

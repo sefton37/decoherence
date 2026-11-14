@@ -1,0 +1,45 @@
+{
+  "note": "Three fixed poses for tools/measure_richness.sh, copied verbatim from tools/scenic/shots.json at the Spec 577 commit. They never move when the scenic shots are re-authored. Rendered with the game's own default look.",
+  "size": [
+    1600,
+    900
+  ],
+  "poses": [
+    {
+      "id": "bench-meadow",
+      "from_shot": "mesa-sidelight",
+      "cam": [
+        -56,
+        48
+      ],
+      "height_m": 12.0,
+      "heading_deg": 350,
+      "horizon_frac": 0.4,
+      "fov_deg": 36
+    },
+    {
+      "id": "bench-river",
+      "from_shot": "river-bend-north",
+      "cam": [
+        -20,
+        -100
+      ],
+      "height_m": 18.0,
+      "heading_deg": 60,
+      "horizon_frac": -0.2,
+      "fov_deg": 34
+    },
+    {
+      "id": "bench-ridge",
+      "from_shot": "river-valley-ridge",
+      "cam": [
+        100,
+        -20
+      ],
+      "height_m": 24.0,
+      "heading_deg": 250,
+      "horizon_frac": 0.33,
+      "fov_deg": 28
+    }
+  ]
+}

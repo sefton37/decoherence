@@ -8,15 +8,19 @@ extends RefCounted
 
 const DIR := "res://game/world/assets/trees/"
 
-## Crown colour tint per species: hsv2rgb(128 + hueDeg, 0.30, 0.92) as material colour (index.html
-## TREE_CANOPY_PARAMS hueDeg, CROWN_BASE_HUE, CROWN_TINT_S, CROWN_TINT_V).
-const HUE_DEG := {
-	"frost-sapling": 4, "scrub-birch": 8, "young-spire": -2, "boreal-fir": -6, "broadleaf-lump": 2,
-	"tall-pine": -4, "northwatch-larch": 6, "twin-trunk": 0, "elder-pine": -8, "sensor-pine": -3,
+## Crown colour tint per species, as the material's `tint` (it multiplies the leaf texture and the baked
+## per-tree colour; raw values as the prototype passes them, so a value above 1 brightens). The frozen
+## prototype tinted all ten living species hsv(128 + hueDeg, 0.30, 0.92) with hueDeg within 8 degrees: one pale
+## green. Spec 580 widens the palette into colour families: deep green, teal, blue spruce and lime for the
+## common species, gold, orange and a rare red for the rest. The leaf textures are green, so the warm families
+## need a value gain of 3 to 4 to read as warm at all. Entries are [hue in degrees, saturation, value];
+## saturation stays at 0.30 or more.
+const CROWN_TINTS := {
+	"boreal-fir": [150.0, 0.60, 0.80], "young-spire": [175.0, 0.55, 1.20], "broadleaf-lump": [90.0, 0.65, 1.80],
+	"frost-sapling": [200.0, 0.55, 1.40], "scrub-birch": [30.0, 0.85, 4.00], "northwatch-larch": [70.0, 0.80, 2.80],
+	"twin-trunk": [15.0, 0.85, 3.00], "sensor-pine": [358.0, 0.90, 4.00], "tall-pine": [45.0, 0.85, 3.00],
+	"elder-pine": [60.0, 0.41, 0.95],
 }
-const CROWN_BASE_HUE := 128.0
-const CROWN_TINT_S := 0.30
-const CROWN_TINT_V := 0.92
 ## Whole-crown sway (makeWindyCrown(..., 0.045)).
 const CROWN_WIND_AMP := 0.045
 ## Crown shadows (Spec #549 D12): the shadow proxies cast within this distance (a range on a trunk would
@@ -70,9 +74,9 @@ func _surface_mesh(arrays: Array, crown: bool) -> ArrayMesh:
 	return mesh
 
 
-## Crown tint: hsv2rgb(128 + hueDeg, 0.30, 0.92), raw linear values (index.html hueDegToColor).
-static func crown_tint(hue_deg: float) -> Color:
-	return Color.from_hsv(fposmod(CROWN_BASE_HUE + hue_deg, 360.0) / 360.0, CROWN_TINT_S, CROWN_TINT_V)
+## Crown tint of one species from its CROWN_TINTS entry [hue_deg, saturation, value].
+static func crown_tint(entry: Array) -> Color:
+	return Color.from_hsv(fposmod(float(entry[0]), 360.0) / 360.0, float(entry[1]), float(entry[2]))
 
 
 func _build_forms() -> void:
@@ -92,7 +96,7 @@ func _build_forms() -> void:
 			var m := ShaderMaterial.new()
 			m.shader = load(LEAF_SHADER)
 			m.set_shader_parameter("leaf_tex", tex["leaf_" + str(form["crown"]["leaf_tex"])])
-			m.set_shader_parameter("tint", crown_tint(float(HUE_DEG[id])))
+			m.set_shader_parameter("tint", crown_tint(CROWN_TINTS[id]))
 			m.set_shader_parameter("wind_amp", CROWN_WIND_AMP)
 			_crown_mats.append(m)
 			parts["crown"] = {"mesh": _surface_mesh(d["crown"], true), "material": m,
@@ -104,6 +108,11 @@ func _build_forms() -> void:
 
 func materials() -> Array:
 	return _crown_mats
+
+
+## The trunks' shared material (the crowns' are in materials()); the view levels set its haze too.
+func trunk_material() -> ShaderMaterial:
+	return _trunk_mat
 
 
 ## Per-frame wind feed (index.html animate): one shared clock and the weather front, the same feed

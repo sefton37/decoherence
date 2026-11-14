@@ -92,6 +92,8 @@ func _run() -> void:
 	_walker = _world.get_node("Walker")
 	_cam = _world.get_node("Camera")
 	_world.scripted_input = true
+	if not OS.get_environment("STALAG_VIEW").is_empty():  # Spec 580: walk the world at another view level (default: the game's own)
+		_world.view_distance = OS.get_environment("STALAG_VIEW")
 	_streamer.chunk_built.connect(func(c: Vector2i, v: PackedVector3Array) -> void: _ray.add_chunk(c, v))
 	if _mutation == "sync_build":
 		_streamer.sync_build = true

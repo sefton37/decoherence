@@ -1,0 +1,162 @@
+{
+  "note": "Spec 580 bars. Each bar judges one measured value of tools/measure_richness.sh: a min or max over the three bench poses (or one named pose), or a tint or fog field. A limit given per view applies to that view only. These are floors calibrated on the measured baseline and on the thin control; they never choose a picture. bare_near_frac allows 0.35 at far and vista: the meadow is drawn only to the view level's distance limit (a chunk's multimesh is culled by the distance of its centre), so ground 90 m and more away is bare by design; at near there is no limit and the floor is 0.30. far_ground_p90 is read at bench-ridge, the pose that looks at the horizon: at bench-river the camera looks down and at most 10 percent of its rays meet ground beyond 116 m whatever the ring or fog. Edge bars (Spec 580 S4) read the three edge poses of edge_poses.json: edge_gap_max is the share of the frame below the horizon line that still shows pure sky; floating_water_px_max counts water pixels with sky under them (the limit of 32 allows the 9 pixels of a hole in the lake mesh at the corner of the west edge pose, which the backdrop ring does not touch).",
+  "bars": [
+    {
+      "name": "species_ge10_min",
+      "source": "pose",
+      "key": "species_ge10",
+      "agg": "min",
+      "op": ">=",
+      "limit": {
+        "near": 14,
+        "far": 22,
+        "vista": 22
+      }
+    },
+    {
+      "name": "bare_near_frac_max",
+      "source": "pose",
+      "key": "bare_near_frac",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "near": 0.3,
+        "far": 0.35,
+        "vista": 0.35
+      }
+    },
+    {
+      "name": "detail_min",
+      "source": "pose",
+      "key": "detail",
+      "agg": "min",
+      "op": ">=",
+      "limit": 0.1
+    },
+    {
+      "name": "hue_bins_min",
+      "source": "pose",
+      "key": "hue_bins",
+      "agg": "min",
+      "op": ">=",
+      "limit": 5
+    },
+    {
+      "name": "tree_far_p95_river",
+      "source": "pose",
+      "key": "tree_far_p95_m",
+      "pose": "bench-river",
+      "op": ">=",
+      "limit": {
+        "near": 90,
+        "far": 130,
+        "vista": 170
+      }
+    },
+    {
+      "name": "far_ground_p90_ridge",
+      "source": "pose",
+      "key": "far_ground_p90_m",
+      "pose": "bench-ridge",
+      "op": ">=",
+      "limit": {
+        "near": 90,
+        "far": 130,
+        "vista": 170
+      }
+    },
+    {
+      "name": "chunks_river",
+      "source": "pose",
+      "key": "chunks",
+      "pose": "bench-river",
+      "op": ">=",
+      "limit": {
+        "far": 40,
+        "vista": 75
+      }
+    },
+    {
+      "name": "unloaded_visible_hit_max",
+      "source": "pose",
+      "key": "unloaded_visible_hit",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "far": 0,
+        "vista": 0
+      }
+    },
+    {
+      "name": "fog_visible_limit_m",
+      "source": "fog",
+      "key": "visible_limit_m",
+      "op": ">=",
+      "limit": {
+        "far": 155,
+        "vista": 250
+      }
+    },
+    {
+      "name": "tint_living_species",
+      "source": "tint",
+      "key": "living_species",
+      "op": "==",
+      "limit": 10
+    },
+    {
+      "name": "tint_hue_spread_deg",
+      "source": "tint",
+      "key": "hue_spread_deg",
+      "op": ">=",
+      "limit": 40
+    },
+    {
+      "name": "tint_hue_families",
+      "source": "tint",
+      "key": "hue_families",
+      "op": ">=",
+      "limit": 4
+    },
+    {
+      "name": "tint_sat_min",
+      "source": "tint",
+      "key": "sat_min",
+      "op": ">=",
+      "limit": 0.3
+    },
+    {
+      "name": "backdrop_present",
+      "source": "backdrop",
+      "key": "present",
+      "op": "==",
+      "limit": {
+        "near": false,
+        "far": true,
+        "vista": true
+      }
+    },
+    {
+      "name": "edge_gap_max",
+      "source": "edge",
+      "key": "below_horizon_sky_frac",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "far": 0.02,
+        "vista": 0.02
+      }
+    },
+    {
+      "name": "floating_water_px_max",
+      "source": "edge",
+      "key": "floating_water_px",
+      "agg": "max",
+      "op": "<=",
+      "limit": {
+        "far": 32,
+        "vista": 32
+      }
+    }
+  ]
+}

@@ -4,7 +4,13 @@
   "black_frac_max": 0.03,
   "white_frac_max": 0.03,
   "horizon_center_exclusion": 0.08,
-  "water_subject_min_frac": 0.10,
+  "water_subject_min_frac": 0.1,
   "min_pairwise_xz_m": 40,
-  "clearance_min_m": 1.0
+  "clearance_min_m": 1.0,
+  "far_ground_p90_min_m": 120,
+  "tree_far_p95_min_m": 130,
+  "sky_frac_max": 0.45,
+  "detail_min": 0.35,
+  "hue_bins_min": 5,
+  "species_ge10_min": 24
 }
