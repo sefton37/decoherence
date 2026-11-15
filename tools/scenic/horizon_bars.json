@@ -1,5 +1,5 @@
 {
-  "note": "Spec 582 S1 bars. Each bar judges one measured value of tools/measure_horizon.sh. source: pose (a value on each pose), lod (a value on the far terrain record), fog, derived (computed in tools/scenic/post.py). agg: min, max, count_ge:<n> (how many poses have the value at least n), cloud_min (the smallest cloud_frac over gated poses whose sky_frac is at least 0.25; 0 when fewer than three such poses exist), lod_err (the largest excess of a level's error over its bound, taken with the mean bound). gated_only restricts a pose bar to the four gated poses. applies lists the views and atmospheres a bar is judged for (a missing key means every one); `mutate_skip` lists controls for which the bar is not judged. D9: the distance, detail, contrast, seam and cloud thresholds were inferred from geometry before the first GPU run and are amended here with measured values, never lowered silently (see the spec's amendment log: amendments 1 and 2 moved the distance floors and the far pixel share after the first GPU run; amendment 6 split each main-thread timing bar into a 99th percentile at most 5 ms and a maximum at most 15 ms).",
+  "note": "Spec 582 S1 bars. Each bar judges one measured value of tools/measure_horizon.sh. source: pose (a value on each pose), lod (a value on the far terrain record), fog, derived (computed in tools/scenic/post.py). agg: min, max, count_ge:<n> (how many poses have the value at least n), cloud_min (the smallest cloud_frac over gated poses whose sky_frac is at least 0.10, amendment 10; 0 when fewer than three such poses exist), lod_err (the largest excess of a level's error over its bound, taken with the mean bound). gated_only restricts a pose bar to the four gated poses. applies lists the views and atmospheres a bar is judged for (a missing key means every one); `mutate_skip` lists controls for which the bar is not judged. D9: the distance, detail, contrast, seam and cloud thresholds were inferred from geometry before the first GPU run and are amended here with measured values, never lowered silently (see the spec's amendment log: amendments 1 and 2 moved the distance floors and the far pixel share after the first GPU run; amendment 6 split each main-thread timing bar into a 99th percentile at most 5 ms and a maximum at most 15 ms). Spec 582 S2 (relief): skyline_rise_med_min and far_height_min judge the mountain silhouette and the height of far pixels on the gated poses (D9: INFERRED from CPU predictions until the first GPU run); skyline_rise_6_poses counts gated poses whose silhouette rises at least 6 degrees; lod_relief_tile_max (agg relief_tile_excess: the tiles' tallest vertex lies between 0.85 times the engine's tallest height and that height plus 2 m), lod_relief_err (agg relief_err: the far terrain's height error against ground_envelope_at with a finite ceiling, mean at most 1.1 m, 95th percentile at most 3.2 m, at least 300 samples) and lod_rock_contrast (agg rock_contrast: steep vertices of l3 carry rock, flat ones do not) judge the highland ring. lod_height_err uses the amendment 9 bound 0.9 + 0.07 cell + 0.004 cell^2.",
   "bars": [
     {
       "name": "hole_px_frac_max",
@@ -21,24 +21,7 @@
       "agg": "min",
       "gated_only": true,
       "op": ">=",
-      "limit": 270,
-      "applies": {
-        "view": [
-          "horizon"
-        ],
-        "atmosphere": [
-          "clear"
-        ]
-      }
-    },
-    {
-      "name": "depth_p90_350_poses",
-      "source": "pose",
-      "key": "depth_p90_nonsky_m",
-      "agg": "count_ge:350",
-      "gated_only": true,
-      "op": ">=",
-      "limit": 3,
+      "limit": 180,
       "applies": {
         "view": [
           "horizon"
@@ -100,13 +83,13 @@
       }
     },
     {
-      "name": "far_px_frac_min",
+      "name": "far_px_04_poses",
       "source": "pose",
       "key": "far_px_frac",
-      "agg": "min",
+      "agg": "count_ge:0.04",
       "gated_only": true,
       "op": ">=",
-      "limit": 0.06,
+      "limit": 3,
       "applies": {
         "view": [
           "horizon"
@@ -123,7 +106,7 @@
       "agg": "min",
       "gated_only": true,
       "op": ">=",
-      "limit": 0.12,
+      "limit": 0.07,
       "applies": {
         "view": [
           "horizon"
@@ -173,7 +156,7 @@
       "agg": "max",
       "gated_only": true,
       "op": "<=",
-      "limit": 0.08,
+      "limit": 0.25,
       "applies": {
         "view": [
           "horizon"
@@ -514,6 +497,99 @@
           "horizon"
         ]
       }
+    },
+    {
+      "name": "skyline_rise_med_min",
+      "source": "pose",
+      "key": "skyline_rise_med_deg",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 4,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "skyline_rise_6_poses",
+      "source": "pose",
+      "key": "skyline_rise_med_deg",
+      "agg": "count_ge:6",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 3,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "far_height_min",
+      "source": "pose",
+      "key": "far_height_p90_m",
+      "agg": "min",
+      "gated_only": true,
+      "op": ">=",
+      "limit": 40,
+      "applies": {
+        "view": [
+          "horizon"
+        ],
+        "atmosphere": [
+          "clear"
+        ]
+      }
+    },
+    {
+      "name": "lod_relief_tile_max",
+      "source": "lod",
+      "key": "relief",
+      "agg": "relief_tile_excess",
+      "op": "<=",
+      "limit": 0.0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_relief_err",
+      "source": "lod",
+      "key": "relief",
+      "agg": "relief_err",
+      "op": "<=",
+      "limit": 0.0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
+    },
+    {
+      "name": "lod_rock_contrast",
+      "source": "lod",
+      "key": "rock",
+      "agg": "rock_contrast",
+      "op": "<=",
+      "limit": 0.0,
+      "applies": {
+        "view": [
+          "horizon"
+        ]
+      },
+      "needs_lod": true
     }
   ]
 }

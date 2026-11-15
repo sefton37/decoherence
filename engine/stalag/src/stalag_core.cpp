@@ -195,9 +195,27 @@ double ridged_relief(double cx, double cz, int32_t seed) {
 	return gm * (ridged(FEAT, AMP, xor_seed(seed, 0x9E37u)) + ridged(FEAT / 2, AMP / 2, xor_seed(seed, 0x85EBu)));
 }
 
+// Spec 582 S2 highland relief. Exactly zero out to 226 m (Chebyshev) from the origin: the water plan
+// domain is +-224 m plus a 2 m guard, so the valley, every carve and the plan hash are untouched.
+// Past the gate a smoothstep ramp over 120 m brings in two ridged octaves (300 m and 120 m features,
+// 70 m and 30 m tall: peaks near 100 m). Written for this project; same value-noise basis as
+// ridged_relief. The result is in lattice units like the rest of shb.
+double macro_relief(double cx, double cz, int32_t seed) {
+	const double GATE = 226, RAMP = 120, FEAT1 = 300, AMP1 = 70, FEAT2 = 120, AMP2 = 30;
+	double wx = cx * SF, wz = cz * SF;
+	double q = std::max(std::fabs(wx), std::fabs(wz));
+	if (q <= GATE) return 0;
+	double t = (q - GATE) / RAMP;
+	double gm = t >= 1 ? 1 : t * t * (3 - 2 * t);
+	auto ridged = [&](double feat, double amp, int32_t s) {
+		return amp * (1 - std::fabs(2 * value_noise(wx / feat, wz / feat, s) - 1));
+	};
+	return gm * (ridged(FEAT1, AMP1, xor_seed(seed, 0xA5A5u)) + ridged(FEAT2, AMP2, xor_seed(seed, 0x5A5Au))) / SF;
+}
+
 // worldmesh.js surfaceHeightBase (pre-carve; valid on carve-free regions only).
 double shb(double cx, double cz, int32_t seed) {
-	return terrain_height(cx, cz, seed) + ridged_relief(cx, cz, seed) + mesa_lift(cx, cz, seed) + cliff_lift(cx, cz, seed);
+	return terrain_height(cx, cz, seed) + ridged_relief(cx, cz, seed) + mesa_lift(cx, cz, seed) + cliff_lift(cx, cz, seed) + macro_relief(cx, cz, seed);
 }
 
 // ---------------------------------------------------------------- side-cap wall facings
@@ -353,6 +371,17 @@ struct Mesher {
 	}
 };
 
+// Spec 582 S2: top of the mesher's vertical window, in lattice units, derived from the region's own
+// pre-carve heights (carving only lowers them): the tallest shb on a half-metre grid over the region and
+// its ring (RMARGIN columns plus the neighbour box), plus the 4-lattice column margin and a 1 m guard.
+int region_cy_hi(double x_min, double x_max, double z_min, double z_max, int32_t seed) {
+	const double RING = 4.0, STEP = 0.5;
+	double top = -1e18;
+	for (double x = x_min - RING; x <= x_max + RING; x += STEP)
+		for (double z = z_min - RING; z <= z_max + RING; z += STEP) top = std::max(top, shb(x / SF, z / SF, seed));
+	return (int)std::ceil(top) + 4 + 8;
+}
+
 } // anonymous namespace
 
 void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_max, double p_z_min, double p_z_max, SurfaceMesh &out, const WaterPlan *p_plan) {
@@ -377,7 +406,7 @@ void build_surface(int32_t p_seed, int32_t extent, double p_x_min, double p_x_ma
 		hi = std::min(i_max, (int32_t)std::ceil((p_x_max / SF - 2 * k) / 4) + RMARGIN);
 	};
 	const int cy_lo_const = -10 - SLAB_DEPTH * TERRACE_LAT;
-	const int cy_hi_const = 26;
+	const int cy_hi_const = std::max(26, region_cy_hi(p_x_min, p_x_max, p_z_min, p_z_max, p_seed));
 	const int32_t j_min = (int32_t)std::floor((double)(cy_lo_const - 2 * k_hi) / 4) - JMARGIN;
 	const int32_t j_max = (int32_t)std::ceil((double)(cy_hi_const - 2 * k_lo) / 4) + JMARGIN;
 

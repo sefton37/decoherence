@@ -8,7 +8,7 @@ extends Node
 ##      HZ_VIEW            near | far | vista | horizon (default horizon)
 ##      HZ_ATMO            classic | clear | amber (default clear)
 ##      HZ_MODE            measure (the five poses, depth, budgets, far terrain checks) | sheet (the contact sheet)
-##      HZ_MUTATE          none | nolod | flat | fogwall | noclouds | seam | noatmo (the negative controls)
+##      HZ_MUTATE          none | nolod | flat | norelief | fogwall | noclouds | seam | noatmo (the negative controls)
 ##
 ## measure writes raw.json, <pose>.png, <pose>-depth.png and <pose>-sky.png: the frame, the same frame drawn by
 ## tools/scenic/depth_pass.gdshader (linear view distance in the RGB bits, white = sky), and the frame with the
@@ -30,6 +30,15 @@ const TRAVERSE_STEPS := 61
 const TRAVERSE_STEP_M := 16.7
 const TRAVERSE_FRAMES_MAX := 120
 const DEPTH_RANGE_M := 4000.0
+## The finite ceiling of every ground_envelope_at truth call. An unbounded ceiling (INF) starts the engine's scan at
+## lattice 60 and returns -inf above 7.5 m, so it would silently mis-measure any mountain (Spec 582 finding L).
+const TRUTH_CEIL_M := 400.0
+const RELIEF_INNER_M := 346.0  ## the highland ring of the relief records: Chebyshev distance from the origin
+const RELIEF_OUTER_M := 840.0
+const RELIEF_SAMPLES := 600
+const RELIEF_GRID_M := 4.0  ## the grid of the engine's own maximum over the ring (every tile vertex lies on it)
+const RELIEF_WINDOW_M := 100.0
+const WINDOW_MIN_VERTS := 16  ## a relief window counts when at least this many tile vertices lie in it
 const FOOT_HALF_M := 104.0  ## a pose's focus is clamped this far from the origin (the walkable footprint is 112)
 
 var _out := ""
@@ -78,7 +87,7 @@ func _run() -> void:
 		_fail("HZ_OUT is required and the engine must be loaded")
 		return
 	if not ["near", "far", "vista", "horizon"].has(_view) or not ["classic", "clear", "amber"].has(_atmo) or not ["measure", "sheet"].has(_mode) \
-			or not ["none", "nolod", "flat", "fogwall", "noclouds", "seam", "noatmo"].has(_mutate):
+			or not ["none", "nolod", "flat", "norelief", "fogwall", "noclouds", "seam", "noatmo"].has(_mutate):
 		_fail("bad HZ_VIEW, HZ_ATMO, HZ_MODE or HZ_MUTATE")
 		return
 	DirAccess.make_dir_recursive_absolute(_out)
@@ -130,6 +139,7 @@ func _load_world(view: String, atmo: String, mutate: String) -> bool:
 	_far = _world.far_terrain
 	if _far != null:
 		_far.manual_step = true  # this probe times the two halves of the far terrain's frame itself
+		_far.norelief_mutation = mutate == "norelief"
 	if mutate == "fogwall":
 		_world.fog_override = 0.012
 		_world._apply_view()
@@ -253,7 +263,7 @@ func _go_to_pose(p: Dictionary) -> Vector3:
 	var dir := Vector3(sin(hd) * cos(pitch_down), -sin(pitch_down), cos(hd) * cos(pitch_down))
 	_teleport(clampf(float(cam_xz[0]), -FOOT_HALF_M, FOOT_HALF_M), clampf(float(cam_xz[1]), -FOOT_HALF_M, FOOT_HALF_M))
 	await _settle()
-	var ground: float = StalagWorld.ground_envelope_at(float(cam_xz[0]), float(cam_xz[1]), INF)
+	var ground: float = StalagWorld.ground_envelope_at(float(cam_xz[0]), float(cam_xz[1]), TRUTH_CEIL_M)
 	var cam_pos := Vector3(float(cam_xz[0]), ground + float(p["height_m"]), float(cam_xz[1]))
 	_pc.far = _world.cam.far
 	_pc.fov = float(p["fov_deg"])
@@ -305,6 +315,10 @@ func _measure_pose(p: Dictionary, with_depth: bool) -> Dictionary:
 		_world.visible = true
 		rec["sky_png"] = _out.path_join("%s-sky.png" % id)
 		var fwd_flat := Vector3(-_pc.global_basis.z.x, 0.0, -_pc.global_basis.z.z)
+		# the camera, for the pixel metrics that turn a row into an angle or a world height
+		rec["fov_deg"] = float(p["fov_deg"])
+		rec["cam_fwd_y"] = snappedf(-_pc.global_basis.z.y, 0.000001)
+		rec["cam_up_y"] = snappedf(_pc.global_basis.y.y, 0.000001)
 		rec["horizon_row_px"] = snappedf(_pc.unproject_position(_pc.global_position + fwd_flat.normalized() * 100000.0).y, 0.1)
 		# the depth frame
 		var dimg: Image = await _depth_frame()
@@ -379,13 +393,13 @@ func _ground_hit_distance(origin: Vector3, dir: Vector3) -> float:
 	var prev_t := 0.0
 	while t < 3000.0:
 		var p := origin + dir * t
-		if p.y < float(StalagWorld.ground_envelope_at(p.x, p.z, INF)):
+		if p.y < float(StalagWorld.ground_envelope_at(p.x, p.z, TRUTH_CEIL_M)):
 			var lo := prev_t
 			var hi := t
 			for _i in range(24):
 				var mid := (lo + hi) * 0.5
 				var q := origin + dir * mid
-				if q.y < float(StalagWorld.ground_envelope_at(q.x, q.z, INF)):
+				if q.y < float(StalagWorld.ground_envelope_at(q.x, q.z, TRUTH_CEIL_M)):
 					hi = mid
 				else:
 					lo = mid
@@ -489,7 +503,7 @@ func _lod_record(hash_text: String) -> Dictionary:
 			var mh: float = _far.mesh_height_at(l, x, z)
 			if is_nan(mh):
 				continue
-			var truth: float = StalagWorld.ground_envelope_at(x, z, INF)
+			var truth: float = StalagWorld.ground_envelope_at(x, z, TRUTH_CEIL_M)
 			errs.append(absf(mh - truth))
 		errs.sort()
 		var sum := 0.0
@@ -532,6 +546,8 @@ func _lod_record(hash_text: String) -> Dictionary:
 		"height_truth": "ground_envelope_at",
 		"height_samples": all_err.size(),
 		"height_err_mean_m": snappedf(tot / float(maxi(all_err.size(), 1)), 0.0001),
+		"relief": _relief_record(rng),
+		"rock": _rock_record(),
 		"hash": hash_text,
 		"coverage_gaps": _far.coverage_gaps(8.0),
 		"overlap_frac": snappedf(_far.overlap_frac(7.0), 0.0001),
@@ -545,6 +561,115 @@ func _lod_record(hash_text: String) -> Dictionary:
 	}
 	rec["traverse"] = await _traverse()
 	return rec
+
+
+## Relief in the highland ring (Chebyshev 346 to 840 m): the far terrain's height against the engine's rendered
+## surface at random points (truth = ground_envelope_at with a finite ceiling), the tallest vertex of the tiles
+## against the engine's own tallest height over the same covered ground, and the 90th percentile of tile relief
+## (highest minus lowest vertex) per 100 m window.
+func _relief_record(rng: RandomNumberGenerator) -> Dictionary:
+	var errs: Array = []
+	var tries := 0
+	while errs.size() < RELIEF_SAMPLES and tries < 40000:
+		tries += 1
+		var x := rng.randf_range(-RELIEF_OUTER_M, RELIEF_OUTER_M)
+		var z := rng.randf_range(-RELIEF_OUTER_M, RELIEF_OUTER_M)
+		if maxf(absf(x), absf(z)) < RELIEF_INNER_M:
+			continue
+		var mh := _ring_mesh_height(x, z)
+		if is_nan(mh):
+			continue
+		errs.append(absf(mh - float(StalagWorld.ground_envelope_at(x, z, TRUTH_CEIL_M))))
+	errs.sort()
+	var sum := 0.0
+	for e in errs:
+		sum += float(e)
+	# the engine's tallest height over the ground the tiles cover there
+	var engine_max := -1000.0
+	var g := -RELIEF_OUTER_M
+	while g <= RELIEF_OUTER_M:
+		var gz := -RELIEF_OUTER_M
+		while gz <= RELIEF_OUTER_M:
+			if maxf(absf(g), absf(gz)) >= RELIEF_INNER_M and not is_nan(_ring_mesh_height(g, gz)):
+				engine_max = maxf(engine_max, float(StalagWorld.surface_height(g / 0.125, gz / 0.125)) * 0.125)
+			gz += RELIEF_GRID_M
+		g += RELIEF_GRID_M
+	var tile_max := -1000.0
+	var cells := {}
+	for l in [1, 2]:
+		var rows: Dictionary = _far.vertex_rows(l, RELIEF_INNER_M)
+		var xs: PackedFloat32Array = rows["x"]
+		var zs: PackedFloat32Array = rows["z"]
+		var hs: PackedFloat32Array = rows["h"]
+		for i in range(hs.size()):
+			tile_max = maxf(tile_max, hs[i])
+			var key := Vector2i(floori(xs[i] / RELIEF_WINDOW_M), floori(zs[i] / RELIEF_WINDOW_M))
+			if not cells.has(key):
+				cells[key] = [hs[i], hs[i], 0]
+			var c: Array = cells[key]
+			c[0] = minf(c[0], hs[i])
+			c[1] = maxf(c[1], hs[i])
+			c[2] += 1
+	var reliefs: Array = []
+	for key in cells.keys():
+		var c: Array = cells[key]
+		if int(c[2]) >= WINDOW_MIN_VERTS:
+			reliefs.append(float(c[1]) - float(c[0]))
+	reliefs.sort()
+	return {
+		"samples": errs.size(),
+		"truth_max_surface_m": TRUTH_CEIL_M,
+		"engine_max_m": snappedf(engine_max, 0.01),
+		"tile_max_m": snappedf(tile_max, 0.01),
+		"err_mean_m": snappedf(sum / float(maxi(errs.size(), 1)), 0.0001),
+		"err_p95_m": snappedf(float(errs[int(floor(0.95 * float(errs.size() - 1)))]) if not errs.is_empty() else 999.0, 0.0001),
+		"window_p90_m": snappedf(float(reliefs[int(floor(0.9 * float(reliefs.size() - 1)))]) if not reliefs.is_empty() else 0.0, 0.01),
+		"windows": reliefs.size(),
+	}
+
+
+## The height of the finest built tile beyond the full-detail ring at a point (NAN when no tile of level 2 or 3 covers it).
+func _ring_mesh_height(x: float, z: float) -> float:
+	for l in [1, 2]:
+		var mh: float = _far.mesh_height_at(l, x, z)
+		if not is_nan(mh):
+			return mh
+	return NAN
+
+
+## Slope-derived rock facing of the outermost level (l3) beyond 346 m: the mean rock weight of the built vertex
+## colours on steep vertices (normal y at most 0.8) and on flat ones (at least 0.97). rock_w is the Euclidean distance of
+## the colour from the rock colour, against the distance of the high-ground colour from it, clamped to 0..1.
+func _rock_record() -> Dictionary:
+	var rows: Dictionary = _far.vertex_rows(2, RELIEF_INNER_M)
+	var nys: PackedFloat32Array = rows["ny"]
+	var cols: PackedColorArray = rows["col"]
+	var rock: Color = _far.GROUND_ROCK
+	var high: Color = _far.GROUND_HIGH
+	var span := _rgb_dist(high, rock)
+	var steep_n := 0
+	var flat_n := 0
+	var steep_sum := 0.0
+	var flat_sum := 0.0
+	for i in range(nys.size()):
+		var w := clampf(1.0 - _rgb_dist(cols[i], rock) / span, 0.0, 1.0)
+		if nys[i] <= 0.8:
+			steep_n += 1
+			steep_sum += w
+		elif nys[i] >= 0.97:
+			flat_n += 1
+			flat_sum += w
+	return {
+		"level": "l3",
+		"steep_n": steep_n,
+		"flat_n": flat_n,
+		"steep_rock_mean": snappedf(steep_sum / float(maxi(steep_n, 1)), 0.0001),
+		"flat_rock_mean": snappedf(flat_sum / float(maxi(flat_n, 1)), 0.0001),
+	}
+
+
+func _rgb_dist(a: Color, b: Color) -> float:
+	return sqrt((a.r - b.r) * (a.r - b.r) + (a.g - b.g) * (a.g - b.g) + (a.b - b.b) * (a.b - b.b))
 
 
 func _chunk_loaded(x: float, z: float) -> bool:

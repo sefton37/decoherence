@@ -19,7 +19,9 @@
 ##      HZ_VIEW              near | far | vista | horizon (default horizon): the game's view-distance level
 ##      HZ_ATMO              classic | clear | amber (default clear): the atmosphere preset
 ##      HZ_MODE              measure (default) | sheet (three presets at four poses, plus a contact sheet)
-##      HZ_MUTATE            none (default) | nolod (no far terrain) | flat (flat far terrain) | fogwall (heavy fog)
+##      HZ_MUTATE            none (default) | nolod (no far terrain) | flat (flat far terrain) | norelief (far terrain
+##                           reads the engine height clamped into the plan domain: the valley, no highlands)
+##                           | fogwall (heavy fog)
 ##                           | noclouds (clouds off) | seam (far ground haze made a different colour)
 ##                           | noatmo (the atmosphere code bypassed); every one but none is a negative control
 ##      HZ_XDG               isolated XDG base dir (default /tmp/decoh-horizon-xdg-<uid>)
@@ -47,7 +49,7 @@ HZ_MUTATE="${HZ_MUTATE:-none}"
 case "$HZ_VIEW" in near|far|vista|horizon) ;; *) echo "measure_horizon: bad HZ_VIEW '$HZ_VIEW'" >&2; exit 2 ;; esac
 case "$HZ_ATMO" in classic|clear|amber) ;; *) echo "measure_horizon: bad HZ_ATMO '$HZ_ATMO'" >&2; exit 2 ;; esac
 case "$HZ_MODE" in measure|sheet) ;; *) echo "measure_horizon: bad HZ_MODE '$HZ_MODE'" >&2; exit 2 ;; esac
-case "$HZ_MUTATE" in none|nolod|flat|fogwall|noclouds|seam|noatmo) ;; *) echo "measure_horizon: bad HZ_MUTATE '$HZ_MUTATE'" >&2; exit 2 ;; esac
+case "$HZ_MUTATE" in none|nolod|flat|norelief|fogwall|noclouds|seam|noatmo) ;; *) echo "measure_horizon: bad HZ_MUTATE '$HZ_MUTATE'" >&2; exit 2 ;; esac
 export HZ_VIEW HZ_ATMO HZ_MODE HZ_MUTATE
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/bus
 # The inherited XDG_DATA_HOME is ignored on purpose: it points at the real user's data.

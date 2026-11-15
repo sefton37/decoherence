@@ -62,6 +62,9 @@ const DEAD_FORMS := ["standing-snag", "cut-stump"]  ## carry no crown, so no far
 const GROUND_LOW := Color(0.17, 0.29, 0.08)
 const GROUND_HIGH := Color(0.27, 0.32, 0.11)
 const GROUND_ROCK := Color(0.36, 0.34, 0.30)
+const HIGH_RAMP_M := 90.0  ## the height at which the ground colour reaches GROUND_HIGH
+const ROCK_SLOPE_FROM := 0.06  ## 1 - normal.y where rock starts to show (about 20 degrees)
+const ROCK_SLOPE_TO := 0.28  ## ... and where the ground is all rock (about 44 degrees)
 const WATER_COLOR := Color(0.12, 0.34, 0.36)
 const CANOPY_TINT := 0.3  ## share of the mean crown colour mixed into the far end's ground colour
 const PLAN_HALF_M := 224.0  ## the water plan's domain: water exists nowhere beyond it
@@ -71,6 +74,7 @@ const TERRACE_M := 0.5  ## a water level in the plan is counted in terraces
 ## A probe sets these before the node enters the tree (or calls set_flat before the first step).
 var manual_step := false
 var flat_mutation := false  ## the negative control: every tile is built flat
+var norelief_mutation := false  ## the negative control: every tile reads the engine height clamped into the plan domain (the valley, no highlands)
 var focus_valid := false
 var _calm := 0
 var last_adopted: Array = []  ## "kind:level" of the jobs the last adopt_pending() turned into nodes (a probe reads it)
@@ -512,6 +516,9 @@ func _stale(job: Dictionary) -> bool:
 func _h(x: float, z: float) -> float:
 	if flat_mutation:
 		return FLAT_Y
+	if norelief_mutation:
+		x = clampf(x, -PLAN_HALF_M, PLAN_HALF_M)
+		z = clampf(z, -PLAN_HALF_M, PLAN_HALF_M)
 	return StalagWorld.surface_height(x / _sf, z / _sf) * _sf
 
 
@@ -651,12 +658,15 @@ func _water_cells(x0: float, z0: float, n: int, cell: float, inner: PackedFloat3
 
 func _ground_color(x: float, z: float, h: float, ny: float, level: int) -> Color:
 	var patch := float(_hash(floori(x / 8.0), floori(z / 8.0), 7) & 255) / 255.0
-	var t := clampf(h / 9.0 + (patch - 0.5) * 0.5, 0.0, 1.0)
+	# the ground greens from the valley floor up the highland slopes (the ramp spans the height of the mountains,
+	# not the few metres of the valley), and rock shows wherever the slope is steep
+	var t := clampf(h / HIGH_RAMP_M + (patch - 0.5) * 0.5, 0.0, 1.0)
 	var col := GROUND_LOW.lerp(GROUND_HIGH, t)
-	var rock := smoothstep(0.22, 0.5, 1.0 - ny)
+	var rock := smoothstep(ROCK_SLOPE_FROM, ROCK_SLOPE_TO, 1.0 - ny)
 	col = col.lerp(GROUND_ROCK, rock)
 	if level == LEVELS.size() - 1:
-		col = col.lerp(_canopy_mean, CANOPY_TINT)  # the far end reads as forest where the trees are only clusters
+		# the far end reads as forest where the trees are only clusters; no canopy stands on bare rock
+		col = col.lerp(_canopy_mean, CANOPY_TINT * (1.0 - rock))
 	return col
 
 
@@ -700,6 +710,33 @@ func _adopt_terrain(job: Dictionary) -> void:
 
 ## The tile mesh's own height at (x, z): the triangle of the built tile that the point lies in, interpolated as
 ## the renderer would. `level` is 0 to 2. NAN when that tile is not built.
+## The built vertices of one terrain level (its grid, not the skirts) that lie at least `min_cheb_m` from the origin
+## (Chebyshev), as parallel arrays: x, z, height, normal y and colour. The probe's relief and rock records read it.
+func vertex_rows(level: int, min_cheb_m: float) -> Dictionary:
+	var lv: Dictionary = LEVELS[level]
+	var n := int(roundf(float(lv["tile_m"]) / float(lv["cell_m"])))
+	var nv := (n + 1) * (n + 1)
+	var xs := PackedFloat32Array()
+	var zs := PackedFloat32Array()
+	var hs := PackedFloat32Array()
+	var nys := PackedFloat32Array()
+	var cols := PackedColorArray()
+	for k in _tiles[level].keys():
+		var arrays: Array = (_tiles[level][k]["node"] as MeshInstance3D).mesh.surface_get_arrays(0)
+		var v: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var nr: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+		var cl: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+		for i in range(nv):
+			if maxf(absf(v[i].x), absf(v[i].z)) < min_cheb_m:
+				continue
+			xs.append(v[i].x)
+			zs.append(v[i].z)
+			hs.append(v[i].y)
+			nys.append(nr[i].y)
+			cols.append(cl[i])
+	return {"x": xs, "z": zs, "h": hs, "ny": nys, "col": cols}
+
+
 func mesh_height_at(level: int, x: float, z: float) -> float:
 	var lv: Dictionary = LEVELS[level]
 	var tile := float(lv["tile_m"])

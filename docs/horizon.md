@@ -1,6 +1,6 @@
 # Horizon: Minecraft-scale view distance (Spec 582, slice S1)
 
-The `horizon` view level draws real terrain, forest and water out to about 840 m under a clear sky with clouds and a
+The `horizon` view level draws real terrain, forest and water out to about 840 m under the `amber` look (the owner's pick; the `clear` look is a preset and the one the probes measure) and a
 light haze. It is the default level of the game (the player setting `view_distance`, schema default `horizon`); the
 world scene's own default stays `near`, so every probe and the Spec 580 baselines read what they always read. S1 touches
 no engine code and does not grow the world: the world is still the 224 m footprint and its terrain is still under 8 m of
@@ -22,7 +22,7 @@ light and sky and returns the haze colours, which the world scene pushes to ever
 | `amber` | a frozen copy of the low golden sun picked on the 2026-11-14 contact sheet | 16 degrees up, colour (1, 0.68, 0.34), energy 2.6 | 0.005 | the mesa-sidelight sky, no clouds |
 
 The world property `atmosphere` (default `classic`) with `atmosphere_from_level` true means "the look the view level
-asks for": `horizon` asks for `clear`, every other level for `classic`. Any other value of `atmosphere` is a deliberate
+asks for": `horizon` asks for `amber`, every other level for `classic`. Any other value of `atmosphere` is a deliberate
 choice and always wins. A player-facing choice of preset is not part of S1. `fog.ground_haze` is the colour the far
 terrain fades to: about a tenth darker than the sky's horizon colour, which is how distant ground reads in clear air and
 is what keeps the far ground from being exactly the sky's colour (so a hole in it is measurable). The sky holds its
@@ -79,14 +79,49 @@ streamer is settled.
 
 ## How relief and world size plug in
 
-S2 (relief) adds a macro-relief term to the engine's height function beyond the plan's domain; the far tiles ask the
-engine for heights, so mountains appear in them with no change here. The mesher's vertical window (an engine constant)
-is what must change for tall terrain to be real near the walker; the far tiles have no such window. S3 (world size)
+S2 (relief, section Relief below) adds a macro-relief term to the engine's height function beyond the plan's domain; the far
+tiles ask the engine for heights, so mountains appear in them with no change to their heights. The mesher's vertical window
+is derived from the heights in S2; the far tiles have no such window. S3 (world size)
 grows the footprint; the far terrain follows the focus chunk and takes its chunk grid from the streamer's own grid
 (`StalagWorld.get_half_extent_m`), and its real-tree tier reads `place_chunk` for every chunk of that grid, so a bigger
 grid is picked up as is. Hard-coded copies of 224, 112 and 448 elsewhere are S3's list, not this file's. S4 retires the
 Spec 580 backdrop ring (kept at `far` and `vista`), makes every far tree a real placement and adds the pause-menu row for
 the setting.
+
+## Relief
+
+Spec 582 S2 gives the world mountains. The engine's height function gains one term, `macro_relief`
+(`engine/stalag/src/stalag_core.cpp`), added last to `shb`. It is exactly zero out to 226 m (Chebyshev) from the origin:
+the water plan's domain is +-224 m, so the plan domain, every carve, the plan hash and every footprint chunk are bit
+for bit what they were (hashes pinned by `tests/verify_relief.sh`). Past 226 m a smoothstep ramp over 120 m brings in
+two ridged octaves of value noise (300 m and 120 m features, 70 m and 30 m tall). Measured on the 100 m windows of the
+highland ring (Chebyshev 346 to 850 m): relief p10 / p50 / p90 of 16.9 / 30.6 / 47.8 m, tallest point
+105.7 m, largest 1 m step 4.75 m. Nothing walks there in S2 (the footprint is +-112 m, finding M of the spec):
+the mountains are seen, through the far tiles, which take the engine's own height and so need no change.
+
+The mesher's vertical window was a constant that made tall terrain disappear (a 28 m chunk beyond the plan domain at
+100 m high meshed to zero triangles). `cy_hi_const` in `build_surface` is now one line derived from the region's own
+pre-carve heights (`region_cy_hi`: the tallest `shb` over the region and its ring, plus margins), never below the old
+26, so every chunk that fitted the old window meshes byte for byte as before. Proof is CPU-only and needs no Godot:
+`tests/verify_relief.sh` builds `engine/stalag/tests/relief_check.cpp` from the engine sources with plain g++ and writes
+a record (valley hashes, the 64 footprint chunks' mesh hash, relief numbers, a tall chunk and a row of chunks across the
+plan domain's edge checked by vertical rays against `ground_envelope_at` with a finite ceiling, chunk build times, and a
+terrain-only skyline from each horizon pose). `RELIEF_VARIANT=window26` rebuilds with the old constant (the tall chunk
+meshes to zero triangles: the control), `mutate_valley` moves one valley term (the hashes must change).
+
+The far tiles carry slope-derived rock facing in vertex colour (`far_terrain.gd:_ground_color`): rock shows from about
+20 degrees of slope and is all rock at 44, no canopy tint stands on rock, and the height ramp of the ground colour spans
+90 m, not the 9 m of the valley. Real chunks and the walker stay as they were (S3).
+
+Pixel measures of relief, per pose, in `horizon.json`: `skyline_rise_med_deg` (the median over the frame's columns of
+the angle between the horizon row and the topmost row that is not sky; signed) and `far_height_p90_m` (the 90th
+percentile of the world height of the far non-sky pixels, rebuilt from the depth frame and the camera). The record's
+`lod.relief` compares the far tiles with `ground_envelope_at` in the highland ring and `lod.rock` the rock weight of
+steep and flat vertices of `l3`. All truth calls pass a finite ceiling (`TRUTH_CEIL_M` in the probe): with an unbounded
+ceiling the engine's scan starts at lattice 60 and returns -inf above 7.5 m. `HZ_MUTATE=norelief` makes the far terrain
+read the height clamped into the plan domain (Chebyshev 224 m): the valley without highlands, which must fail the
+skyline and far-height bars. Measured at the four tower poses (first GPU run): the silhouette rises 13.6, 12.1, 8.2 and 8.7 degrees and the far pixels' 90th percentile height is 101, 97, 97 and 82 m; the far tiles' tallest vertex is 105.9 m against the engine's 106.1 m, height error mean 0.62 m and 95th percentile 1.9 m, steep vertices of `l3` carry a rock weight of 0.76 and flat ones 0.0. The ground pose (`hz-ground-east`) is
+recorded and not gated in pixels: it stands in forest and no clear ground-level sightline exists in the valley.
 
 ## Probe records
 

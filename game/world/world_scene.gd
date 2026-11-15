@@ -58,7 +58,7 @@ const VIEW_LEVELS := {
 	"near": {"load_radius": 2, "fog_density": 0.012, "cull_m": 0.0, "backdrop": false},
 	"far": {"load_radius": 4, "fog_density": 0.008, "cull_m": SMALL_FLORA_CULL_M, "backdrop": true},
 	"vista": {"load_radius": 8, "fog_density": 0.005, "cull_m": SMALL_FLORA_CULL_M, "backdrop": true},
-	"horizon": {"load_radius": 3, "fog_density": 0.0014, "cull_m": SMALL_FLORA_CULL_M, "backdrop": false, "far_terrain": true, "atmosphere": "clear"},
+	"horizon": {"load_radius": 3, "fog_density": 0.0014, "cull_m": SMALL_FLORA_CULL_M, "backdrop": false, "far_terrain": true, "atmosphere": "amber"},
 }
 ## Spec 580 S4: at `far` and `vista` a visual-only backdrop ring (terrain, sea and tree impostors) continues the
 ## world past its edge out to about 300 m (backdrop_ring.gd). `near` never builds it. A probe may switch it off
@@ -68,7 +68,8 @@ var backdrop: Node3D
 ## Spec 582 S1: `horizon` is the level the player's own setting selects by default (the scene's own default stays
 ## `near`, so every probe and Spec 580's baselines read what they always read). It loads 49 chunks, draws real
 ## terrain and trees out to about 840 m with the camera-centred far terrain (far_terrain.gd) instead of the ring,
-## and wears the `clear` atmosphere. Probes switch the far terrain off or flatten it as negative controls.
+## and wears the `amber` atmosphere (the owner's taste call T1; the `clear` preset stays available).
+## Probes switch the far terrain off or flatten it as negative controls.
 var far_terrain_enabled: bool = true
 var far_terrain_flat: bool = false
 var far_terrain: Node3D
@@ -76,7 +77,7 @@ var far_terrain: Node3D
 ## table does not name is refused and the current one stays.
 @export var view_distance: String = "near": set = set_view_distance
 ## Spec 582 S1: the atmosphere preset (atmosphere.json: classic, clear, amber). `classic` with
-## atmosphere_from_level true means "the look the view level asks for" (horizon asks for `clear`, every other
+## atmosphere_from_level true means "the look the view level asks for" (horizon asks for `amber`, every other
 ## level for the classic look); any other value is a deliberate choice and always wins. Probes that need the
 ## classic look at `horizon` clear atmosphere_from_level.
 @export var atmosphere: String = "classic": set = set_atmosphere

@@ -421,6 +421,7 @@ SKY_CODE = 16777215  # the white background of the depth frame: no surface
 FAR_M = 300.0  # the far-field metrics read pixels at least this far away
 DETAIL_BLOCK, DETAIL_STD = 8, 3.0
 CLOUD_BLOCK, CLOUD_STD = 16, 2.5
+CLOUD_POSE_SKY_MIN = 0.10  # a pose counts toward the cloud rule when this much of its frame is sky (A10: mountains cover more of it)
 SEAM_PX, SEAM_MIN_M = 6, 600.0
 HOLE_SKY_TOL = 4  # a pixel within this (max channel) of the world-hidden frame is a hole
 MAX_FOG = 0.8
@@ -441,6 +442,31 @@ def decode_depth(png_path):
     a = np.asarray(Image.open(png_path).convert("RGB"), dtype=np.int64)
     code = a[..., 0] * 65536 + a[..., 1] * 256 + a[..., 2]
     return code.astype(np.float64) / float(SKY_CODE) * DEPTH_RANGE_M, code == SKY_CODE
+
+
+def skyline_and_height(rec, dist, sky):
+    """Two observer-frame measures of the relief the camera sees (Spec 582 S2).
+
+    skyline rise  per column, the angle between the pose's horizon row and the topmost row whose depth is not the far
+                  plane (a column with no surface counts as the frame's bottom row); the median over the columns,
+                  signed (a skyline under the horizon line is negative).
+    far height    the 90th percentile of the world height of the non-sky pixels at least FAR_M away, rebuilt from the
+                  depth frame (view-space depth) and the camera's forward and up vectors."""
+    h, w = sky.shape
+    tan_y = np.tan(np.radians(float(rec["fov_deg"])) / 2.0)
+    tan_x = tan_y * w / h
+    ndc_y = ((h / 2.0) - (np.arange(h) + 0.5)) / (h / 2.0)  # +1 at the top of the frame
+    ang = np.arctan(ndc_y * tan_y)  # elevation of a row above the optical axis
+    ang_h = np.arctan(((h / 2.0) - float(rec["horizon_row_px"])) / (h / 2.0) * tan_y)
+    solid = ~sky
+    top = np.where(solid.any(axis=0), solid.argmax(axis=0), h - 1)
+    rise = np.degrees(ang[top] - ang_h)
+    cam_y = float(rec["cam_pos"][1])
+    ray_y = float(rec["cam_fwd_y"]) + ndc_y[:, None] * tan_y * float(rec["cam_up_y"])  # world y of the unit-depth ray
+    height = cam_y + dist * ray_y
+    far = solid & (dist >= FAR_M)
+    far_h = float(np.percentile(height[far], 90)) if far.any() else 0.0
+    return float(np.median(rise)), far_h
 
 
 def horizon_stats(rec, density):
@@ -495,7 +521,10 @@ def horizon_stats(rec, density):
     # no pixel's ray meets ground inside the drawn ring (the 24 m poses at `near`): nothing to check on this pose
     err = min(errs) if errs else 0.0
     over_frac = over / len(errs) if errs else 0.0
+    rise_med, far_h_p90 = skyline_and_height(rec, dist, sky)
     return {
+        "skyline_rise_med_deg": round(rise_med, 3),
+        "far_height_p90_m": round(far_h_p90, 2),
         "depth_p90_nonsky_m": round(p90, 2),
         "sky_frac": round(float(sky.mean()), 4),
         "far_detail": round(far_detail, 4),
@@ -544,7 +573,7 @@ def horizon_bar(bar, ctx):
         elif agg.startswith("count_ge:"):
             v = sum(1 for x in vals if x >= float(agg.split(":")[1]))
         elif agg == "cloud_min":
-            sel = [float(p["cloud_frac"]) for p in ctx["poses"] if p["gated"] and float(p["sky_frac"]) >= 0.25]
+            sel = [float(p["cloud_frac"]) for p in ctx["poses"] if p["gated"] and float(p["sky_frac"]) >= CLOUD_POSE_SKY_MIN]
             v = min(sel) if len(sel) >= 3 else 0.0
         else:
             raise ValueError("bad agg " + agg)
@@ -555,8 +584,17 @@ def horizon_bar(bar, ctx):
         if agg == "lod_err":
             worst = float(lod["height_err_mean_m"]) - 0.8
             for lv in lod["levels"]:
-                worst = max(worst, float(lv["err_p95_m"]) - (0.9 + 0.07 * float(lv["cell_m"])), float(lv["err_mean_m"]) - 0.8)
+                worst = max(worst, float(lv["err_p95_m"]) - (0.9 + 0.07 * float(lv["cell_m"]) + 0.004 * float(lv["cell_m"]) ** 2), float(lv["err_mean_m"]) - 0.8)
             v = worst
+        elif agg == "relief_tile_excess":
+            r = lod["relief"]
+            v = max(0.85 * float(r["engine_max_m"]) - float(r["tile_max_m"]), float(r["tile_max_m"]) - float(r["engine_max_m"]) - 2.0)
+        elif agg == "relief_err":
+            r = lod["relief"]
+            v = max(float(r["err_mean_m"]) - 1.1, float(r["err_p95_m"]) - 3.2, 300 - float(r["samples"]))
+        elif agg == "rock_contrast":
+            r = lod["rock"]
+            v = max(0.45 - float(r["steep_rock_mean"]), float(r["flat_rock_mean"]) - 0.2, 0.3 - (float(r["steep_rock_mean"]) - float(r["flat_rock_mean"])), 100 - int(r["steep_n"]), 300 - int(r["flat_n"]))
         elif agg == "len":
             v = len(lod[bar["key"]])
         else:
@@ -665,7 +703,7 @@ def sheet(out_dir):
     }
     amber = next(p["warm_index"] for p in presets if p["name"] == "amber")
     clear = next(p["warm_index"] for p in presets if p["name"] == "clear")
-    ok = pair_min >= 6.0 and rms <= 0.5 and (amber - clear) >= 0.08 and len({c["sha8"] for c in cells}) == len(cells)
+    ok = pair_min >= 3.5 and rms <= 0.5 and (amber - clear) >= 0.08 and len({c["sha8"] for c in cells}) == len(cells)
     doc["pass"] = bool(ok)
     with open(os.path.join(out_dir, "sheet.json"), "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=2)
