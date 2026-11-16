@@ -11,15 +11,15 @@ const DIR := "res://game/world/assets/trees/"
 ## Crown colour tint per species, as the material's `tint` (it multiplies the leaf texture and the baked
 ## per-tree colour; raw values as the prototype passes them, so a value above 1 brightens). The frozen
 ## prototype tinted all ten living species hsv(128 + hueDeg, 0.30, 0.92) with hueDeg within 8 degrees: one pale
-## green. Spec 580 widens the palette into colour families: deep green, teal, blue spruce and lime for the
-## common species, gold, orange and a rare red for the rest. The leaf textures are green, so the warm families
-## need a value gain of 3 to 4 to read as warm at all. Entries are [hue in degrees, saturation, value];
-## saturation stays at 0.30 or more.
+## green. The natural palette keeps the species apart with real greens (dark conifers, olive and yellow-green
+## broadleaf, a muted blue-green spruce) and two muted autumn species (faded gold, rust); low saturation and
+## modest value keep every crown within the hues real trees carry. Entries are [hue in degrees, saturation,
+## value]; saturation stays at 0.30 or more.
 const CROWN_TINTS := {
-	"boreal-fir": [150.0, 0.60, 0.80], "young-spire": [175.0, 0.55, 1.20], "broadleaf-lump": [90.0, 0.65, 1.80],
-	"frost-sapling": [200.0, 0.55, 1.40], "scrub-birch": [30.0, 0.85, 4.00], "northwatch-larch": [70.0, 0.80, 2.80],
-	"twin-trunk": [15.0, 0.85, 3.00], "sensor-pine": [358.0, 0.90, 4.00], "tall-pine": [45.0, 0.85, 3.00],
-	"elder-pine": [60.0, 0.41, 0.95],
+	"boreal-fir": [140.0, 0.40, 0.70], "young-spire": [150.0, 0.35, 0.85], "broadleaf-lump": [105.0, 0.35, 1.00],
+	"frost-sapling": [165.0, 0.30, 0.90], "scrub-birch": [45.0, 0.45, 1.60], "northwatch-larch": [75.0, 0.40, 1.10],
+	"twin-trunk": [25.0, 0.40, 1.50], "sensor-pine": [135.0, 0.35, 0.80], "tall-pine": [125.0, 0.30, 0.85],
+	"elder-pine": [130.0, 0.35, 0.75],
 }
 ## Whole-crown sway (makeWindyCrown(..., 0.045)).
 const CROWN_WIND_AMP := 0.045
